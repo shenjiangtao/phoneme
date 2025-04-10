@@ -1,7 +1,7 @@
 /*
  * @(#)net_md.c	1.8 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -42,11 +42,7 @@ static WSADATA WSAData;
 CVMInt32
 CVMnetStartup()
 {
-#ifndef WINCE
-    int err = WSAStartup (MAKEWORD(2,0), &WSAData);  
-#else
     int err = WSAStartup (MAKEWORD(1,1), &WSAData);
-#endif
     return err;
 }
 

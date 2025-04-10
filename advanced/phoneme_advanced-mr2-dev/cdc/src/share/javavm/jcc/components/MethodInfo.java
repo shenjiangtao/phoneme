@@ -1,7 +1,7 @@
 /*
  * @(#)MethodInfo.java	1.51 06/10/22
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -245,12 +245,11 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
 
     // Read in method attributes from classfile
     void
-    readAttributes( DataInput in, ConstantObject constants[], boolean readCode)
+    readAttributes(DataInput in, ConstantPool cp, boolean readCode)
 	throws IOException
     {
-
-	methodAttributes = Attribute.readAttributes(in, constants,
-						    methodAttributeTypes, false);
+	methodAttributes = Attribute.readAttributes(in, cp,
+                                            methodAttributeTypes, false);
 
 	// NOTE: The above reads in the code as well. We might want to
 	// optimize this.
@@ -258,10 +257,10 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
 	//
 	// parse special attributes
 	//
-	if ( methodAttributes != null ){
-	    for ( int i = 0; i < methodAttributes.length; i ++ ){
+	if (methodAttributes != null) {
+	    for (int i = 0; i < methodAttributes.length; i++) {
 		Attribute a = methodAttributes[i];
-		if (a.name.string.equals("Code") ) {
+		if (a.name.string.equals("Code")) {
 		    CodeAttribute ca = (CodeAttribute)a;
 		    this.locals = ca.locals;
 		    this.stack  = ca.stack;
@@ -274,7 +273,6 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
 		}
 	    }
 	}
-
     }
 
     public static MethodInfo
@@ -285,26 +283,31 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
 	MethodInfo m = new MethodInfo( name, sig, access, p );
 	// the bad thing is, we really cannot go far
 	// without resolving. So we resolve here.
-	m.resolve(p.constants);
+
+	ConstantPool cp = p.getConstantPool();
+
+	m.flatten(cp);
 
 	m.argsSize = Util.argsSize(m.type.string);
 	if ((m.access & ACC_STATIC) == 0) {
 	    m.argsSize++;
 	}
 
-	m.readAttributes(in, p.constants, readCode);
+	m.readAttributes(in, cp, readCode);
+
+	ConstantObject[] constants = cp.getConstants();
 
         // Check to make sure this method isn't marked for exclusion
-        if ( excludeList != null && excludeList.size() > 0 ) {
+        if (excludeList != null && excludeList.size() > 0) {
             // See if this method is to be discarded. The vector holds
             // the signature of methods to be excluded parsed into
             // class, method & type portions.
             for (int i = 0 ; i < excludeList.size() ; i++) {
-                String paramlist = p.constants[sig].toString();
+                String paramlist = constants[sig].toString();
                 paramlist = paramlist.substring(0, paramlist.indexOf(')')+1);
                 MemberNameTriple t =
                     (MemberNameTriple)excludeList.elementAt(i);
-                if (t.sameMember(p.className, p.constants[name].toString(),
+                if (t.sameMember(p.className, constants[name].toString(),
                                  paramlist)) {
                     excludeList.remove(i);
                     return (MethodInfo)null;
@@ -499,12 +502,13 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
 
 
     public void
-    countConstantReferences( ConstantObject table[], boolean isRelocatable ){
+    countConstantReferences(ConstantPool cp, boolean isRelocatable) {
+	ConstantObject table[] = cp.getConstants();
 	super.countConstantReferences(isRelocatable);
-	Attribute.countConstantReferences( methodAttributes, isRelocatable );
-	Attribute.countConstantReferences( codeAttributes, isRelocatable );
-	if ( code == null ) return; // no code, no relocation
-	if (ldcInstructions == null){
+	Attribute.countConstantReferences(methodAttributes, isRelocatable);
+        Attribute.countConstantReferences(codeAttributes, isRelocatable);
+	if (code == null) return; // no code, no relocation
+	if (ldcInstructions == null) {
 	    findConstantReferences();
 	}
 	{
@@ -660,6 +664,7 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
 	    if (c instanceof StringConstant) return;
 	    if (c instanceof SingleValueConstant) return;
 	    if (c instanceof DoubleValueConstant) return;
+	    if (c instanceof ClassConstant) return;
 	    expected = "Directly loadable constant";
 	    break foundBad;
 	case CP_STRING:
@@ -1266,11 +1271,13 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
     // Case 2: smash code
     // ldc_w_quick has index which is less than 255. Change to use
     // ldc_w.
-    public void relocateAndPackCode (ConstantObject co[],
+    public void relocateAndPackCode (ConstantPool cp,
 				     boolean noCodeCompaction) {
 
         if (code == null)
             return;
+
+	ConstantObject[] co = cp.getConstants();
 
         int opcode, adjustment = 0;
         int newOffsets[] = new int[code.length];
@@ -1529,6 +1536,7 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
 	      case opc_invokevirtual:
 	      case opc_invokestatic:
 	      case opc_invokespecial:  
+	      case opc_anewarray:
 	      case opc_anewarray_quick:
 	      case opc_checkcast_quick:
 	      case opc_agetstatic_quick:
@@ -1716,7 +1724,7 @@ class MethodInfo extends ClassMemberInfo implements Const, Cloneable
                             cname = "[L"+ cname +";";
 			}
                     }
-                    vm.ArrayClassInfo.collectArrayClass(cname, false);
+                    vm.ArrayClassInfo.collectArrayClass(cname, ClassTable.getClassLoader(), false);
                 }
                 
 	    default: 

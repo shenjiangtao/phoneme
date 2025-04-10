@@ -1,7 +1,7 @@
 /*
  * @(#)executejava_split2.c	1.77 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,7 +29,7 @@
 #include "javavm/include/objects.h"
 #include "javavm/include/directmem.h"
 #include "javavm/include/indirectmem.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #include "javavm/include/interpreter.h"
 #include "javavm/include/classes.h"
 #include "javavm/include/stacks.h"
@@ -369,7 +369,7 @@ CVMdumpStats()
 	DECACHE_PC(frame);						\
 	DECACHE_TOS(frame);						\
 	CVMD_gcSafeExec(ee, {						\
-	    CVMjvmtiNotifyDebuggerOfSingleStep(ee, pc);			\
+	    CVMjvmtiPostSingleStepEvent(ee, pc);			\
 	});								\
 	/* Refetch opcode. See above. */				\
 	opcodeVar = *pc;						\
@@ -382,7 +382,7 @@ CVMdumpStats()
 	DECACHE_PC(frame);						\
 	DECACHE_TOS(frame);						\
 	CVMD_gcSafeExec(ee, {						\
-	    CVMjvmtiNotifyDebuggerOfFieldAccess(ee, location, fb);	\
+		CVMjvmtiPostFieldAccessEvent(ee, location, fb);		\
 	});								\
     }
 
@@ -404,8 +404,7 @@ CVMdumpStats()
 	   val.i = STACK_INT(-1);					      \
        }								      \
        CVMD_gcSafeExec(ee, {						      \
-	   CVMjvmtiNotifyDebuggerOfFieldModification(			      \
-	       ee, location, fb, val);					      \
+	       CVMjvmtiPostFieldModificationEvent(ee, location, fb, val);     \
        });								      \
    }
 
@@ -2351,13 +2350,11 @@ return_to_compiled:
 #ifdef CVM_JVMTI
 	    /* %comment kbr001 */
 	    /* Decache all curently uncached interpreter state */
-	    if (CVMjvmtiThreadEventsEnabled(ee)) {
-		DECACHE_PC(frame);
-		DECACHE_TOS(frame);
-		CVMD_gcSafeExec(ee, {
-		    CVMjvmtiNotifyDebuggerOfFramePush(ee);
+	    DECACHE_PC(frame);
+	    DECACHE_TOS(frame);
+	    CVMD_gcSafeExec(ee, {
+		    CVMjvmtiPostFramePushEvent(ee);
 		});
-	    }
 #endif
 
 	    /*

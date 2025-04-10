@@ -1,7 +1,7 @@
 /*
  * @(#)SeedGenerator.java	1.32 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -352,6 +352,11 @@ abstract class SeedGenerator {
 		    }
 		}
 	    } catch (Exception e) {
+		if (e instanceof InterruptedException &&
+		    sun.misc.ThreadRegistry.exitRequested())
+		{
+		    return;
+		}
 		throw new InternalError("internal error: " +
 					"SeedGenerator thread generated an exception.");
 	    }

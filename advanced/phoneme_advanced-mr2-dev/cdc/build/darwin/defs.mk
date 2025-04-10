@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -49,11 +49,11 @@ CVM_SRCDIRS   += \
         $(CVM_TARGETROOT)/native/java/util \
 
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src \
-	-I$(CVM_TARGETROOT) \
-	-I$(CVM_TARGETROOT)/native/java/net \
-	-I$(CVM_TARGETROOT)/native/common \
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src \
+	$(CVM_TARGETROOT) \
+	$(CVM_TARGETROOT)/native/java/net \
+	$(CVM_TARGETROOT)/native/common \
 
 #
 # Platform specific objects

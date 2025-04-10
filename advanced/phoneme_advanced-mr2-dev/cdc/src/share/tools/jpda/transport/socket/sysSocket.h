@@ -1,7 +1,7 @@
 /*
  * @(#)sysSocket.h	1.12 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -27,7 +27,6 @@
 #ifndef _JAVASOFT_WIN32_SOCKET_MD_H
 
 #include <jni.h>
-#include <sys/types.h>
 #include "sys.h"
 #include "socket_md.h"
 
@@ -72,6 +71,8 @@ int dbgsysConfigureBlocking(int fd, jboolean blocking);
 int dbgsysPoll(int fd, jboolean rd, jboolean wr, long timeout);
 int dbgsysGetLastIOError(char *buf, jint size);
 long dbgsysCurrentTimeMillis();
+
+int dbgsysInit(JavaVM *jvm);
 
 /*
  * TLS support

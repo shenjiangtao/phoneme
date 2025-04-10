@@ -1,7 +1,7 @@
 /*
  * @(#)jvmtiCapabilities.h	1.2 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -25,15 +25,24 @@
  *
  */
 
-void initialize_capabilities();
-void get_potential_capabilities(const jvmtiCapabilities *current, 
+#ifndef _INCLUDED_JVMTICAPABILITIES_H
+#define _INCLUDED_JVMTICAPABILITIES_H
+
+void CVMjvmtiInitializeCapabilities();
+void CVMjvmtiDestroyCapabilities();
+#define CVMjvmtiDestroyCapabilities() /* Nothing to do. */
+
+void CVMjvmtiGetPotentialCapabilities(const jvmtiCapabilities *current, 
                                 const jvmtiCapabilities *prohibited, 
                                 jvmtiCapabilities *result);
-jvmtiError add_capabilities(const jvmtiCapabilities *current,
+jvmtiError CVMjvmtiAddCapabilities(const jvmtiCapabilities *current,
                             const jvmtiCapabilities *prohibited, 
                             const jvmtiCapabilities *desired, 
                             jvmtiCapabilities *result);
-void relinquish_capabilities(const jvmtiCapabilities *current,
+void CVMjvmtiRelinquishCapabilities(const jvmtiCapabilities *current,
                              const jvmtiCapabilities *unwanted, 
                              jvmtiCapabilities *result);
-void copy_capabilities(const jvmtiCapabilities *from, jvmtiCapabilities *to);
+void CVMjvmtiCopyCapabilities(const jvmtiCapabilities *from,
+			      jvmtiCapabilities *to);
+
+#endif /* _INCLUDED_JVMTICAPABILITIES_H */

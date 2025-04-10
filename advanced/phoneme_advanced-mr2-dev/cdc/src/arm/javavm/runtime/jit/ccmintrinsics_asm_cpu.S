@@ -1,27 +1,28 @@
 /*
  * @(#)ccmintrinsics_asm_cpu.S	1.16 06/10/29
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -62,7 +63,7 @@
 /*
  * Entry point for intrinsic implementation of Object.hashCode().
  */
-	ENTRY ( CVMCCMARMintrinsic_java_lang_System_identityHashCodeGlue )
+	ENTRY(CVMCCMARMintrinsic_java_lang_System_identityHashCodeGlue)
 ENTRY1 ( CVMCCMARMintrinsic_java_lang_System_identityHashCodeGlue )
         /* Get the object from the argument: */
         ldr     OBJ, [JSP, #-4]
@@ -78,7 +79,7 @@ ENTRY1 ( CVMCCMARMintrinsic_java_lang_System_identityHashCodeGlue )
 /*
  * Entry point for intrinsic implementation of Object.hashCode().
  */
-	ENTRY ( CVMCCMARMintrinsic_java_lang_Object_hashCodeGlue )
+	ENTRY(CVMCCMARMintrinsic_java_lang_Object_hashCodeGlue)
 ENTRY1 ( CVMCCMARMintrinsic_java_lang_Object_hashCodeGlue )
         /* r4 = v1 = jfp 
          * r5 = v2 = jsp 
@@ -110,15 +111,26 @@ LABEL(_objectHashCodeStart)
         /* Get &microlock from wmmx register */
         textrmuw MICROLOCK, W_MICROLOCK, #0
 #else
-        ldr     MICROLOCK, =CVMobjGlobalMicroLockPtr
+        ldr     MICROLOCK, SYMBOL(CVMobjGlobalMicroLockPtr)
         ldr     MICROLOCK, [MICROLOCK]
 #endif
 
         /* Acquire the microlock: */
         mov     r3, #CVM_MICROLOCK_LOCKED   /* Swap CVM_MICROLOCK_LOCKED into */
+#ifndef CVM_MP_SAFE
         swp     r3, r3, [MICROLOCK]         /*    the lockWord. */
         cmp     r3, #CVM_MICROLOCK_UNLOCKED /* See if we succeeded. */
         bne     _objectHashCodeSlowAcquireMicrolock    /* Branch if failed. */
+#else
+LABEL(_objectHashCodeAcquireMicrolockMPSafe)
+	ldrex	r12, [MICROLOCK]
+	cmp	r12, #CVM_MICROLOCK_UNLOCKED /* already locked? */
+	bne	_objectHashCodeSlowAcquireMicrolock
+	strex	r12, r3, [MICROLOCK]         /* try lock */
+	cmp	r12, #0                      /* strex succeed? */
+	bne	_objectHashCodeAcquireMicrolockMPSafe
+	mcr	p15, 0, r12, c7, c10, 5 /* memory barrier. r12 has 0. */
+#endif
 
         /* The microlock has been acquired: */
 LABEL(_objectHashCodeHasAcquiredMicrolock)
@@ -144,6 +156,10 @@ LABEL(_objectHashCodeGetObitsFromLockRecord)
         ldr     OBITS, [OBITS, #OFFSET_CVMOwnedMonitor_u_fast_bits]
 
 LABEL(_objectHashCodeUnlockMicrolockAndTryFast)
+#ifdef CVM_MP_SAFE
+	mov	r3, #0
+	mcr	p15, 0, r3, c7, c10, 5       /* memory barrier. */
+#endif
         mov     r3, #CVM_MICROLOCK_UNLOCKED
         str     r3, [MICROLOCK]
 
@@ -177,6 +193,7 @@ LABEL(_objectHashCodeSlowAcquireMicrolock)
         str     MICROLOCK, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+0]
         str     OBJ, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+4]
         str     lr, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+8]
+        mov     r0, MICROLOCK
         CALL_VM_FUNCTION(CVMmicrolockLockImpl)
         ldr     MICROLOCK, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+0]
         ldr     OBJ, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+4]
@@ -216,7 +233,7 @@ LABEL(_objectHashCodeSlowRoute)
 /*
  * Entry point for intrinsic implementation of String.hashCode().
  */
-	ENTRY ( CVMCCMARMintrinsic_java_lang_String_hashCodeGlue )
+	ENTRY(CVMCCMARMintrinsic_java_lang_String_hashCodeGlue)
 ENTRY1 ( CVMCCMARMintrinsic_java_lang_String_hashCodeGlue )
         /* r0 = a1 = (java.lang.String)thisString 
          * r4 = v1 = jfp 
@@ -289,7 +306,7 @@ LABEL(String_hashCode_done)
 /*
  * Entry point for intrinsic implementation of Object.hashCode().
  */
- ENTRY ( CVMCCMARMintrinsic_java_lang_Object_hashCodeGlue )
+ ENTRY(CVMCCMARMintrinsic_java_lang_Object_hashCodeGlue)
         ; r4 = v1 = jfp
         ; r5 = v2 = jsp
         ; sp = ccee
@@ -319,7 +336,7 @@ LABEL(String_hashCode_done)
 
         ; Get the address of the object microlock:
         IMPORT CVMobjGlobalMicroLockPtr
-        ldr     MICROLOCK, =CVMobjGlobalMicroLockPtr
+        ldr     MICROLOCK, SYMBOL(CVMobjGlobalMicroLockPtr)
         ldr     MICROLOCK, [MICROLOCK]
 
         /* Acquire the microlock: */
@@ -384,6 +401,7 @@ _objectHashCodeSlowAcquireMicrolock
         str     MICROLOCK, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+0]
         str     OBJ, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+4]
         str     lr, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+8]
+        mov     r0, MICROLOCK
         CALL_VM_FUNCTION(CVMmicrolockLockImpl)
         ldr     MICROLOCK, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+0]
         ldr     OBJ, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+4]
@@ -425,7 +443,7 @@ _objectHashCodeSlowRoute
 /*
  * Entry point for intrinsic implementation of String.hashCode().
  */
- ENTRY ( CVMCCMARMintrinsic_java_lang_String_hashCodeGlue )
+ ENTRY(CVMCCMARMintrinsic_java_lang_String_hashCodeGlue)
         ; r0 = a1 = (java.lang.String)thisString
         ; r4 = v1 = jfp
         ; r5 = v2 = jsp
@@ -501,7 +519,7 @@ String_hashCode_done
  */
 /* IAI-05 */
 #ifdef IAI_IMPLEMENT_INDEXOF_IN_ASSEMBLY
-	ENTRY ( CVMCCMintrinsic_java_lang_String_indexOf_II )
+	ENTRY(CVMCCMintrinsic_java_lang_String_indexOf_II)
 ENTRY1 ( CVMCCMintrinsic_java_lang_String_indexOf_II )
         /*Arguments: 
          *    r0 = this object
@@ -554,7 +572,7 @@ LABEL(L1)
 /* 
  * Intrinsic version of String.indexOf(int ch)
  */
-	ENTRY ( CVMCCMintrinsic_java_lang_String_indexOf_I )
+	ENTRY(CVMCCMintrinsic_java_lang_String_indexOf_I)
 ENTRY1 ( CVMCCMintrinsic_java_lang_String_indexOf_I )
         /*Arguments: 
          *    r0 = this object 
@@ -601,7 +619,7 @@ LABEL(L2)
 /* 
  * Intrinsic version of sun.misc.CVM.copyCharArray(...)
  */
-	ENTRY ( CVMCCMintrinsic_sun_misc_CVM_copyCharArray )
+	ENTRY(CVMCCMintrinsic_sun_misc_CVM_copyCharArray)
 ENTRY1 ( CVMCCMintrinsic_sun_misc_CVM_copyCharArray )
         /*Arguments: 
          *    r0 = srcArr 
@@ -615,7 +633,7 @@ ENTRY1 ( CVMCCMintrinsic_sun_misc_CVM_copyCharArray )
 	add	r1, r0, #OFFSET_ARRAY_ELEMENTS /* r1 = src+(2*sIdx) + ofst */
 	add	r0, r2, #OFFSET_ARRAY_ELEMENTS /* r0 = dst+(2*dIdx) + ofst */
 	mov	r2, r6, LSL #1	    /* r2 = (length * 2) */
-	b	CVMARMmemmove16Bit
+	b	SYM_NAME(CVMARMmemmove16BitLocal)
 	SET_SIZE( CVMCCMintrinsic_sun_misc_CVM_copyCharArray )
 
 
@@ -628,7 +646,7 @@ ENTRY1 ( CVMCCMintrinsic_sun_misc_CVM_copyCharArray )
 	IMPORT CVMgcCardTableVirtualBasePtr
 #endif
 
-	ENTRY ( CVMCCMintrinsic_sun_misc_CVM_copyObjectArray )
+	ENTRY(CVMCCMintrinsic_sun_misc_CVM_copyObjectArray)
 ENTRY1 ( CVMCCMintrinsic_sun_misc_CVM_copyObjectArray )
         /*Arguments: 
          *    r0 = srcArr 
@@ -641,7 +659,7 @@ ENTRY1 ( CVMCCMintrinsic_sun_misc_CVM_copyObjectArray )
 #define CARDSTART	ip
 #define CARDEND		r3
 
-	ldr	CARDSTART, =CVMgcCardTableVirtualBasePtr
+	ldr	CARDSTART, SYMBOL(CVMgcCardTableVirtualBasePtr)
 
 	/* Now do the copying.  NOTE: dstAddr is already in r3. */
 	add	r0, r0, r1, LSL #2  /* r0 = src + (4 * sIdx) */
@@ -661,7 +679,7 @@ ENTRY1 ( CVMCCMintrinsic_sun_misc_CVM_copyObjectArray )
 	add	CARDEND, CARDSTART, CARDEND, LSR #CONSTANT_CVM_GENGC_CARD_SHIFT
 	add	CARDSTART, CARDSTART, r0, LSR #CONSTANT_CVM_GENGC_CARD_SHIFT
 
-	mov	r6, #CONSTANT_CARD_DIRTY_BYTE	/* CARD_DIRTY_BYTE is 0 */
+	mov	r6, #CONSTANT_CARD_DIRTY_BYTE	/* CARD_DIRTY_BYTE is 1 */
 LABEL(copyObjectArray_markCard)
 	strb	r6, [CARDSTART], #1
 	cmp	CARDSTART, CARDEND
@@ -670,7 +688,7 @@ LABEL(copyObjectArray_markCard)
 #undef CARDSTART
 #undef CARDEND
 
-	b	CVMARMmemmove32Bit
+	b	SYM_NAME(CVMARMmemmove32BitLocal)
 
 	SET_SIZE ( CVMCCMintrinsic_sun_misc_CVM_copyObjectArray )
 
@@ -691,9 +709,10 @@ LABEL(copyObjectArray_markCard)
 #define SRCCB	ip
 #define DSTCB	r0
 #define	TYPE	r0
+#undef  TEMP
 #define TEMP	ip
 
-	ENTRY ( CVMCCMintrinsic_java_lang_System_arraycopyGlue )
+	ENTRY(CVMCCMintrinsic_java_lang_System_arraycopyGlue)
 ENTRY1 ( CVMCCMintrinsic_java_lang_System_arraycopyGlue )
         /*Arguments: 
 	 *    r0 = ccee
@@ -792,7 +811,7 @@ LABEL(arraycopy8bit)
 	mov	r2, LENGTH			/* length */
 	add	r3, DST, DSTIDX
 	add	r0, r3, #OFFSET_ARRAY_ELEMENTS	/* dstAddr */
-	b	CVMARMmemmove8Bit
+	b	SYM_NAME(CVMARMmemmove8BitLocal)
 
 LABEL(arraycopy16bit)
 	add	r1, SRC, SRCIDX, LSL #1
@@ -800,7 +819,7 @@ LABEL(arraycopy16bit)
 	mov	r2, LENGTH, LSL #1		/* length */
 	add	r3, DST, DSTIDX, LSL #1
 	add	r0, r3, #OFFSET_ARRAY_ELEMENTS	/* dstAddr */
-	b	CVMARMmemmove16Bit
+	b	SYM_NAME(CVMARMmemmove16BitLocal)
 
 LABEL(arraycopy32bit)
 	add	r1, SRC, SRCIDX, LSL #2
@@ -808,7 +827,7 @@ LABEL(arraycopy32bit)
 	mov	r2, LENGTH, LSL #2		/* length */
 	add	r3, DST, DSTIDX, LSL #2
 	add	r0, r3, #OFFSET_ARRAY_ELEMENTS	/* dstAddr */
-	b	CVMARMmemmove32Bit
+	b	SYM_NAME(CVMARMmemmove32BitLocal)
 
 LABEL(arraycopy64bit)
 	add	r1, SRC, SRCIDX, LSL #3
@@ -816,7 +835,7 @@ LABEL(arraycopy64bit)
 	mov	r2, LENGTH, LSL #3		/* length */
 	add	r3, DST, DSTIDX, LSL #3
 	add	r0, r3, #OFFSET_ARRAY_ELEMENTS	/* dstAddr */
-	b	CVMARMmemmove32Bit
+	b	SYM_NAME(CVMARMmemmove32BitLocal)
 
 LABEL(arraycopyObject)
 #if (CVM_GCCHOICE == CVM_GC_GENERATIONAL) && !defined(CVM_SEGMENTED_HEAP)
@@ -827,7 +846,7 @@ LABEL(arraycopyObject)
 	/* Compute arguments for CVMARMmemmove32Bit:
 	   dst(r0), src(r1), length(r2)
 	*/
-	ldr	CARDSTART, =CVMgcCardTableVirtualBasePtr
+	ldr	CARDSTART, SYMBOL(CVMgcCardTableVirtualBasePtr)
 	add	r0, SRC, SRCIDX, LSL #2	/* r0 = src + (4 * sIdx) */
 	add	r2, DST, DSTIDX, LSL #2 /* r2 = dst + (4 * dIdx) */
 	ldr	CARDSTART, [CARDSTART]
@@ -845,7 +864,7 @@ LABEL(arraycopyObject)
 	add	CARDEND, CARDSTART, CARDEND, LSR #CONSTANT_CVM_GENGC_CARD_SHIFT
 	add	CARDSTART, CARDSTART, r0, LSR #CONSTANT_CVM_GENGC_CARD_SHIFT
 
-	mov	r7, #CONSTANT_CARD_DIRTY_BYTE	/* CARD_DIRTY_BYTE is 0 */
+	mov	r7, #CONSTANT_CARD_DIRTY_BYTE	/* CARD_DIRTY_BYTE is 1 */
 LABEL(arraycopyObject_markCard)
 	strb	r7, [CARDSTART], #1
 	cmp	CARDSTART, CARDEND
@@ -855,7 +874,7 @@ LABEL(arraycopyObject_markCard)
 #undef CARDEND
 
 	/* Now do the copying.  NOTE: dstAddr is already in r3. */
-	b	CVMARMmemmove32Bit
+	b	SYM_NAME(CVMARMmemmove32BitLocal)
 
 #else
 
@@ -895,3 +914,5 @@ LABEL(slowArraycopy)
 #endif /* CVM_JIT_CCM_USE_C_HELPER */
 
 #endif /* CVMJIT_INTRINSICS */
+
+        POOL

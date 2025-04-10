@@ -1,7 +1,7 @@
 /*
  * @(#)globals.h	1.16 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -49,7 +49,17 @@ extern void CVMdestroyVMTargetGlobalState();
 /*
  * Initialize any private platform-specific per-address-space static state.
  */
-extern CVMBool CVMinitStaticState();
+typedef struct CVMpathInfo CVMpathInfo;
+
+struct CVMpathInfo {
+    char *basePath;
+    char *libPath;
+    char *dllPath;
+    char *preBootclasspath;
+    char *postBootclasspath;
+};
+
+extern CVMBool CVMinitStaticState(CVMpathInfo *);
 extern void CVMdestroyStaticState();
 
 /*

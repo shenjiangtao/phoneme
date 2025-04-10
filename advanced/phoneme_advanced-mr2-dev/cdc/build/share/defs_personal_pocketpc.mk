@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -27,6 +27,8 @@
 #
 
 AWT_PEERSET_SRC_DIR = $(CVM_SHAREROOT)/personal/native/awt/$(AWT_PEERSET)
+
+PROFILE_SRCDIRS_NATIVE += AWT_PEERSET_SRC_DIR
 
 TOOLKIT_CLASS = sun.awt.pocketpc.PPCToolkit
 GRAPHICS_ENV_CLASS = sun.awt.pocketpc.PPCGraphicsEnvironment
@@ -70,6 +72,7 @@ CLASSLIB_CLASSES += \
 	sun.awt.pocketpc.PPCGraphicsConfiguration \
 	sun.awt.pocketpc.PPCGraphicsDevice \
 	sun.awt.pocketpc.PPCGraphicsEnvironment \
+	sun.awt.pocketpc.PPCRobotHelper \
 	sun.awt.pocketpc.ShutdownHook \
 	sun.awt.image.ByteArrayImageSource \
     sun.awt.image.FileImageSource \
@@ -135,6 +138,8 @@ AWT_LIB_OBJS += \
 	PPCPopupMenuPeer.o \
 	PPCMenuPeer.o \
 	PPCMenuBarPeer.o \
+	PPCRobotHelper.o \
+	PPCKeyboardFocusManager.o \
         PPCFileDialogPeer.o
 
 # Define restrictions for this AWT implementation.

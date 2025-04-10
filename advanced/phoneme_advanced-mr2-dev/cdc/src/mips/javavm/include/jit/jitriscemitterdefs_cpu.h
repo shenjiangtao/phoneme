@@ -1,7 +1,7 @@
 /*
  * @(#)jitriscemitterdefs_cpu.h	1.19 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -124,6 +124,8 @@ enum {
 
     /* 32 bit unary ALU opcodes */
     CVMCPU_NEG_OPCODE,     /* reg32 = -reg32. */
+    CVMCPU_NOT_OPCODE,     /* reg32 = (reg32 == 0)?1:0. */
+    CVMCPU_INT2BIT_OPCODE, /* reg32 = (reg32 != 0)?1:0. */
     
     /* 32 bit shift opcodes */
     CVMCPU_SLL_OPCODE, /* Shift Left Logical */
@@ -138,7 +140,7 @@ enum {
     
     /* 32 bit compare opcodes */
     CVMCPU_CMP_OPCODE, /* cmp reg32, aluRhs32 */
-    CVMCPU_CMN_OPCODE, /* cmp reg32, ~aluRhs32 */
+    CVMCPU_CMN_OPCODE, /* cmp reg32, -aluRhs32 */
     
     /* 64 bit unary ALU opcodes */
     CVMCPU_NEG64_OPCODE,
@@ -272,9 +274,14 @@ struct CVMMIPSCompareContext {
  * CPU C Call convention abstraction - The following are prototypes of calling
  * convention support functions required by the RISC emitter porting layer.
  **************************************************************/
-
-#undef CVMCPU_HAVE_PLATFORM_SPECIFIC_C_CALL_CONVENTION
-
+#if CVMCPU_MAX_ARG_REGS != 8
+typedef struct CVMCPUCallContext CVMCPUCallContext;
+struct CVMCPUCallContext
+{
+    CVMRMResource *reservedRes;
+};
+#define CVMCPU_HAVE_PLATFORM_SPECIFIC_C_CALL_CONVENTION
+#endif
 
 #ifdef CVMJIT_TRAP_BASED_GC_CHECKS
 #define MIPS_LW    (0x23 << 26)

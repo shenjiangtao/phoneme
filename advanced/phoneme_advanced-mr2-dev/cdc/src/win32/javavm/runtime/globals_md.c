@@ -1,7 +1,7 @@
 /*
  * @(#)globals_md.c	1.16 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -25,6 +25,7 @@
  *
  */
 #include "javavm/include/defs.h"
+#include "javavm/include/globals.h"
 #include "javavm/include/porting/globals.h"
 #include "javavm/include/porting/sync.h"
 #include "javavm/include/porting/net.h"
@@ -32,6 +33,8 @@
 #include "javavm/include/porting/ansi/assert.h"
 #include "javavm/include/threads_md.h"
 #include "generated/javavm/include/build_defs.h"
+#include "javavm/include/io_sockets.h"
+#include "javavm/include/path_md.h"
 
 #include <windows.h>
 #include <tchar.h>
@@ -39,7 +42,6 @@
 
 #ifdef CVM_JIT
 #include "javavm/include/porting/jit/jit.h"
-#include "javavm/include/globals.h"
 #endif
 
 #define MAXPATHLEN MAX_PATH
@@ -95,12 +97,13 @@ CVMBool CVMinitVMTargetGlobalState()
 #endif
     }
 #endif
-
+    SIOInit(CVMglobals.target.stdoutPort, CVMglobals.target.stderrPort);
     return CVM_TRUE;
 }
 
 void CVMdestroyVMTargetGlobalState()
 {
+    SIOStop();
     /*
      * ... and destroy it.
      */
@@ -114,7 +117,7 @@ void CVMdestroyVMTargetGlobalState()
 
 static CVMProperties props;
 
-CVMBool CVMinitStaticState()
+CVMBool CVMinitStaticState(CVMpathInfo *pathInfo)
 {
 #if !defined(CVM_MP_SAFE) && !defined(WINCE)
     /* If we don't have MP-safe support built in, then make sure
@@ -170,7 +173,7 @@ CVMBool CVMinitStaticState()
 	TCHAR path[MAX_PATH + 1];
 	char buf[2 * MAX_PATH + 1];
 	TCHAR *p0, *p1;
-	char *p2, *p;
+	char *p2, *p, *pEnd;
 
 	GetModuleFileName(0, path, sizeof path);
 
@@ -187,7 +190,30 @@ CVMBool CVMinitStaticState()
 	p1[0] = _T('\0');
 
 	wcstombs(buf, path, MAX_PATH);
-        return(CVMinitPathValues( &props, buf, "lib", "bin" ));
+        p2 = buf;
+        pathInfo->basePath = strdup(p2);
+        if (pathInfo->basePath == NULL) {
+            return CVM_FALSE;
+        }
+        p = (char *)malloc(strlen(p2) + 1 + strlen("lib") + 1);
+        if (p == NULL) {
+            return CVM_FALSE;
+        }
+        strcpy(p, p2);
+        pEnd = p + strlen(p);
+        *pEnd++ = CVM_PATH_LOCAL_DIR_SEPARATOR;
+        strcpy(pEnd, "lib");
+        pathInfo->libPath = p;
+        p = (char *)malloc(strlen(p2) + 1 + strlen("bin") + 1);
+        if (p == NULL) {
+            return CVM_FALSE;
+        }
+        strcpy(p, p2);
+        pEnd = p + strlen(p);
+        *pEnd++ = CVM_PATH_LOCAL_DIR_SEPARATOR;
+        strcpy(pEnd, "bin");
+        pathInfo->dllPath = p;
+        return CVM_TRUE;
     }
 }
 
@@ -205,3 +231,4 @@ const CVMProperties *CVMgetProperties()
 {
     return &props;
 }
+

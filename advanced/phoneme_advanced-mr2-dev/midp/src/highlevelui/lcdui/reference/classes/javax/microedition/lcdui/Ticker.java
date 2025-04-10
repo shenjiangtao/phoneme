@@ -1,27 +1,27 @@
 /*
  *   
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 package javax.microedition.lcdui;
@@ -81,7 +81,6 @@ public class Ticker {
 
         synchronized (Display.LCDUILock) {
 	    message = str;
-	    displayedMessage = str.trim().replace('\n', ' ');
 	    tickerLF = LFFactory.getFactory().getTickerLF(this);
         }
     }
@@ -107,14 +106,7 @@ public class Ticker {
 	    // Save the original unmodified message so that getString() 
 	    // returns that.
 	    message = str;
-
-	    // According to the spec, linebreak characters should 
-	    // not be displayed in the ticker and could be used as 
-	    // separators. We will use a single white space as the
-	    // separator.
-
-	    displayedMessage = str.trim().replace('\n', ' ');
-	    tickerLF.lSetString(displayedMessage);
+        tickerLF.lSetString(message);
         }
     }
 
@@ -131,13 +123,6 @@ public class Ticker {
     /** The message set in this Ticker */
     private String message;
     
-    /** 
-     * The message being displayed in this Ticker. #getString() will
-     * only return what is stored in "message" and not in "displayedMessage",
-     * which is only used for display purposes.
-     */
-    String displayedMessage;
-
     /** Look and Feel corresponding to this Ticker */
     TickerLF tickerLF;
 }

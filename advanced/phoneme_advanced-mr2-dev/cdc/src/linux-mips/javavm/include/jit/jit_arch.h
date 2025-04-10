@@ -1,7 +1,7 @@
 /*
  * @(#)jit_arch.h	1.15 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -38,6 +38,7 @@
 #define CVMJIT_TRAP_BASED_GC_CHECKS
 #endif
 #define CVMJIT_TRAP_BASED_NULL_CHECKS
+#define  CVMAOT_USE_FIXED_ADDRESS
 
 #include "javavm/include/jit/jit_cpu.h"
 #include "javavm/include/jit/jitasmconstants_cpu.h"

@@ -1,7 +1,5 @@
 /*
- * @(#)gc_common.h	1.78 06/10/10
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -47,6 +45,18 @@
 /*
  * The default min and max sizes of the heap
  */
+#ifdef JAVASE
+#ifndef CVM_DEFAULT_MAX_HEAP_SIZE_IN_BYTES
+#define CVM_DEFAULT_MAX_HEAP_SIZE_IN_BYTES (32 * 1024 * 1024)
+#endif
+#ifndef CVM_DEFAULT_MIN_HEAP_SIZE_IN_BYTES
+#define CVM_DEFAULT_MIN_HEAP_SIZE_IN_BYTES (4 * 1024 * 1024)
+#endif
+#ifndef CVM_DEFAULT_START_HEAP_SIZE_IN_BYTES
+#define CVM_DEFAULT_START_HEAP_SIZE_IN_BYTES (4 * 1024 * 1024)
+#endif
+#endif
+
 #ifndef CVM_DEFAULT_MAX_HEAP_SIZE_IN_BYTES
 #define CVM_DEFAULT_MAX_HEAP_SIZE_IN_BYTES (5 * 1024 * 1024)
 #endif
@@ -96,12 +106,12 @@ struct CVMGCCommonGlobalState {
 struct CVMGCOptions {
     CVMBool isUpdatingObjectPointers;
     CVMBool discoverWeakReferences;
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
     CVMBool isProfilingPass;
 #endif
 };
 
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
 
 /* CVM_GC_ARENA_UNKNOWN is reserved for error conditions where the arenaID
    of an object is unknown.  A valid arenaID should never have the same value
@@ -179,13 +189,13 @@ void CVMgcLockerLock(CVMGCLocker *self, CVMExecEnv *current_ee);
 /* NOTE: Calls to CVMgcLockerLock() & CVMgcLockerUnlock() can be nested. */
 void CVMgcLockerUnlock(CVMGCLocker *self, CVMExecEnv *current_ee);
 
+#endif
+
 /*===========================================================================*/
 
 /* Purpose: Checks to see if the specified thread is running the GC. */
 #define CVMgcIsGCThread(/* CVMExecEnv * */ ee) \
     (CVM_CSTATE(CVM_GC_SAFE)->requester == ee)
-
-#endif
 
 #ifdef CVM_MTASK
 extern CVMBool
@@ -285,7 +295,7 @@ CVMgcTotalMemory(CVMExecEnv* ee);
 #define CVMscanClassIfNeeded(ee, cb, callback, data)			    \
     CVMscanClassIfNeededConditional(ee, cb, CVM_TRUE, callback, data)
 
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
 #define CVMscanClassWithGCOptsIfNeeded(ee_, cb_, gcOpts_, callback_, data_) \
     if (!CVMcbIsInROM(cb_) && !CVMcbGcScanned(cb_)) {                       \
         CVMGCProfilingInfo info_;                                           \
@@ -495,7 +505,6 @@ CVMgcTotalMemory(CVMExecEnv* ee);
 extern CVMBool
 CVMgcStopTheWorldAndGC(CVMExecEnv* ee, CVMUint32 numBytes);
 
-#ifdef CVM_INSPECTOR
 /* Purpose: Synchronizes all threads on a consistent state in preparation
    for a GC or similar cycles. */
 extern CVMBool
@@ -507,7 +516,6 @@ CVMgcStopTheWorldAndDoAction(CVMExecEnv *ee, void *data,
                                             CVMUint32 preActionStatus),
 		 void (*retryAfterActionCallback)(CVMExecEnv *ee, void *data),
 		 void* retryData);
-#endif
 
 /*
  * Start a GC cycle. Will clear class marks if necessary.
@@ -532,6 +540,12 @@ CVMgcEndGC(CVMExecEnv* ee);
  */
 extern void
 CVMgcRunGC(CVMExecEnv* ee);
+
+/*
+ * Like above, but only trys to free 1 byte.
+ */
+extern void
+CVMgcRunGCMin(CVMExecEnv* ee);
 
 /*
  * The null CVMFrameGCScannerFunc that doesn't do anything
@@ -621,13 +635,11 @@ CVMgcEnsureStackmapsForRootScans(CVMExecEnv *ee);
 extern CVMBool 
 CVMgcDestroyHeap();
 
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
 /* Purpose: Scans objects in the specified memory range and invoke the callback
             function on each object. */
 extern CVMBool
 CVMgcScanObjectRange(CVMExecEnv* ee, CVMUint32* base, CVMUint32* top,
                      CVMObjectCallbackFunc callback, void* callbackData);
-#endif
 
 #ifdef CVM_JVMPI
 /* Purpose: Posts the JVMPI_EVENT_ARENA_NEW events. */
@@ -646,5 +658,14 @@ extern CVMUint32 CVMgcGetArenaID(CVMObject *obj);
 
 #endif
 
+
+#define CVMgcIsInSafeAllState() \
+    (CVM_CSTATE(CVM_GC_SAFE)->reached)
+
+
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+/* Dumps info about the configuration of the GC. */
+#define CVMgcDumpSysInfo() CVMgcimplDumpSysInfo()
+#endif
 
 #endif /* _INCLUDED_GC_COMMON_H */

@@ -1,7 +1,7 @@
 /*
  * @(#)asmmacros_cpu.h	1.6 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -34,6 +34,18 @@
 
 #include "javavm/include/asmmacros_arch.h"
 
+#ifndef SYM_NAME
+#define SYM_NAME(x) x
+#endif
+
+#ifndef SYMBOL
+#define SYMBOL(x) =x
+#endif
+
+#ifndef CONSTANT
+#define CONSTANT(x) =x
+#endif
+
 /*
  * Note the old-fashioned use of an empty comment
  * to do token pasting. This is necessary because
@@ -63,6 +75,10 @@
 #endif
 #define BR_REG(regno)			\
 	BRCOND_REG(regno,al)
+#endif
+
+#ifdef CVM_MP_SAFE
+#define swp "Can't use swp when CVM_MP_SAFE=true"
 #endif
 
 #endif /* _INCLUDED_ASMMACROS_CPU_H */

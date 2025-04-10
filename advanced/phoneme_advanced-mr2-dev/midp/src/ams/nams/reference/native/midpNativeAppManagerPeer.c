@@ -1,24 +1,24 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
@@ -44,6 +44,9 @@
 #include <midpError.h>
 #include <midpUtilKni.h>
 #include <midp_runtime_info.h>
+#include <heap.h>
+
+#include <commandLineUtil_md.h>
 
 /** The name of the native application manager peer internal class. */
 #define APP_MANAGER_PEER "com.sun.midp.main.NativeAppManagerPeer"
@@ -85,15 +88,67 @@ nams_listeners_notify(NamsListenerType listenerType,
  * @return error code: (ALL_OK if successful)
  */
 MIDPError midp_system_initialize(void) {
+    char *pAppDir, *pConfDir;
+
     JVM_Initialize();
 
-    /*
-     * Set Java heap capacity now so it can been overridden from command
-     * line.
-     */
-    JVM_SetConfig(JVM_CONFIG_HEAP_CAPACITY, MIDP_HEAP_REQUIREMENT);
+    /* set Java heap parameters now so they can been overridden from command line */
+    setHeapParameters();
+
+    /* set up appDir before calling midp_system_start */
+    pAppDir = getApplicationDir(NULL);
+    if (pAppDir == NULL) {
+        return GENERAL_ERROR;
+    }
+
+    midpSetAppDir(pAppDir);
+
+    /* get midp configuration directory, set it */
+    pConfDir = getConfigurationDir(NULL);
+    if (pConfDir == NULL) {
+        return GENERAL_ERROR;
+    }
+
+    midpSetConfigDir(pConfDir);
+
+    if (midpInitialize() != 0) {
+        return GENERAL_ERROR;
+    }
 
     return init_listeners_impl();
+}
+
+/**
+ * Clean up the system. Notifies the listeners that the Java system was stopped.
+ *
+ * @param status current Java system status
+ *
+ * @return ALL_OK if it was a normal system shutdown, an error code otherwise
+ */
+static MIDPError system_cleanup(int status) {
+    NamsEventData eventData;
+    MIDPError errCode;
+
+    memset((char*)&eventData, 0, sizeof(NamsEventData));
+
+    eventData.event = MIDP_NAMS_EVENT_STATE_CHANGED;
+    eventData.state = MIDP_SYSTEM_STATE_STOPPED;
+
+    nams_listeners_notify(SYSTEM_EVENT_LISTENER, &eventData);
+
+    switch (status) {
+        case MIDP_SHUTDOWN_STATUS: {
+            errCode = ALL_OK;
+            break;
+        }
+
+        default: {
+            errCode = GENERAL_ERROR;
+            break;
+        }
+    }
+
+    return errCode;
 }
 
 /**
@@ -105,26 +160,13 @@ MIDPError midp_system_initialize(void) {
 MIDPError midp_system_start(void) {
     int vmStatus;
     MIDPError errCode;
-    NamsEventData eventData;
-
-    memset((char*)&eventData, 0, sizeof(NamsEventData));
 
     vmStatus = midpRunMainClass(NULL, APP_MANAGER_PEER, 0, NULL);
 
-    eventData.event  = MIDP_NAMS_EVENT_STATE_CHANGED;
-    eventData.state = MIDP_SYSTEM_STATE_STOPPED;
-    nams_listeners_notify(SYSTEM_EVENT_LISTENER, &eventData);
-
-    switch (vmStatus) {
-        case MIDP_SHUTDOWN_STATUS: {
-            errCode = ALL_OK;
-            break;
-        }
-
-        default: {
-            errCode = GENERAL_ERROR;
-            break;
-        }
+    if (MIDP_RUNNING_STATUS != vmStatus) {
+        errCode = system_cleanup(vmStatus);
+    } else {
+        errCode = ALL_OK;
     }
 
     return errCode;
@@ -223,16 +265,17 @@ MIDPError midp_midlet_create_start_with_args(SuiteIdType suiteId,
         jint argsNum, jint appId, const MidletRuntimeInfo* pRuntimeInfo) {
     MidpEvent evt;
     pcsl_string temp;
+    int i;
     /*
      * evt.stringParam1 is a midlet class name,
      * evt.stringParam2 is a display name,
      * evt.stringParam3-5 - the arguments
      * evt.stringParam6 - profile name
      */
-    pcsl_string* params[] = {
-        &evt.stringParam3, &evt.stringParam4, &evt.stringParam5
-    };
-    int i;
+    pcsl_string* params[3];
+    params[0] = &evt.stringParam3;
+    params[1] = &evt.stringParam4;
+    params[2] = &evt.stringParam5;
 
     MIDP_EVENT_INITIALIZE(evt);
 
@@ -242,6 +285,7 @@ MIDPError midp_midlet_create_start_with_args(SuiteIdType suiteId,
             evt.stringParam1 = temp;
         } else {
             pcsl_string_free(&temp);
+            return BAD_PARAMS;
         }
     }
 
@@ -381,21 +425,20 @@ MIDPError midp_midlet_destroy(jint appId, jint timeout) {
 }
 
 /**
- * Gets information about the suite containing the specified running MIDlet.
+ * Gets ID of the suite containing the specified running MIDlet.
  * This call is synchronous.
  *
- * @param appId The ID used to identify the application
- *
- * @param pSuiteData [out] pointer to a structure where static information
- *                         about the midlet will be stored
+ * @param appId    [in]  The ID used to identify the application
+ * @param pSuiteId [out] On exit will hold an ID of the suite the midlet
+ *                       belongs to
  *
  * @return error code: ALL_OK if successful,
  *                     NOT_FOUND if the application was not found,
- *                     BAD_PARAMS if pSuiteData is null
+ *                     BAD_PARAMS if pSuiteId is null
  */
-MIDPError midp_midlet_get_suite_info(jint appId, MidletSuiteData* pSuiteData) {
+MIDPError midp_midlet_get_suite_id(jint appId, SuiteIdType* pSuiteId) {
     (void)appId; /* not finished */
-    if (pSuiteData == NULL) {
+    if (pSuiteId == NULL) {
         return BAD_PARAMS;
     }
 
@@ -545,14 +588,17 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifySystemSuspended(void) {
  * Notify the native application manager of the MIDlet creation.
  *
  * @param externalAppId ID assigned by the external application manager
+ * @param suiteId ID of the midlet suite
+ * @param className class name of the midlet that failed to start
  * @param error error code
  */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletStartError(void) {
     jint externalAppId = KNI_GetParameterAsInt(1);
-    jint error = KNI_GetParameterAsInt(2);
+    jint error = KNI_GetParameterAsInt(4);
     NamsEventData eventData;
     MidletSuiteData msd;
+    pcsl_string_status res;
 
     memset((char*)&eventData, 0, sizeof(NamsEventData));
     memset((char*)&msd, 0, sizeof(MidletSuiteData));
@@ -560,11 +606,27 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletStartError(void) {
     eventData.appId = externalAppId;
     eventData.state = MIDP_MIDLET_STATE_ERROR;
     eventData.reason = error;
-    msd.suiteId = UNUSED_SUITE_ID;
+    msd.suiteId = KNI_GetParameterAsInt(2);
     eventData.pSuiteData = &msd;
 
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(handle);
+    KNI_GetParameterAsObject(3, handle);
+
+    res = midp_jstring_to_pcsl_string(handle,
+                                      &msd.varSuiteData.midletClassName);
+
+    /*
+     * notify the listeners even failed to get the midlet's class name,
+     * just don't use it
+     */
     nams_listeners_notify(MIDLET_EVENT_LISTENER, &eventData);
 
+    if (res == PCSL_STRING_OK) {
+        pcsl_string_free(&msd.varSuiteData.midletClassName);
+    }
+
+    KNI_EndHandles();
     KNI_ReturnVoid();
 }
 
@@ -572,22 +634,38 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletStartError(void) {
  * Notify the native application manager of the MIDlet creation.
  *
  * @param externalAppId ID assigned by the external application manager
+ * @param suiteId ID of the suite the created midlet belongs to
+ * @param className class name of the midlet that was created
  */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletCreated(void) {
     jint externalAppId = KNI_GetParameterAsInt(1);
     NamsEventData eventData;
     MidletSuiteData msd;
+    pcsl_string_status res;
 
     memset((char*)&eventData, 0, sizeof(NamsEventData));
     memset((char*)&msd, 0, sizeof(MidletSuiteData));
     eventData.event = MIDP_NAMS_EVENT_STATE_CHANGED;    
     eventData.appId = externalAppId;
     eventData.state = MIDP_MIDLET_STATE_PAUSED;
-    msd.suiteId = UNUSED_SUITE_ID;
+    msd.suiteId = KNI_GetParameterAsInt(2);
     eventData.pSuiteData = &msd;
+
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(handle);
+    KNI_GetParameterAsObject(3, handle);
+
+    res = midp_jstring_to_pcsl_string(handle,
+                                      &msd.varSuiteData.midletClassName);
+
     nams_listeners_notify(MIDLET_EVENT_LISTENER, &eventData);
 
+    if (res == PCSL_STRING_OK) {
+        pcsl_string_free(&msd.varSuiteData.midletClassName);
+    }
+
+    KNI_EndHandles();
     KNI_ReturnVoid();
 }
 
@@ -595,23 +673,38 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletCreated(void) {
  * Notify the native application manager that the MIDlet is active.
  *
  * @param externalAppId ID assigned by the external application manager
+ * @param suiteId ID of the suite the started midlet belongs to
+ * @param className class name of the midlet that was started
  */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletActive(void) {
     jint externalAppId = KNI_GetParameterAsInt(1);
     NamsEventData eventData;
     MidletSuiteData msd;
+    pcsl_string_status res;
 
     memset((char*)&eventData, 0, sizeof(NamsEventData));
     memset((char*)&msd, 0, sizeof(MidletSuiteData));
     eventData.event = MIDP_NAMS_EVENT_STATE_CHANGED;    
     eventData.appId = externalAppId;
     eventData.state = MIDP_MIDLET_STATE_ACTIVE;
-    msd.suiteId = UNUSED_SUITE_ID;
+    msd.suiteId = KNI_GetParameterAsInt(2);
     eventData.pSuiteData = &msd;
+
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(handle);
+    KNI_GetParameterAsObject(3, handle);
+
+    res = midp_jstring_to_pcsl_string(handle,
+                                      &msd.varSuiteData.midletClassName);
 
     nams_listeners_notify(MIDLET_EVENT_LISTENER, &eventData);
 
+    if (res == PCSL_STRING_OK) {
+        pcsl_string_free(&msd.varSuiteData.midletClassName);
+    }
+
+    KNI_EndHandles();
     KNI_ReturnVoid();
 }
 
@@ -619,23 +712,38 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletActive(void) {
  * Notify the native application manager that the MIDlet is paused.
  *
  * @param externalAppId ID assigned by the external application manager
+ * @param suiteId ID of the suite the paused midlet belongs to
+ * @param className class name of the midlet that was paused
  */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletPaused(void) {
     jint externalAppId = KNI_GetParameterAsInt(1);
     NamsEventData eventData;
     MidletSuiteData msd;
+    pcsl_string_status res;
 
     memset((char*)&eventData, 0, sizeof(NamsEventData));
     memset((char*)&msd, 0, sizeof(MidletSuiteData));
     eventData.event = MIDP_NAMS_EVENT_STATE_CHANGED;    
     eventData.appId = externalAppId;
     eventData.state = MIDP_MIDLET_STATE_PAUSED;
-    msd.suiteId = UNUSED_SUITE_ID;
+    msd.suiteId = KNI_GetParameterAsInt(2);
     eventData.pSuiteData = &msd;
+
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(handle);
+    KNI_GetParameterAsObject(3, handle);
+
+    res = midp_jstring_to_pcsl_string(handle,
+                                      &msd.varSuiteData.midletClassName);
 
     nams_listeners_notify(MIDLET_EVENT_LISTENER, &eventData);
 
+    if (res == PCSL_STRING_OK) {
+        pcsl_string_free(&msd.varSuiteData.midletClassName);
+    }
+
+    KNI_EndHandles();
     KNI_ReturnVoid();
 }
 
@@ -643,12 +751,15 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletPaused(void) {
  * Notify the native application manager that the MIDlet is destroyed.
  *
  * @param externalAppId ID assigned by the external application manager
+ * @param suiteId ID of the suite the destroyed midlet belongs to
+ * @param className class name of the midlet that was destroyed
  */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletDestroyed(void) {
     jint externalAppId = KNI_GetParameterAsInt(1);
     NamsEventData eventData;
     MidletSuiteData msd;
+    pcsl_string_status res;
 
     memset((char*)&eventData, 0, sizeof(NamsEventData));
     memset((char*)&msd, 0, sizeof(MidletSuiteData));
@@ -656,11 +767,23 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletDestroyed(void) {
     eventData.appId = externalAppId;
     eventData.state = MIDP_MIDLET_STATE_DESTROYED;
     eventData.reason = MIDP_REASON_EXIT;
-    msd.suiteId = UNUSED_SUITE_ID;
+    msd.suiteId = KNI_GetParameterAsInt(2);
     eventData.pSuiteData = &msd;
+
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(handle);
+    KNI_GetParameterAsObject(3, handle);
+
+    res = midp_jstring_to_pcsl_string(handle,
+                                      &msd.varSuiteData.midletClassName);
 
     nams_listeners_notify(MIDLET_EVENT_LISTENER, &eventData);
 
+    if (res == PCSL_STRING_OK) {
+        pcsl_string_free(&msd.varSuiteData.midletClassName);
+    }
+
+    KNI_EndHandles();
     KNI_ReturnVoid();
 }
 
@@ -668,12 +791,15 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifyMidletDestroyed(void) {
  * Notify the native application manager that the suite is terminated.
  *
  * @param suiteId ID of the MIDlet suite
+ * @param className class name of the midlet that was terminated
  */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_com_sun_midp_main_NativeAppManagerPeer_notifySuiteTerminated(void) {
     SuiteIdType suiteId;
     NamsEventData eventData;
     MidletSuiteData msd;
+    pcsl_string_status res;
+
     suiteId = KNI_GetParameterAsInt(1);
 
     memset((char*)&eventData, 0, sizeof(NamsEventData));
@@ -684,8 +810,143 @@ Java_com_sun_midp_main_NativeAppManagerPeer_notifySuiteTerminated(void) {
     msd.suiteId = suiteId;
     eventData.pSuiteData = &msd;
 
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(handle);
+    KNI_GetParameterAsObject(2, handle);
+
+    res = midp_jstring_to_pcsl_string(handle,
+                                      &msd.varSuiteData.midletClassName);
+
     nams_listeners_notify(MIDLET_EVENT_LISTENER, &eventData);
 
+    if (res == PCSL_STRING_OK) {
+        pcsl_string_free(&msd.varSuiteData.midletClassName);
+    }
+
+    KNI_EndHandles();
+    KNI_ReturnVoid();
+}
+
+/**
+ * Notifies the native application manager about an uncaught exception
+ * in a running MIDlet.
+ *
+ * @param externalAppId ID assigned by the external application manager
+ * @param midletName name of the MIDlet in which the exception occured
+ * @param className  name of the class containing the method.
+ *                   This string is a fully qualified class name
+ *                   encoded in internal form (see JVMS 4.2).
+ *                   This string is NULL-terminated.
+ * @param exceptionMessage exception message
+ * @param isLastThread true if this is the last thread of the MIDlet,
+ *                     false otherwise
+ */
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_com_sun_midp_main_NativeAppManagerPeer_notifyUncaughtException(void) {
+    NamsEventData eventData;
+    MidletExceptionInfo exceptionInfo;
+    pcsl_string_status res;
+
+    /* initialize the new event */
+    memset((char*)&eventData, 0, sizeof(NamsEventData));
+    eventData.event = MIDP_NAMS_EVENT_UNCAUGHT_EXCEPTION;
+    eventData.appId = KNI_GetParameterAsInt(1);
+    eventData.pExceptionInfo = &exceptionInfo;
+
+    /* get the parameters */
+    KNI_StartHandles(3);
+    KNI_DeclareHandle(jsMidletName);
+    KNI_DeclareHandle(jsClassName);
+    KNI_DeclareHandle(jsExceptionMessage);
+
+    KNI_GetParameterAsObject(2, jsMidletName);
+    KNI_GetParameterAsObject(3, jsClassName);
+    KNI_GetParameterAsObject(4, jsExceptionMessage);
+    exceptionInfo.isLastThread = KNI_GetParameterAsBoolean(5);
+
+    res = midp_jstring_to_pcsl_string(jsMidletName,
+                                      &exceptionInfo.midletName);
+    if (res != PCSL_STRING_OK) {
+        exceptionInfo.midletName = PCSL_STRING_NULL;
+    }
+    res = midp_jstring_to_pcsl_string(jsMidletName,
+                                      &exceptionInfo.exceptionClassName);
+    if (res != PCSL_STRING_OK) {
+        exceptionInfo.exceptionClassName = PCSL_STRING_NULL;
+    }
+    res = midp_jstring_to_pcsl_string(jsExceptionMessage,
+                                      &exceptionInfo.exceptionMessage);
+    if (res != PCSL_STRING_OK) {
+        exceptionInfo.exceptionMessage = PCSL_STRING_NULL;
+    }
+
+    /* notify NAMS about the event */
+    nams_listeners_notify(MIDLET_EVENT_LISTENER, &eventData);
+
+    /* free memory */
+    pcsl_string_free(&exceptionInfo.midletName);
+    pcsl_string_free(&exceptionInfo.exceptionClassName);
+    pcsl_string_free(&exceptionInfo.exceptionMessage);
+
+    KNI_EndHandles();
+    KNI_ReturnVoid();
+}
+
+/**
+ * Notifies the native application manager about that VM can't
+ * fulfill a memory allocation attempt.
+ *
+ * @param externalAppId ID assigned by the external application manager
+ * @param memoryLimit in SVM mode - heap capacity, in MVM mode - memory
+ *                    limit for the isolate, i.e. the max amount of heap
+ *                    memory that can possibly be allocated
+ * @param memoryReserved in SVM mode - heap capacity, in MVM mode - memory
+ *                       reservation for the isolate, i.e. the max amount of
+ *                       heap memory guaranteed to be available
+ * @param memoryUsed how much memory is already allocated on behalf of this
+ *                   isolate in MVM mode, or for the whole VM in SVM mode
+ * @param allocSize the requested amount of memory that the VM failed
+ *                  to allocate
+ * @param midletName name of the MIDlet in which the exception occured
+ * @param isLastThread true if this is the last thread of the MIDlet,
+ *                     false otherwise
+ */
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_com_sun_midp_main_NativeAppManagerPeer_notifyOutOfMemory(void) {
+    NamsEventData eventData;
+    MidletExceptionInfo exceptionInfo;
+    pcsl_string_status res;
+
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(jsMidletName);
+    KNI_GetParameterAsObject(2, jsMidletName);
+
+    /* initialize the new event */
+    memset((char*)&eventData, 0, sizeof(NamsEventData));
+    eventData.event = MIDP_NAMS_EVENT_OUT_OF_MEMORY;
+    eventData.appId = KNI_GetParameterAsInt(1);
+    eventData.pExceptionInfo = &exceptionInfo;
+
+    /* get the parameters */
+    exceptionInfo.memoryLimit = KNI_GetParameterAsInt(3);
+    exceptionInfo.memoryReserved = KNI_GetParameterAsInt(4);
+    exceptionInfo.memoryUsed = KNI_GetParameterAsInt(5);
+    exceptionInfo.allocSize = KNI_GetParameterAsInt(6);
+    exceptionInfo.isLastThread = KNI_GetParameterAsBoolean(7);
+
+    res = midp_jstring_to_pcsl_string(jsMidletName,
+                                      &exceptionInfo.midletName);
+    if (res != PCSL_STRING_OK) {
+        exceptionInfo.midletName = PCSL_STRING_EMPTY;
+    }
+
+    /* notify NAMS about the event */
+    nams_listeners_notify(MIDLET_EVENT_LISTENER, &eventData);
+
+    /* free memory */
+    pcsl_string_free(&exceptionInfo.midletName);
+
+    KNI_EndHandles();
     KNI_ReturnVoid();
 }
 
@@ -713,6 +974,8 @@ Java_com_sun_midp_main_NativeAppManagerPeer_registerAmsIsolateId(void) {
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_com_sun_midp_main_NativeAppManagerPeer_exitInternal(void) {
     int value = (int)KNI_GetParameterAsInt(1);
+
+    midp_remove_all_event_listeners(ANY_EVENT_LISTENER);
 
     midp_exitVM(value);
     KNI_ReturnVoid();

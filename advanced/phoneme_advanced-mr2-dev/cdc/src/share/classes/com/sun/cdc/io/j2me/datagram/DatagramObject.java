@@ -1,7 +1,7 @@
 /*
  * @(#)DatagramObject.java	1.25 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -50,20 +50,24 @@ public class DatagramObject extends UniversalOutputStream implements Datagram {
     public DatagramObject(int p) {
         port  = p;
         host  = "localhost";
-   //    dgram = new DatagramPacket(port, InetAddress.getByName(host));
     }
 
     public String getAddress() {
-        InetAddress addr = dgram.getAddress();
-        if(addr == null) {
+        if (dgram == null) {
             return null;
-        } else {
-           if (host == null) {
-             return "datagram://:" + port;
-           } else {
-               return "datagram://" + host + ":" + port;
-            } 
         }
+
+        InetAddress addr = dgram.getAddress();
+
+        if (addr == null) {
+            return null;
+        }
+
+        if (host == null) {
+            return "datagram://:" + port;
+        }
+
+        return "datagram://" + host + ":" + port;
     }
 
     public byte[] getData() {
@@ -105,6 +109,8 @@ public class DatagramObject extends UniversalOutputStream implements Datagram {
         DatagramObject ref = (DatagramObject)reference;
 	host = ref.host;
 	port = ref.port;
+        if (host == null) 
+            throw new IllegalArgumentException("NULL datagram address");
 	dgram.setAddress(ref.dgram.getAddress());
 	dgram.setPort(port);
     }
@@ -114,7 +120,7 @@ public class DatagramObject extends UniversalOutputStream implements Datagram {
         if (buffer == null) {
 	    throw new IllegalArgumentException("NULL buffer");
 	}
-	if (offset > buffer.length) {
+	if (offset > buffer.length || len > buffer.length ) {
 	    throw new IllegalArgumentException("offset past length of buffer");
 	}
         dgram.setData(buffer, offset, len);
@@ -122,6 +128,10 @@ public class DatagramObject extends UniversalOutputStream implements Datagram {
     }
 
     public void setLength(int len) {
+        /* The length of the datagram should not exceed the length of the data buffer length */
+        if (len > dgram.getData().length ) {
+	    throw new IllegalArgumentException("length past length of buffer");
+	}
         dgram.setLength(len);
     }
 

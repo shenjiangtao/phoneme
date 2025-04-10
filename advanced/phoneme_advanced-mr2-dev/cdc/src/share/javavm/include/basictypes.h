@@ -1,7 +1,7 @@
 /*
  * @(#)basictypes.h	1.18 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -49,7 +49,12 @@ enum CVMBasicType {
     CVM_T_SHORT,
     CVM_T_INT,
     CVM_T_LONG,
-    CVM_T_VOID = 17
+    CVM_T_VOID = 17,
+    /* The following is needed to make sure CVMBasicType is 32-bits on all
+     * platforms. Otherwise on some platforms OFFSET_CVMArrayInfo_elementCb
+     * is not correct.
+     */
+    CVM_T_FORCE_32_BIT = 0x80000000
 };
 
 typedef enum CVMBasicType CVMBasicType;

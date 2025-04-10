@@ -1,7 +1,5 @@
 /*
- * @(#)generational.h	1.44 06/10/10
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -231,6 +229,9 @@ typedef union CVMGenSummaryTableEntry {
 /* A card is summarized */
 #define CARD_SUMMARIZED_BYTE 2
 
+/* A card is special */
+#define CARD_SENTINEL_BYTE 3
+
 /* For faster checks, an integer that makes up four clean cards */
 #define FOUR_CLEAN_CARDS \
     (((CVMUint32)CARD_CLEAN_BYTE << 24) |    \
@@ -250,6 +251,12 @@ CVMgenBarrierPointersTraverse(CVMGeneration* gen, CVMExecEnv* ee,
 			      CVMGCOptions* gcOpts,
 			      CVMRefCallbackFunc callback,
 			      void* callbackData);
+
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+/* Dumps info about the configuration of the generational GC (in addition to
+   the semispace and markcompact dumps). */
+extern void CVMgenDumpSysInfo(CVMGCGlobalState* gc);
+#endif /* CVM_DEBUG || CVM_INSPECTOR */
 
 #endif /* _INCLUDED_GENERATIONAL_H */
 

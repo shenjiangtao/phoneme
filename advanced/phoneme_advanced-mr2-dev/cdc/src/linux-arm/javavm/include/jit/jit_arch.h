@@ -1,7 +1,7 @@
 /*
  * @(#)jit_arch.h	1.51 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -43,6 +43,9 @@
 #include "javavm/include/jit/jitasmconstants_cpu.h"
 #include "javavm/include/jit/ccm_cpu.h"
 #include "portlibs/jit/risc/include/export/jit_risc.h"
+#include "javavm/include/flushcache_cpu.h"
+
+#define CVMJIT_HAVE_PLATFORM_SPECIFIC_ALLOC_FREE_CODECACHE
 
 /*
  * The size in bytes of the region for which we want accurate profiling
@@ -52,5 +55,7 @@
 #ifndef _ASM
 #include "portlibs/posix/posix_jit_profil.h"
 #endif
+
+#define CVMJITflushCache CVMflushCache
 
 #endif /* _LINUX_ARM_JIT_ARCH_H */

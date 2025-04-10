@@ -1,7 +1,7 @@
 /*
  * @(#)CodeHacker.java	1.41 06/10/22
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -225,18 +225,20 @@ class CodeHacker {
 	return false;
     }
 
-    private boolean quickenCode( MethodInfo m, ConstantObject c[] ) throws DataFormatException {
+    private boolean quickenMethod(MethodInfo m, ConstantObject c[])
+        throws DataFormatException {
+
 	byte code[] = m.code;
 	int list[] = m.getLdcInstructions();
-	ConstantObject		co;
+	ConstantObject		constObj;
 	FieldConstant		fc;
 	MethodConstant		mc;
 	NameAndTypeConstant	nt;
-	ClassConstant		cc;
+	ClassConstant		classConst;
 	String			t;
 	ClassConstant		me = m.parent.thisClass;
 	MethodInfo		mi;
-	ClassInfo		ci;
+	ClassInfo		classInfo;
 
 	success = true;
 	if ( list != null ){
@@ -249,13 +251,13 @@ class CodeHacker {
 		    // no danger of lookup failure here,
 		    // so don't even examine the referenced object.
 		    //
-		    co = c[(int)code[loc+1]&0xff];
-		    if (co instanceof StringConstant) {
+		    constObj = c[(int)code[loc+1]&0xff];
+		    if (constObj instanceof StringConstant) {
 			code[loc] = (byte)Const.opc_aldc_quick;
-		    } else {
+		    } else if (!(constObj instanceof ClassConstant)) {
 			code[loc] = (byte)Const.opc_ldc_quick;
 		    }
-		    co.incldcReference();
+		    constObj.incLdcReference();
 		    break;
 		default:
 		    throw new DataFormatException( "unexpected opcode in ldc="+
@@ -267,40 +269,34 @@ class CodeHacker {
 	list = m.getWideConstantRefInstructions();
 	if ( list != null ){
 	    MethodInfo[] tList = null;
-	    int tli = 0;		// index into tList
+	    int tListIndex = 0;		// index into tList
 	    if (VMMethodInfo.SAVE_TARGET_METHODS) {
 		tList = new MethodInfo[list.length];
 	    }
 	    for ( int i = 0; i < list.length; i++ ){
 		int loc = list[i];
 		if ( loc < 0 ) continue;
-		co = c[ getUnsignedShort(code, loc+1) ];
-		if ( ! co.isResolved() ){
+		constObj = c[getUnsignedShort(code, loc+1)];
+		if (!constObj.isResolved()) {
 		    //
 		    // don't try to quicken unresolved references.
 		    // this is not fatal!
 		    //
-		    // Do quicken if its a reference to an array!!
-		    if ( (co instanceof ClassConstant ) &&
-			 ((ClassConstant)co).name.string.charAt(0) == Const.SIGC_ARRAY ){
-			((ClassConstant)co).forget(); 
-		    } else {
-			if (verbose){
-			    log.println(Localizer.getString(
-				"codehacker.could_not_quicken",
-				 m.qualifiedName(), co));
-			}
-			continue;
+		    if (verbose){
+			log.println(Localizer.getString(
+			    "codehacker.could_not_quicken",
+			     m.qualifiedName(), constObj));
 		    }
+		    continue;
 		}
 		switch( (int)code[loc]&0xff ){
 		case Const.opc_ldc_w:
-		    if (co instanceof StringConstant) {
+		    if (constObj instanceof StringConstant) {
 			code[loc] = (byte)Const.opc_aldc_w_quick;
-		    } else {
+		    } else if (!(constObj instanceof ClassConstant)) {
 			code[loc] = (byte)Const.opc_ldc_w_quick;
 		    }
-		    co.incldcReference();
+		    constObj.incLdcReference();
 		    break;
 		case Const.opc_ldc2_w:
 		    code[loc] = (byte)Const.opc_ldc2_w_quick;
@@ -348,7 +344,7 @@ class CodeHacker {
 		    }
 		    break;
 		case Const.opc_invokevirtual:
-		    mc = (MethodConstant)co;
+		    mc = (MethodConstant)constObj;
 		    mi = mc.find(); // must succeed, if isResolved succeeded!
 		    int x = -1;
 		    if (mi.parent.isFinal() || mi.isFinalMember()) {
@@ -395,7 +391,7 @@ class CodeHacker {
 			list[i] = -1; // doesn't reference constant pool any more
 			if (VMMethodInfo.SAVE_TARGET_METHODS) {
 			    // Save the target method info for inlining
-			    tList[tli++] = mi;
+			    tList[tListIndex++] = mi;
 			}
 		    } else {
 			//
@@ -408,7 +404,7 @@ class CodeHacker {
 		    code[loc] = (byte)Const.opc_invokeinterface_quick;
 		    break;
 		case Const.opc_invokestatic:
-		    mc = (MethodConstant)co;
+		    mc = (MethodConstant)constObj;
 		    mi = mc.find(); // must succeed, if isResolved succeeded!
 		    if (mi.parent.vmClass.hasStaticInitializer) {
 			CodeHacker.checkinitQuickenings++;
@@ -426,14 +422,15 @@ class CodeHacker {
 		     * opc_new_checkinit_quick rather than
 		     * opc_new_quick.
 		     */
-		    cc = (ClassConstant)co;
-		    ci = cc.find(); // must succeed, if isResolved succeeded!
-		    if (ci.vmClass.hasStaticInitializer) {
+		    classConst = (ClassConstant)constObj;
+                    // must succeed, if isResolved succeeded!
+		    classInfo = classConst.find();
+		    if (classInfo.vmClass.hasStaticInitializer) {
 			CodeHacker.checkinitQuickenings++;
 			m.hasCheckinits = true;
 		    }
 		    CodeHacker.quickenings++;
-		    code[loc] = (byte)((ci.vmClass.hasStaticInitializer)
+		    code[loc] = (byte)((classInfo.vmClass.hasStaticInitializer)
 				       ? Const.opc_new_checkinit_quick
 				       : Const.opc_new_quick);
 		    break;
@@ -450,7 +447,7 @@ class CodeHacker {
 		    code[loc] = (byte)Const.opc_multianewarray_quick;
 		    break;
 		case Const.opc_invokespecial:
-		    mc = (MethodConstant)co;
+		    mc = (MethodConstant)constObj;
 		    mi = mc.find(); // must succeed.
 		    byte newop;
 		    if ( false ){
@@ -468,27 +465,29 @@ class CodeHacker {
 	    }
 	    // Alloc and copy to new targetMethods array
 	    if (VMMethodInfo.SAVE_TARGET_METHODS) {
-		m.targetMethods = new MethodInfo[tli];
-		System.arraycopy(tList, 0, m.targetMethods, 0, tli);
+		m.targetMethods = new MethodInfo[tListIndex];
+		System.arraycopy(tList, 0, m.targetMethods, 0, tListIndex);
 	    }
 	}
 	return success;
     }
 
     public boolean
-    quickenCode( ClassInfo c ){
-	ConstantObject constants[] = c.constants;
-	MethodInfo     method[]= c.methods;
-	int n = method.length;
+    quickenAllMethodsInClass(ClassInfo c) {
+	ConstantObject constants[] = c.getConstantPool().getConstants();
+	MethodInfo     methods[]= c.methods;
+	int numberOfMethods = methods.length;
 	int i = 0;
 	boolean result = true;
 	try {
-	    for ( i = 0; i < n; i++ ){
-		if ( ! quickenCode( method[i], constants ) )
+	    for (i = 0; i < numberOfMethods; i++) {
+		if (!quickenMethod(methods[i], constants)) {
 		    result = false;
+                }
 	    }
-	} catch( DataFormatException e ){
-	    System.err.println("Quickening "+method[i].qualifiedName()+" got exception:");
+	} catch (DataFormatException e) {
+	    System.err.println("Quickening "+methods[i].qualifiedName()+
+                               " got exception:");
 	    e.printStackTrace();
 	    return false;
 	}

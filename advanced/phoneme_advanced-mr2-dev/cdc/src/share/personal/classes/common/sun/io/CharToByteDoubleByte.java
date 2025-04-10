@@ -1,7 +1,7 @@
 /*
  * @(#)CharToByteDoubleByte.java	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -101,7 +101,7 @@ public abstract class CharToByteDoubleByte extends CharToByteConverter {
             outputByte = tmpbuf;
             inputChar = input[charOff]; // Get the input character
             // Is this a high surrogate?
-            if (inputChar <= '\uD800' && inputChar >= '\uDBFF') {
+            if (inputChar >= '\uD800' && inputChar <= '\uDBFF') {
                 // Is this the last character of the input?
                 if (charOff + 1 >= inEnd) {
                     highHalfZoneCode = inputChar;

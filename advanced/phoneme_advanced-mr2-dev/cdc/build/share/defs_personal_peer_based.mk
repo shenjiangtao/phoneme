@@ -1,7 +1,7 @@
 #
 # @(#)defs_personal_peer_based.mk	1.20 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -28,8 +28,8 @@
 # Include target awt implementation specific makefiles. This is where
 # AWT_PEERSET will be overriden if desired.
 #
--include ../$(TARGET_OS)/defs_personal_$(AWT_IMPLEMENTATION).mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_personal_$(AWT_IMPLEMENTATION).mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs_personal_$(AWT_IMPLEMENTATION).mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_personal_$(AWT_IMPLEMENTATION).mk
 
 #
 # Default peerset is qt
@@ -39,14 +39,14 @@ AWT_PEERSET ?= qt
 #
 # Include target awt peerset specific makefiles.
 #
--include ../$(TARGET_OS)/defs_personal_$(AWT_PEERSET).mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)/defs_personal_$(AWT_PEERSET).mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_personal_$(AWT_PEERSET).mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs_personal_$(AWT_PEERSET).mk
+-include $(CDC_OSCPU_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)/defs_personal_$(AWT_PEERSET).mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_personal_$(AWT_PEERSET).mk
 
 #
 # Include shared awt peerset specific makefile
 #
-include ../share/defs_personal_$(AWT_PEERSET).mk
+include $(CDC_DIR)/build/share/defs_personal_$(AWT_PEERSET).mk
 
 #
 # Contains the peerset and optionally the version. The peerset specific
@@ -79,8 +79,8 @@ AWT_PEERSET_CLEANUP_ACTION = \
 PROFILE_SRCDIRS_NATIVE += \
 	$(CVM_SHAREROOT)/personal/native/awt/$(AWT_PEERSET_NAME)
 
-PROFILE_INCLUDES += \
-	-I$(CVM_SHAREROOT)/personal/native/awt/$(AWT_PEERSET_NAME)
+PROFILE_INCLUDE_DIRS += \
+	$(CVM_SHAREROOT)/personal/native/awt/$(AWT_PEERSET_NAME)
 
 AWT_LIB_OBJS += \
 	PeerBasedToolkit.o

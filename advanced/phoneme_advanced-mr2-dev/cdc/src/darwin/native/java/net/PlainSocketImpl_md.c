@@ -1,7 +1,7 @@
 /*
  * @(#)PlainSocketImpl_md.c	1.18 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -332,7 +332,7 @@ Java_java_net_PlainSocketImpl_socketConnect(JNIEnv *env, jobject this,
     }
 
     /* connect */
-    NET_InetAddressToSockaddr(env, iaObj, port, (struct sockaddr *)&him, &len, JNI_FALSE));
+    NET_InetAddressToSockaddr(env, iaObj, port, (struct sockaddr *)&him, &len);
 #ifdef AF_INET6
     if (trafficClass != 0 && ipv6_available()) {
 	NET_SetTrafficClass((struct sockaddr *)&him, trafficClass);
@@ -576,7 +576,7 @@ Java_java_net_PlainSocketImpl_socketBind(JNIEnv *env, jobject this,
     }
 
     /* bind */
-    NET_InetAddressToSockaddr(env, iaObj, localport, (struct sockaddr *)&him, &len, JNI_TRUE);
+    NET_InetAddressToSockaddr(env, iaObj, localport, (struct sockaddr *)&him, &len);
 
     if (NET_Bind(fd, (struct sockaddr *)&him, len) < 0) {
 	if (errno == EADDRINUSE || errno == EADDRNOTAVAIL ||

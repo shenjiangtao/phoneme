@@ -1,7 +1,7 @@
 /*
  * @(#)hprof_global.h	1.18 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -39,6 +39,7 @@ extern JavaVM *jvm;
 
 extern int hprof_is_on;            /* whether hprof is enabled */
 extern int hprof_fd;	           /* Non-zero file or socket descriptor. */
+extern FILE *hprof_fp;	           /* FILE handle. */
 extern int hprof_socket_p;         /* True if hprof_fd is a socket. */
 
 extern int max_trace_depth;

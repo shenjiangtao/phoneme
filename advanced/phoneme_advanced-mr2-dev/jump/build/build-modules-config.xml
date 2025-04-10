@@ -49,17 +49,67 @@ information or have any questions.
 
 package com.sun.jumpimpl.process;
 
-import java.util.Map;
 import java.util.Hashtable;
+import java.util.Map;
 import java.util.Properties;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.FileInputStream;
 import java.io.BufferedInputStream;
-
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.IOException;
 
 public class JUMPModulesConfig {
     private static Hashtable config;
+
+    private static String
+    getBuildProperty(String buildPropertyValue, String buildPropertyName) {
+        // if ant property is not defined the expression ${prop} is expanded
+        // to itself
+        if(buildPropertyValue.equals("${" + buildPropertyName + "}")) {
+            return null;
+        }
+        return buildPropertyValue;
+    }
+    
+    private static void
+    setMIDPHomeProperty(Hashtable cfg) {
+        String value = (String)cfg.get("sun.midp.home.path");
+        if(value == null) {
+            value = getBuildProperty("${midp_output_dir}", "midp_output_dir");
+        }
+        
+        if(value != null) {
+            if (!new File(value).isAbsolute()) {
+               value = System.getProperty("java.home") + "/" + value;        
+            }
+            cfg.put("sun.midp.home.path", value);
+        }
+    }
+
+    private static void
+    setContentStoreRootProperty(Hashtable cfg) {
+        String value = (String)cfg.get("contentstore.root");
+
+        if(value != null) {
+            return;
+        }
+        
+        value = getBuildProperty("${contentstore.root.default}", 
+                                 "contentstore.root.default");
+
+        if (!new File(value).isAbsolute()) {
+            value = System.getProperty("java.home") + "/" + value;        
+        }
+
+        cfg.put("contentstore.root", value);
+    }
+
+
+    private static void
+    setRuntimeProperties(Hashtable cfg) {
+        setMIDPHomeProperty(cfg);
+        setContentStoreRootProperty(cfg);
+    }
 
     public static void
     overrideDefaultConfig(String fname) {
@@ -81,6 +131,7 @@ public class JUMPModulesConfig {
             }
         }
 
+        setRuntimeProperties(props);
         config.putAll(props);
     }
 
@@ -108,6 +159,7 @@ ${modules-config.raw}${ant-property-separator}
         </filterchain>
     </concat>
     <concat destfile="${modules-config-file}.tmp" append="true">
+        setRuntimeProperties(config);
     }
 }
 </concat>

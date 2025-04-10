@@ -1,27 +1,27 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 package com.sun.midp.main;
@@ -127,13 +127,15 @@ public class MIDletExecuteEventProducer {
      *                 &lt;= 0 if not used
      * @param profileName name of the profile to set for the new isolate;
      *                    null if not used
+     * @param debugMode debug option for the MIDlet to be launched, one of:
+     *                  MIDP_NO_DEBUG, MIDP_DEBUG_SUSPEND, MIDP_DEBUG_NO_SUSPEND
      */
     public void sendMIDletExecuteEvent(
         int midletExternalAppId, int midletSuiteId,
         String midletClassName, String midletDisplayName,
         String arg0, String arg1, String arg2,
         int memoryReserved, int memoryTotal, int priority,
-        String profileName) {
+        String profileName, int debugMode) {
 
         NativeEvent event =
             new NativeEvent(EventTypes.EXECUTE_MIDLET_EVENT);
@@ -143,6 +145,7 @@ public class MIDletExecuteEventProducer {
         event.intParam3 = memoryReserved;
         event.intParam4 = memoryTotal;
         event.intParam5 = priority;
+        event.intParam6 = debugMode;
         event.stringParam1 = midletClassName;
         event.stringParam2 = midletDisplayName;
         event.stringParam3 = arg0;
@@ -151,5 +154,5 @@ public class MIDletExecuteEventProducer {
         event.stringParam6 = profileName;
 
         eventQueue.sendNativeEventToIsolate(event, amsIsolateId);
-    };
+    }
 }

@@ -1,7 +1,7 @@
 /*
  * @(#)Double.java	1.73 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -293,7 +293,7 @@ public final class Double extends Number implements Comparable {
      * @see        java.lang.Double#valueOf(java.lang.String)
      */
     public Double(String s) throws NumberFormatException {
-	// FIXME: this is inefficient
+	// TODO: this is inefficient
 	this(valueOf(s).doubleValue());
     }
 

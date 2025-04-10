@@ -1,7 +1,7 @@
 /*
  * @(#)classinitialize.c	1.50 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -133,7 +133,7 @@ CVMprivateClassInit(CVMExecEnv* ee, CVMClassBlock* cb, CVMMethodBlock **p_mb)
 	/*
 	 * Link the class hierarchy.
 	 */
-	if (!CVMclassLink(ee, cb)) {
+	if (!CVMclassLink(ee, cb, CVM_FALSE)) {
 	    return -1;
 	}
 #endif

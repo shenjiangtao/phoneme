@@ -32,14 +32,22 @@
 /*
  * Process implementation
  */
+
+static int processId = -1;
+static int executivePid = -1;
+static int serverPid = -1;
+
 int 
 jumpProcessGetId(void)
 {
-    return getpid();
+    return processId;
 }
 
-static int executivePid = -1;
-static int serverPid = -1;
+void
+jumpProcessSetId(int id)
+{
+    processId = id;
+}
 
 void
 jumpProcessSetExecutiveId(int execPid)
@@ -59,6 +67,11 @@ jumpProcessGetExecutiveId(void)
     return executivePid;
 }
 
+int jumpProcessGetServerPid()
+{
+    return serverPid;
+}
+
 static void
 dumpMessage(struct _JUMPMessage* mptr, char* intro)
 {
@@ -67,12 +80,22 @@ dumpMessage(struct _JUMPMessage* mptr, char* intro)
     uint32 len, i;
     JUMPMessage m = (JUMPMessage)mptr;
     
+    printf("%s\n", intro);
     jumpMessageReaderInit(&r, m);
     strings = jumpMessageGetStringArray(&r, &len);
-    printf("%s\n", intro);
-    for (i = 0; i < len; i++) {
-	printf("    \"%s\"\n", strings[i]);
+    if (r.status != JUMP_SUCCESS) {
+	printf("    <failure>\n");
+	return;
     }
+    if (strings == NULL) {
+	printf("    <null>\n");
+    }
+    else {
+	for (i = 0; i < len; i++) {
+	    printf("    \"%s\"\n", strings[i]);
+	}
+    }
+    jumpMessageFreeStringArray(strings, len);
 }
 
 static int
@@ -83,19 +106,27 @@ getChildPid(struct _JUMPMessage* mptr)
     char* pidString;
     JUMPMessage m = (JUMPMessage)mptr;
     uint32 len;
+    int pid;
     
     jumpMessageReaderInit(&r, m);
     strings = jumpMessageGetStringArray(&r, &len);
+    if (r.status != JUMP_SUCCESS) {
+	return -1;
+    }
+    if (len == 0) {
+	pid = -1;
+	goto out;
+    }
     pidString = (char*)strings[0];    
     if (strncmp(pidString, "CHILD PID=", 10) != 0) {
-	return -1;
-    } else {
-	int pid;
-	pidString += 10;
-	pid = strtol(pidString, NULL, 0);
-	fprintf(stderr, "pidString=%s, pid=%d\n", pidString-10, pid);
-	return pid;
+	pid = -1;
+	goto out;
     }
+    pid = (int) strtol(pidString + 10, NULL, 0);
+    fprintf(stderr, "pidString=%s, pid=%d\n", pidString, pid);
+  out:
+    jumpMessageFreeStringArray(strings, len);
+    return pid;
 }
 
 /*
@@ -181,6 +212,9 @@ create_process(char **cmd_args, int argc, char** argv)
     /* FIXME: Must have central location for timeout values */
 #define TIMEOUT 10000
     response = jumpMessageSendSync(targetAddress, outMessage, TIMEOUT, &code);
+    if (response == NULL) {
+        return -1;
+    }
     dumpMessage(response, "Command response:");
     return getChildPid(response);
 }

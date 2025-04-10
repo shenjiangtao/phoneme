@@ -1,24 +1,24 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
@@ -30,7 +30,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import javax.microedition.io.ConnectionNotFoundException;
 import javax.microedition.io.Connector;
+import javax.microedition.io.InputConnection;
 import com.sun.midp.io.j2me.storage.RandomAccessStream;
+import com.sun.midp.io.FileUrl;
 
 /**
  * An Installer allowing to install a midlet suite from a file.
@@ -40,12 +42,12 @@ import com.sun.midp.io.j2me.storage.RandomAccessStream;
 public class FileInstaller extends Installer {
     /** Number of bytes to read at one time when copying a file. */
     private static final int CHUNK_SIZE = 10 * 1024;
-
+    
     /**
      * Constructor of the FileInstaller.
      */
     public FileInstaller() {
-        super();
+        super();                
     }
 
     /**
@@ -57,21 +59,43 @@ public class FileInstaller extends Installer {
      *            of the JAD
      */
     protected byte[] downloadJAD() throws IOException {
-        RandomAccessStream jadInputStream;
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(CHUNK_SIZE);
-        String jadFilename = getUrlPath(info.jadUrl);
+        if (info.jadUrl.endsWith(".jar")) {
+            throw new InvalidJadException (
+                    InvalidJadException.INVALID_JAD_TYPE,
+                    Installer.JAR_MT_2);
+        } else {
+            InputConnection conn;
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(CHUNK_SIZE);
 
-        state.beginTransferDataStatus = DOWNLOADING_JAD;
-        state.transferStatus = DOWNLOADED_1K_OF_JAD;
+            state.beginTransferDataStatus = DOWNLOADING_JAD;
+            state.transferStatus = DOWNLOADED_1K_OF_JAD;
 
-        jadInputStream = new RandomAccessStream();
-        jadInputStream.connect(jadFilename, Connector.READ);
+            // Encode jad file path in order to keep of 
+            // IllegalArgumentException
+            String jadUrl = FileUrl.encodeFilePath(info.jadUrl);
+            String jadFilename = getUrlPath(jadUrl);
 
-        transferData(jadInputStream.openInputStream(), bos, CHUNK_SIZE);
+            conn = new RandomAccessStream();
 
-        jadInputStream.close();
+            jadFilename=FileUrl.decodeFilePath(jadFilename);
 
-        return bos.toByteArray();
+            try {
+                ((RandomAccessStream)conn).connect(jadFilename, Connector.READ);
+                info.jadUrl = jadUrl;
+            } catch (IOException ioe) {
+                // To support installation using "file:" scheme for CHAPI,
+                // try to open the URL through GCF
+                conn = (InputConnection)Connector.open(
+                        info.jadUrl, Connector.READ);
+            }
+
+            try {
+                transferData(conn.openInputStream(), bos, CHUNK_SIZE);
+            } finally {
+                conn.close();
+            }
+            return bos.toByteArray();
+        }
     }
 
     /**
@@ -88,12 +112,31 @@ public class FileInstaller extends Installer {
      */
     protected int downloadJAR(String filename) throws IOException {
         int jarSize;
-        RandomAccessStream jarInputStream, jarOutputStream;
-        String jarFilename = getUrlPath(info.jarUrl);
+        InputConnection conn;
+        RandomAccessStream jarOutputStream;
 
+        // If jad attribute 'Midlet-Jar-Url' begins with schema 'file:///',
+        // than get jar path from this jad attribute,
+        // else searching jar file in same directory as a jad file.
+        if (!info.jarUrl.startsWith("file:///")) {
+            info.jarUrl = info.jadUrl.substring(0,
+                    info.jadUrl.lastIndexOf('/') + 1) + info.jarUrl;
+        }
+
+        // get the path from URI, but first encode it
+        String jarFilename = getUrlPath(FileUrl.encodeFilePath(info.jarUrl));
+               
         // Open source (jar) file
-        jarInputStream = new RandomAccessStream();
-        jarInputStream.connect(jarFilename, Connector.READ);
+        try {
+            conn = new RandomAccessStream();
+            ((RandomAccessStream)conn).connect(
+                    FileUrl.decodeFilePath(jarFilename), Connector.READ);
+            info.jarUrl = jarFilename;
+        } catch (IOException ioe) {
+            // To support installation using "file:" scheme for CHAPI,
+            // try to open the URL through GCF
+            conn = (InputConnection)Connector.open(info.jarUrl, Connector.READ);
+        }
 
         // Open destination (temporary) file
         jarOutputStream = new RandomAccessStream();
@@ -104,12 +147,13 @@ public class FileInstaller extends Installer {
         state.beginTransferDataStatus = DOWNLOADING_JAR;
         state.transferStatus = DOWNLOADED_1K_OF_JAR;
 
-        jarSize = transferData(jarInputStream.openInputStream(),
-                               jarOutputStream.openOutputStream(), CHUNK_SIZE);
-
-        jarInputStream.close();
-        jarOutputStream.disconnect();
-
+        try {
+            jarSize = transferData(conn.openInputStream(),
+                    jarOutputStream.openOutputStream(), CHUNK_SIZE);
+        } finally {
+            conn.close();
+            jarOutputStream.disconnect();
+        }
         return jarSize;
     }
 
@@ -158,6 +202,5 @@ public class FileInstaller extends Installer {
         /* some additional actions can be added here */
 
         return true;
-    }
-
+    }    
 }

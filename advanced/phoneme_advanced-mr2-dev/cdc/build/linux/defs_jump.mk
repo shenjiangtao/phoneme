@@ -1,7 +1,7 @@
 #
 # @(#)defs_jump.mk	1.2 06/10/22
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -23,6 +23,8 @@
 # Clara, CA 95054 or visit www.sun.com if you need additional  
 # information or have any questions. 
 #
+
+LINKLIBS += -lrt
 
 JUMP_SRCDIRS            += \
 	$(JUMP_SRCDIR)/$(TARGET_OS)/api/native \

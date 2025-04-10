@@ -1,7 +1,7 @@
 /*
  * @(#)gc_impl.c	1.107 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -1952,7 +1952,7 @@ CVMgcimplDoGC(CVMExecEnv* ee, CVMUint32 numBytes)
 #endif /* SOLARIS_TIMING */
     gcOpts.isUpdatingObjectPointers = CVM_TRUE;
     gcOpts.discoverWeakReferences = CVM_FALSE;
-#if defined(CVM_DEBUG) || defined(CVM_JVMPI)
+#if defined(CVM_DEBUG) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
     gcOpts.isProfilingPass = CVM_FALSE;
 #endif
 
@@ -2139,7 +2139,7 @@ CVMgcimplTimeOfLastMajorGC()
     return CVMglobals.gc.lastMajorGCTime;
 }
 
-#if defined(CVM_DEBUG) || defined(CVM_JVMPI)
+#if defined(CVM_DEBUG) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
 
 /*
  * Heap iteration. Call (*callback)() on each object in the heap.
@@ -2165,4 +2165,4 @@ CVMgcimplIterateHeap(CVMExecEnv* ee,
     return CVM_TRUE;
 }
 
-#endif /* defined(CVM_DEBUG) || defined(CVM_JVMPI) */
+#endif /* defined(CVM_DEBUG) || defined(CVM_JVMPI) || defined(CVM_JVMTI) */

@@ -1,27 +1,28 @@
 /*
  * @(#)jit_cpu.h	1.23 06/10/10
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -43,6 +44,11 @@
 
 /* Number of 32-bit words per register (must be 1 in current implementation) */
 #define CVMCPU_MAX_REG_SIZE	1
+
+/* Number of 32-bit words per FP register */
+#ifdef CVM_JIT_USE_FP_HARDWARE
+#define CVMCPU_FP_MAX_REG_SIZE 	1
+#endif
 
 /* No 64-bit registers */
 #undef CVMCPU_HAS_64BIT_REGISTERS

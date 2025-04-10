@@ -1,7 +1,5 @@
 /*
- * @(#)globals.h	1.170 06/10/30
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -68,6 +66,8 @@ typedef struct exit_proc {
     struct exit_proc *next;
 } * exit_procPtr;
 
+typedef void (*loopProcPtr)(CVMExecEnv*, CVMMethodBlock *, CVMBool, CVMBool);
+
 struct CVMOptions {
     void *vfprintfHook;
     void *exitHook;
@@ -97,10 +97,15 @@ struct CVMOptions {
     CVMUint16 classVerificationLevel;
     const char *bootclasspathStr;
     const char *appclasspathStr;
+#ifdef CVM_SPLIT_VERIFY
+    CVMBool splitVerify;
+#endif
 #endif
 #ifdef CVM_HAVE_PROCESS_MODEL
     CVMBool fullShutdownFlag;
 #endif
+    CVMBool hangOnStartup;
+    CVMBool unlimitedGCRoots;
 #ifndef CDC_10
     CVMBool javaAssertionsUserDefault; /* User class default (-ea/-da). */
     CVMBool javaAssertionsSysDefault;  /* System class default (-esa/-dsa). */
@@ -257,7 +262,8 @@ struct CVMGlobalState {
 #endif
     
 #ifdef CVM_JVMTI
-    CVMSysMutex debuggerLock;
+    CVMSysMutex jvmtiLock;
+    CVMSysMutex jvmtiLockInfoLock;
 #endif
 
     /*
@@ -275,7 +281,7 @@ struct CVMGlobalState {
     CVMGCLocker inspectorGCLocker;
     CVMCondVar gcLockerCV;  /* Used in conjuction with the gcLockerLock. */
 #endif
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
     CVMSysMutex gcLockerLock;
 #endif
 
@@ -386,6 +392,7 @@ struct CVMGlobalState {
 #endif /* CVM_REFLECT */
 #ifdef CVM_DEBUG_STACKTRACES
     CVMMethodTypeID printlnTid;
+    CVMMethodTypeID getCauseTid;
     CVMMethodBlock* java_lang_Throwable_fillInStackTrace;
 #ifdef CVM_DEBUG
     CVMFieldBlock*  java_lang_System_out;
@@ -431,6 +438,9 @@ struct CVMGlobalState {
     CVMClassPath         appClassPath;
     
     CVMUint16            classVerificationLevel;
+#ifdef CVM_SPLIT_VERIFY
+    CVMBool              splitVerify;
+#endif
     void*                cvmDynHandle;
     
     /* Stuff for native application class loading */
@@ -446,7 +456,7 @@ struct CVMGlobalState {
 #endif /* CVM_CLASSLOADING */
 
 #ifdef CVM_AOT
-    CVMMethodBlock*     sun_mtask_Warmup_runit;
+    CVMMethodBlock*     sun_misc_Warmup_runit;
 #endif
 
     /*
@@ -458,20 +468,21 @@ struct CVMGlobalState {
     CVMPackage* packages[CVM_PKGINFO_HASHSIZE];
     CVMUint16   numPackages;
 
+#ifdef CVM_DUAL_STACK
+    const CVMClassRestrictions* dualStackMemberFilter;
+    /* sun.misc.MIDPImplementationClassLoader class type id */
+    CVMClassTypeID midpImplClassLoaderTid;
+    /* sun.misc.MIDletClassLoader class type id */
+    CVMClassTypeID midletClassLoaderTid;
+#endif
+
 #ifdef CVM_JVMTI
-    CVMBool jvmtiDebuggingEnabled;
-    /* are one or more fields being watched?
-     * these flags are accessed by the interpreter to determine if
-     * jvmti should be notified.
-     */
-    CVMBool jvmtiWatchingFieldAccess; /* set ONLY by jvmt */
-    CVMBool jvmtiWatchingFieldModification; /* set ONLY by jvmti */
+    CVMJvmtiGlobals jvmti;
 #endif
 
 #ifdef CVM_JVMPI
     /* JVMPI flags: */
     CVMJvmpiRecord jvmpiRecord;
-
     CVMProfiledMonitor *objMonitorList;
     CVMProfiledMonitor *rawMonitorList;
     CVMSysMutex jvmpiSyncLock;  /* Protect insertion into the Monitor Lists. */
@@ -542,6 +553,16 @@ struct CVMGlobalState {
      */
     CVMBool fullShutdown;
 
+    /*
+     * True if we should hang in an infinite loop when starting the vm.
+     * This is useful when debugging CVM as a shared library, since it
+     * is often not possible to set breakpoints until after CVM is invoked.
+     */
+    volatile CVMBool hangOnStartup;
+
+    /* If true, no limit on the size of global roots stacks. */
+    CVMBool unlimitedGCRoots;
+
 #ifdef CVM_XRUN
     /*
      * A list to keep track of shared native library loaded by the
@@ -558,7 +579,7 @@ struct CVMGlobalState {
      * object handle and the function pointer of calling Agent_OnUnLoad at VM
      * exit.
      */
-    CVMAgentTable agentonUnloadTable;
+    CVMAgentTable agentTable;
 #endif
     /*
      * exit_procs contains exitHandle() function pointer to exit 
@@ -582,11 +603,6 @@ struct CVMGlobalState {
        here. If we don't do an undo, we put these items in the pending
        queue. */
     CVMObject* deferredWeakrefsToAddToPending;
-
-#ifdef CVM_JVMTI
-    /* JVMTI-specific globally defined static variables */
-    JVMTI_Static jvmtiStatics;
-#endif
 
 #if defined(CVM_HAVE_DEPRECATED) || defined(CVM_THREAD_SUSPENSION)
     CVMBool suspendCheckerInitialized;
@@ -634,6 +650,9 @@ struct CVMGlobalState {
 #ifdef CVM_INSPECTOR
     CVMInspector inspector;
 #endif
+
+    loopProcPtr CVMgcUnsafeExecuteJavaMethodProcPtr;
+
 };
 
 #define CVM_CSTATE(x)  (&CVMglobals.cstate[(x)])
@@ -656,6 +675,10 @@ CVMoptParseXoptOptions(const char* optAttributesStr);
 
 extern CVMBool
 CVMoptParseXssOption(const char* optAttributesStr);
+
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+extern void CVMdumpGlobalsSubOptionValues();
+#endif /* CVM_DEBUG || CVM_INSPECTOR */
 
 extern CVMGlobalState CVMglobals;
 extern CVMBool

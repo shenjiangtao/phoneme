@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -93,8 +93,8 @@ $(CVMLAUNCHER_MMP) : FORCE
 	$(AT)for s in $(CVM_DEFINES); do \
 		printf "MACRO %s\n" $$s | sed -e 's/-D//g'; \
 	done >> $@
-	$(AT)for s in $(CVM_INCLUDES); do \
-		printf "USERINCLUDE %s\n" $$s | sed -e 's/-I//g'; \
+	$(AT)for s in $(ALL_INCLUDE_DIRS); do \
+		printf "USERINCLUDE %s\n" $$s; \
 	done >> $@
 	$(AT)echo SOURCEPATH ../../src/symbian/bin>> $@
 	$(AT)echo SOURCE java_md.cpp >> $@
@@ -126,8 +126,8 @@ endif
 	$(AT)for s in $(CVM_DEFINES); do \
 		printf "MACRO %s\n" $$s | sed -e 's/-D//g'; \
 	done >> $@
-	$(AT)for s in $(CVM_INCLUDES); do \
-		printf "USERINCLUDE %s\n" $$s | sed -e 's/-I//g'; \
+	$(AT)for s in $(ALL_INCLUDE_DIRS); do \
+		printf "USERINCLUDE %s\n" $$s; \
 	done >> $@
 
 $(CVM_OBJDIR)/%.o: %.cc
@@ -162,7 +162,7 @@ $(TLS_LIB) : SO_LINKFLAGS += /nodefaultlib
 $(TLS_LIB) : SO_LINKFLAGS += /entry:_E32Dll /include:'?_E32Dll@@YGHPAXI0@Z'
 
 $(TLS_LIB) : $(CVM_OBJDIR)/threads_md_dll.o
-	$(AT)$(SO_LINK_CMD)
+	$(AT)$(call SO_LINK_CMD, $^,)
 
 $(CVM_OBJDIR)/threads_md_dll.o : threads_md.cpp
 	@echo "c++ $@"

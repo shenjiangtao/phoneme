@@ -1,7 +1,7 @@
 /*
  * @(#)ClassDependenceAnalyzer.java	1.17 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -142,7 +142,7 @@ public class ClassDependenceAnalyzer extends DependenceAnalyzer {
 	// find all the constants mentioned in the constant
 	// pool. Call them dependences.
 	//
-	ConstantObject ctable[] = ci.constants;
+	ConstantObject ctable[] = ci.getConstantPool().getConstants();
 	if ( ctable != null ){
 	    int nconst = ctable.length;
 	    for ( int i = 0; i < nconst ; i++ ){
@@ -177,11 +177,11 @@ public class ClassDependenceAnalyzer extends DependenceAnalyzer {
 	if ( classFileStream == null ){
 	    return null;
 	}
-	ClassFile cf = new ClassFile( className, classFileStream, false );
-	if ( ! cf.readClassFile( null ) ){
+	ClassFile cfile = new ClassFile( className, classFileStream, false );
+	if ( ! cfile.readClassFile() ){
 	    return null;
 	}
-	return cf.clas;
+	return cfile.cinfo;
     }
 
     private void newDependence( DependenceNode here, DependenceNode there )

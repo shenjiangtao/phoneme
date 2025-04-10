@@ -1,7 +1,7 @@
 /*
  * @(#)canonicalize_md.c	1.16 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -49,6 +49,7 @@
 	#include <errno.h>
 #else
 	#include "javavm/include/porting/ansi/errno.h"
+	#include "javavm/include/wceUtil.h"
 #endif
 
 #include <limits.h>
@@ -253,12 +254,18 @@ wcanonicalize(WCHAR *orig_path, WCHAR *result, int size)
         return -1;
     }
 
+#ifdef WINCE
+    if (!WINCEpathRemoveDots(path, orig_path, sizeof path / sizeof path[0])) {
+	return -1;
+    }
+#else
     /* Collapse instances of "foo\.." and ensure absoluteness.  Note that
        contrary to the documentation, the _fullpath procedure does not require
        the drive to be available.  */
     if(!_wfullpath(path, orig_path, sizeof(path)/2)) {
         return -1;
     }
+#endif
 
     if (wdots(path)) /* Check for phohibited combinations of dots */
         return -1;
@@ -292,7 +299,11 @@ wcanonicalize(WCHAR *orig_path, WCHAR *result, int size)
         if (!(dst = wcp(dst, dend, L'\0', src, p)))
             return -1;
         src = p;
-    } else {
+    } else
+#ifdef WINCE
+    if (src[0] != L'\\')
+#endif
+    {
         /* Invalid path */
         errno = EINVAL;
         return -1;
@@ -316,31 +327,32 @@ wcanonicalize(WCHAR *orig_path, WCHAR *result, int size)
             if (!(dst = wcp(dst, dend, L'\\', fd.cFileName, 
                            fd.cFileName + wcslen(fd.cFileName))))
                 return -1;
-        src = p;
-        continue;
-    } else {
-        /* If the lookup of a particular prefix fails because the file does
-           not exist, because it is of the wrong type, or because access is
-           denied, then we copy the remainder of the input path as-is.
-           Other I/O errors cause an error return. */
-        DWORD errval = GetLastError();
-        if ((errval == ERROR_FILE_NOT_FOUND)
-            || (errval == ERROR_DIRECTORY)
-            || (errval == ERROR_PATH_NOT_FOUND)
-            || (errval == ERROR_BAD_NETPATH)
-            || (errval == ERROR_BAD_NET_NAME)
-            || (errval == ERROR_ACCESS_DENIED)
-            || (errval == ERROR_NETWORK_ACCESS_DENIED)) {
-            if (!(dst = wcp(dst, dend, L'\0', src, src + wcslen(src))))
-                return -1;
-            break;
+            src = p;
+            continue;
         } else {
+            /* If the lookup of a particular prefix fails because the file does
+               not exist, because it is of the wrong type, or because access is
+               denied, then we copy the remainder of the input path as-is.
+               Other I/O errors cause an error return. */
+            DWORD errval = GetLastError();
+            if ((errval == ERROR_FILE_NOT_FOUND)
+                || (errval == ERROR_DIRECTORY)
+                || (errval == ERROR_PATH_NOT_FOUND)
+                || (errval == ERROR_BAD_NETPATH)
+                || (errval == ERROR_BAD_NET_NAME)
+                || (errval == ERROR_ACCESS_DENIED)
+                || (errval == ERROR_NO_MORE_FILES)
+                || (errval == ERROR_NETWORK_ACCESS_DENIED)) {
+                if (!(dst = wcp(dst, dend, L'\0', src, src + wcslen(src))))
+                    return -1;
+                break;
+            } else {
 #ifdef DEBUG_PATH
-            jio_fprintf(stderr, "canonicalize: errval %d\n", errval);
+                jio_fprintf(stderr, "canonicalize: errval %d\n", errval);
 #endif DEBUG_PATH
-            return -1;
+                return -1;
+            }
         }
-    }
     }
 
     if (dst >= dend) {

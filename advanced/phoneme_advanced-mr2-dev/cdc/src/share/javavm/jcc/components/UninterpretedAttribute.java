@@ -1,7 +1,7 @@
 /*
  * @(#)UninterpretedAttribute.java	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -90,7 +90,7 @@ class UninterpretedAttribute extends Attribute
     }
 
     //
-    // for those cases where we alread read the name index
+    // for those cases where we already read the name index
     // and know that its not something requiring special handling.
     //
     public static Attribute

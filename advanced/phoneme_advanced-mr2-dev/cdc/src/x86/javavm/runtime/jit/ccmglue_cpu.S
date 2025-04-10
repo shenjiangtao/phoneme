@@ -1,27 +1,28 @@
 /*
  * @(#)ccmglue_cpu.S	1.7 06/10/23
  * 
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+ * Reserved.  Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -37,12 +38,16 @@
 #include "javavm/include/jit/jitcisc_cpu.h"
 #include "javavm/include/porting/sync.h"
 
-#ifdef CVM_JIT_DEBUG
+#if (CVM_FASTLOCK_TYPE != CVM_FASTLOCK_ATOMICOPS)
+#error "Only CVM_FASTLOCK_TYPE == CVM_FASTLOCK_ATOMICOPS supported"
+#endif
+
+#ifdef CVM_DEBUG_ASSERTS
 .file "ccmglue_cpu.S"
 ccmglue_cpu_filename:
-.string "ccmglue_cpu.S"
+.asciz "ccmglue_cpu.S"
 CVMCCMruntimeThrowNullPointerExceptionGlue_assert_expression:
-.string "%eax == (%esp)"
+.asciz "%eax == (%esp)"
 #endif
 
 /* CVMCCMruntimeThrowDivideByZeroGlue */
@@ -423,7 +428,7 @@ ENTRY(CVMCCMruntimeMonitorEnterGlue )
 #else
 
 	cmpl	$0, A3
-#ifdef CVM_JIT_DEBUG
+#ifdef CVM_DEBUG_ASSERTS
 	movl	(%esp), A1
 #endif
 	je	SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlue)
@@ -463,10 +468,9 @@ ENTRY(CVMCCMruntimeMonitorEnterGlue )
 	# lockrec->object = obj:
 	movl	OBJ, OFFSET_CVMOwnedMonitor_object(LOCKREC)
 
-#if (CVM_FASTLOCK_TYPE != CVM_FASTLOCK_NONE) 
 	# lockrec->count = 1:
-	movl	$1, OFFSET_CVMOwnedMonitor_count(LOCKREC)		/* Initial lock re-entry count */
-#endif
+	/* Initial lock re-entry count */
+	movl	$1, OFFSET_CVMOwnedMonitor_count(LOCKREC) 
 #ifdef CVM_DEBUG
 	# lockrec->state = CONSTANT_CVM_OWNEDMON_OWNED:
 	movl	$CONSTANT_CVM_OWNEDMON_OWNED, OFFSET_CVMOwnedMonitor_state(LOCKREC)
@@ -519,9 +523,7 @@ ENTRY(CVMCCMruntimeMonitorEnterGlue )
 _monenterFastFailed:
 #ifdef CVM_DEBUG
 	# lockrec->state = CONSTANT_CVM_OWNEDMON_FREE:
-#if (CVM_FASTLOCK_TYPE != CVM_FASTLOCK_NONE) 
 	movl	$0, OFFSET_CVMOwnedMonitor_count(LOCKREC)
-#endif        
 	movl	$CONSTANT_CVM_OWNEDMON_FREE, OFFSET_CVMOwnedMonitor_state(LOCKREC)
 #endif
 
@@ -545,22 +547,19 @@ _monenterFastFailed:
 #define EXPECTED_CNT    A1
 #define NEW_COUNT       A4
 
-#if (CVM_FASTLOCK_TYPE != CVM_FASTLOCK_NONE) 
 	# If we get here, then we are re-entering the lock:
 	movl	OFFSET_CVMOwnedMonitor_count(LOCKREC), EXPECTED_CNT
 	cmpl	$CONSTANT_CVM_INVALID_REENTRY_COUNT, EXPECTED_CNT
 	je	_monenterFastReentryFailed
-#endif        
-
 	movl	EXPECTED_CNT, NEW_COUNT
 	incl	NEW_COUNT
-#if (CVM_FASTLOCK_TYPE != CVM_FASTLOCK_NONE) 
 	CVMJITX86_CMPXCHG(NEW_COUNT, OFFSET_CVMOwnedMonitor_count(LOCKREC))
-	/* cmpxchg sets ZF := OFFSET_CVMOwnedMonitor_count(LOCKREC) == EXPECTED_CNT */
-	jne	_monenterFastReentryFailed
-#endif
 #undef EXPECTED_CNT
 #undef NEW_COUNT
+	/* Reload EE since it was clobbered by NEW_COUNT */
+	movl    4 + OFFSET_CVMCCExecEnv_ee(%esp), EE
+	/* cmpxchg sets ZF := OFFSET_CVMOwnedMonitor_count(LOCKREC) == EXPECTED_CNT */
+	jne	_monenterFastReentryFailed
 
 	movl	4 + OFFSET_CVMCCExecEnv_ccmStorage(%esp), %esi
 	ret
@@ -603,7 +602,7 @@ ENTRY(CVMCCMruntimeMonitorExitGlue )
 
 #else
 	cmpl	$0, A3
-#ifdef CVM_JIT_DEBUG
+#ifdef CVM_DEBUG_ASSERTS
 	movl	(%esp), A1
 #endif
 	je	SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlue)
@@ -648,22 +647,18 @@ ENTRY(CVMCCMruntimeMonitorExitGlue )
 #define EXPECTED_CNT    A1
 #define NEW_COUNT       A4
 
-#if (CVM_FASTLOCK_TYPE != CVM_FASTLOCK_NONE) 
 	/* If we get here, then the current thread does own the monitor,
            and all is well.  Proceed with unlocking: */
 	movl	OFFSET_CVMOwnedMonitor_count(LOCKREC), EXPECTED_CNT
 	cmpl	$CONSTANT_CVM_INVALID_REENTRY_COUNT, EXPECTED_CNT
 	je	_monexitFastTryUnlockFailed
-#endif
 	movl	EXPECTED_CNT, NEW_COUNT
 	decl	NEW_COUNT
 	jz	_monexitDoUnlock	/* If zero, then unlock */
 
-#if (CVM_FASTLOCK_TYPE != CVM_FASTLOCK_NONE) 
 	/* new monitor count > 0, so just update it and we're done */
 	CVMJITX86_CMPXCHG(NEW_COUNT, OFFSET_CVMOwnedMonitor_count(LOCKREC))
 	jne	_monexitFastTryUnlockFailed
-#endif	
 	/* we're done! monitor count was successfully decrement */
 	movl	4 + OFFSET_CVMCCExecEnv_ccmStorage(%esp), %esi
 	ret	/* return to caller */
@@ -683,9 +678,7 @@ _monexitDoUnlock:
 
 #ifdef CVM_DEBUG
 	# Make the lockrec play nice with the debug assertions:
-#if (CVM_FASTLOCK_TYPE != CVM_FASTLOCK_NONE) 
 	movl	$0, OFFSET_CVMOwnedMonitor_count(LOCKREC)
-#endif        
 	movl	$CONSTANT_CVM_OWNEDMON_FREE, OFFSET_CVMOwnedMonitor_state(LOCKREC)
 	
 	movl	$0, OFFSET_CVMOwnedMonitor_u_fast_bits(LOCKREC)
@@ -753,7 +746,7 @@ ENTRY(CVMCCMruntimeThrowNullPointerExceptionGlue )
 	ffree	%st(5)
 	ffree	%st(6)
 	ffree	%st(7)
-#if defined(CVM_JIT_DEBUG) && defined(CVMJIT_TRAP_BASED_NULL_CHECKS)
+#if defined(CVM_DEBUG_ASSERTS) && defined(CVMJIT_TRAP_BASED_NULL_CHECKS)
 	cmpl	(%esp), A1	/* see handleSegv */
 	je	CVMCCMruntimeThrowNullPointerExceptionGlue_passed_assert
 	pushl	$CVMCCMruntimeThrowNullPointerExceptionGlue_assert_expression
@@ -802,7 +795,7 @@ SET_SIZE( CVMCCMruntimeGCRendezvousGlue )
 /* call CVMCCMruntimeSimpleSyncUnlock */
 #if defined(CVMJIT_SIMPLE_SYNC_METHODS) && \
     (CVM_FASTLOCK_TYPE == CVM_FASTLOCK_ATOMICOPS)
-ENTRY ( CVMCCMruntimeSimpleSyncUnlockGlue )
+ENTRY(CVMCCMruntimeSimpleSyncUnlockGlue)
 	CALL_HELPER_2(A3 /* scratch */, EE_AS_ARG, AS_ARG(A2), \
 	    SYM_NAME(CVMCCMruntimeSimpleSyncUnlock))
 SET_SIZE( CVMCCMruntimeSimpleSyncUnlockGlue )

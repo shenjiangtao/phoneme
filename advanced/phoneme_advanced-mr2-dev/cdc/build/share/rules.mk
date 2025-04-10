@@ -1,7 +1,6 @@
 #
-# @(#)rules.mk	1.175 06/10/27
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -23,6 +22,43 @@
 # Clara, CA 95054 or visit www.sun.com if you need additional
 # information or have any questions. 
 #
+
+#####################################
+#  Check for obsolete definitions that may have been made by defs files.
+#####################################
+
+
+# CVM include directories used to be specified with CVM_INCLUDES, and included
+# the -I option. Now they are specified with CVM_INCLUDE_DIRS and do not
+# include the -I option.
+ifdef CVM_INCLUDES
+$(error CVM_INCLUDES is no longer supported. Use CVM_INCLUDE_DIRS and remove the leading "-I".)
+else
+# force an error if referenced in a command line
+CVM_INCLUDES = "Do not reference CVM_INCLUDES"
+endif
+
+# Profile include directories used to be specified with PROFILE_INCLUDES, and 
+# included the -I option. Now they are specified with PROFILE_INCLUDE_DIRS
+# and do not include the -I option.
+ifdef PROFILE_INCLUDES
+$(error PROFILE_INCLUDES is no longer supported. Use PROFILE_INCLUDE_DIRS and remove the leading "-I".)
+else
+# force an error if referenced in a command line
+PROFILE_INCLUDES = "Do not reference PROFILE_INCLUDES"
+endif
+
+# PROFILE_INCLUDE_DIRS is a list of profile specific directories that contains
+# 	the profile specific include paths. These paths should be searched for
+#	include files before searching the base configuration include path.
+# CVM_INCLUDE_DIRS is a list of directories that defines the base configuration
+# 	include path. 
+# ALL_INCLUDE_DIRS combines the above lists. On most platforms it needs to
+# 	be converted to host from before used.
+# ALL_INCLUDE_FLAGS is ALL_INCLUDE_DIRS converted into the compiler
+# 	command line option for C include directories.
+ALL_INCLUDE_DIRS	:= $(PROFILE_INCLUDE_DIRS) $(CVM_INCLUDE_DIRS)
+ALL_INCLUDE_FLAGS	:= $(call makeIncludeFlags,$(ALL_INCLUDE_DIRS))
 
 #
 #  Common makefile rules
@@ -110,7 +146,11 @@ endif
 	@echo "TARGET_LD     = $(TARGET_LD_PATH)"
 	@echo "TARGET_AR     = $(TARGET_AR_PATH)"
 	@echo "TARGET_RANLIB = $(TARGET_RANLIB_PATH)"
+ifeq ($(CVM_BUILD_SO), true)
+	@echo "SO_LINKFLAGS  = $(SO_LINKFLAGS)"
+else
 	@echo "LINKFLAGS  = $(LINKFLAGS)"
+endif
 	@echo "LINKLIBS   = $(LINKLIBS)"
 	@echo "ASM_FLAGS  = $(ASM_FLAGS)"
 	@echo "CCCFLAGS   = $(CCCFLAGS)"
@@ -175,6 +215,7 @@ endif
 # Allow profile classes to override all others.
 #
 JAVA_SRCDIRS += \
+	$(PROFILE_VMIMPLCLASSES_SRCDIR) $(CVM_VMIMPLCLASSES_SRCDIR) \
 	$(OPT_PKGS_SRCPATH) $(PROFILE_SRCDIRS) \
 	$(CVM_SHAREDCLASSES_SRCDIR) $(CVM_TARGETCLASSES_SRCDIR) \
 	$(CVM_CLDCCLASSES_SRCDIR) \
@@ -198,30 +239,142 @@ CLASSLIB_CLASSES += $(OPT_PKGS_CLASSES)
 # If CVM_PRELOAD_LIB is set, all CLASSLIB_CLASSES will be added
 # into CVM_BUILDTIME_CLASSES. 
 #
-ifeq ($(CVM_PRELOAD_LIB), true)
-CVM_BUILDTIME_CLASSES += $(CLASSLIB_CLASSES)
+
+CVM_PRELOAD_CLASSES = $(CVM_BUILDTIME_CLASSES_min)
+
+_CVM_PRELOAD_SET := $(patsubst %full,%,$(CVM_PRELOAD_SET))
+
+ifeq ($(_CVM_PRELOAD_SET), min)
+    CVM_LIB_CLASSES += $(CVM_BUILDTIME_CLASSES_nullapp)
+    CVM_LIB_CLASSES += $(CVM_BUILDTIME_CLASSES)
+    CVM_LIB_CLASSES += $(CLASSLIB_CLASSES)
+    CVM_BT_nullapp_CLASSESDIR = $(LIB_CLASSESDIR)
+else
+ifeq ($(_CVM_PRELOAD_SET), nullapp)
+    CVM_PRELOAD_CLASSES += $(CVM_BUILDTIME_CLASSES_nullapp)
+    CVM_LIB_CLASSES += $(CVM_BUILDTIME_CLASSES)
+    CVM_LIB_CLASSES += $(CLASSLIB_CLASSES)
+    CVM_BT_nullapp_CLASSESDIR = $(CVM_BUILDTIME_CLASSESDIR)
+else
+ifeq ($(_CVM_PRELOAD_SET), oldbt)
+    CVM_PRELOAD_CLASSES += $(CVM_BUILDTIME_CLASSES_nullapp)
+    CVM_PRELOAD_CLASSES += $(CVM_BUILDTIME_CLASSES)
+    CVM_LIB_CLASSES += $(CLASSLIB_CLASSES)
+    CVM_BT_nullapp_CLASSESDIR = $(CVM_BUILDTIME_CLASSESDIR)
+else
+ifeq ($(_CVM_PRELOAD_SET), lib)
+    CVM_PRELOAD_CLASSES += $(CVM_BUILDTIME_CLASSES_nullapp)
+    CVM_PRELOAD_CLASSES += $(CVM_BUILDTIME_CLASSES)
+    CVM_PRELOAD_CLASSES += $(CLASSLIB_CLASSES)
+    CVM_BT_nullapp_CLASSESDIR = $(CVM_BUILDTIME_CLASSESDIR)
+else
+ifeq ($(_CVM_PRELOAD_SET), libtest)
+    CVM_PRELOAD_CLASSES += $(CVM_BUILDTIME_CLASSES_nullapp)
+    CVM_PRELOAD_CLASSES += $(CVM_BUILDTIME_CLASSES)
+    CVM_PRELOAD_CLASSES += $(CLASSLIB_CLASSES)
+    CVM_BT_nullapp_CLASSESDIR = $(CVM_BUILDTIME_CLASSESDIR)
+else
+    $(error Unknown value '$(CVM_PRELOAD_SET)' for CVM_PRELOAD_SET)
 endif
+endif
+endif
+endif
+endif
+
+CVM_PRELOAD_CLASSES := $(CVM_PRELOAD_CLASSES)
+CVM_LIB_CLASSES := $(CVM_LIB_CLASSES)
+
+CVM_BUILDTIME_CLASSES := $(CVM_PRELOAD_CLASSES)
+CLASSLIB_CLASSES := $(CVM_LIB_CLASSES)
+
+ifeq ($(CVM_PRELOAD_FULL_CLOSURE), true)
+CVM_ALLOW_UNRESOLVED ?= false
+else
+CVM_ALLOW_UNRESOLVED ?= true
+endif
+
+CVM_DUPLICATES = $(filter $(CLASSLIB_CLASSES), $(CVM_BUILDTIME_CLASSES))
+ifneq ($(CVM_DUPLICATES),)
+$(error \
+    Duplicate classes found in CVM_BUILDTIME_CLASSES and CLASSLIB_CLASSES: \
+    $(CVM_DUPLICATES))
+endif
+
+CVM_BT_min_CLASSESDIR = $(CVM_BUILDTIME_CLASSESDIR)
 
 #
 # Build various lists of classes to be compiled
 #
 
-# buildClassesList(classesTarget,classesList,class)
+# buildClassesList(classesTarget,class)
+ifeq ($(EVAL_SUPPORTED),true)
 define buildClassesList
-	@echo $(call POSIX2HOST,$(3)) >>$(CVM_BUILD_TOP)/$(2)
-	@touch $(CVM_BUILD_TOP)/$(1)
+	$(eval BUILD$(1) += $(2))
 endef
-
-# Non-preloaded classes except for test classes
-ifneq ($(CVM_PRELOAD_LIB), true)
-$(LIB_CLASSESDIR)/%.class: %.java
-	@echo $(subst /,.,$*) >>$(CVM_BUILD_TOP)/.javahclasses.list
-	$(call buildClassesList,.libclasses,.libclasses.list,$?)
+else
+define buildClassesList
+	@echo '$(2)' >> $(CVM_BUILD_TOP)/$(1).plist
+endef
 endif
 
 # preloaded classes except for test classes
-$(CVM_BUILDTIME_CLASSESDIR)/%.class: %.java
-	$(call buildClassesList,.btclasses,.btclasses.list,$?)
+
+$(CVM_BUILDTIME_CLASSESDIR)/%.class :: %.java
+	$(call buildClassesList,.btclasses,$?)
+	@echo $*.class >>$(CVM_BUILD_TOP)/.btclasses.clist
+
+# handle hidden dependencies, which include inner classes
+# and private classes that do not have their own .java
+# file
+$(CVM_BUILDTIME_CLASSESDIR)/%.class ::
+	@if [ '$?' != '$(filter %.java,$?)' ]; then \
+	    echo '$@' depends on '$?'! 1>&2; \
+	    false; \
+	fi
+	@if [ '$?' = '' ]; then \
+	    echo '$@' dependency missing! 1>&2; \
+	    echo See rules_cdc.mk 1>&2; \
+	    false; \
+	fi
+	@echo '$*.class' >>$(CVM_BUILD_TOP)/.btclasses.clist
+
+# Non-preloaded classes except for test classes
+
+ifneq ($(CVM_PRELOAD_ALL), true)
+
+ifeq ($(CVM_PRELOAD_FULL_CLOSURE), true)
+# If the class ends up in btclasses, don't compile again
+# into libclasses.
+$(LIB_CLASSESDIR)/%.class :: $(CVM_BUILDTIME_CLASSESDIR)/%.class
+ifeq ($(EVAL_SUPPORTED),true)
+	$(eval BUILDjavahclasses += $(subst /,.,$*))
+else
+	@echo '$(subst /,.,$*)' >>$(CVM_BUILD_TOP)/.javahclasses.list
+endif
+endif
+
+$(LIB_CLASSESDIR)/%.class :: %.java
+ifeq ($(EVAL_SUPPORTED),true)
+	$(eval BUILDjavahclasses += $(subst /,.,$*))
+else
+	@echo '$(subst /,.,$*)' >>$(CVM_BUILD_TOP)/.javahclasses.list
+endif
+	$(call buildClassesList,.libclasses,$?)
+
+# handle hidden dependencies
+$(LIB_CLASSESDIR)/%.class ::
+	@if [ '$?' != '$(filter %.java,$?)' ]; then \
+	    echo '$@' depends on '$?'! 1>&2; \
+	    false; \
+	fi
+	@if [ '$?' = '' ]; then \
+	    echo '$@' dependency missing! 1>&2; \
+	    echo See rules_cdc.mk 1>&2; \
+	    false; \
+	fi
+	@echo '$*.class' >>$(CVM_BUILD_TOP)/.libclasses.clist
+
+endif
 
 # TODO: Build a jsr jar file and have a rule that makes the jar file
 # dependent on all the source files, and builds a list of files to
@@ -236,15 +389,15 @@ $(CVM_BUILDTIME_CLASSESDIR)/%.class: %.java
 #	$(appendjavafiles)
 
 # Include Optional packages rules
--include ../share/rules_op.mk
+-include $(CDC_DIR)/build/share/rules_op.mk
 
 # Test classes
 $(CVM_TEST_CLASSESDIR)/%.class: %.java
-	$(call buildClassesList,.testclasses,.testclasses.list,$?)
+	$(call buildClassesList,.testclasses,$?)
 
 # demo classes
 $(CVM_DEMO_CLASSESDIR)/%.class: %.java
-	$(call buildClassesList,.democlasses,.democlasses.list,$?)
+	$(call buildClassesList,.democlasses,$?)
 
 #
 # Convert the class lists to names of class files so they can be javac'd.
@@ -252,7 +405,7 @@ $(CVM_DEMO_CLASSESDIR)/%.class: %.java
 #
 
 # CLASSLIB_CLASSES are compiled as BUILDTIME_CLASSES when romized
-ifneq ($(CVM_PRELOAD_LIB), true)
+ifneq ($(CVM_PRELOAD_ALL), true)
 CLASSLIB_CLASS0 = $(subst .,/,$(CLASSLIB_CLASSES))
 CLASSLIB_CLASS_FILES = \
 	$(patsubst %,$(LIB_CLASSESDIR)/%.class,$(CLASSLIB_CLASS0))
@@ -268,6 +421,7 @@ TEST_CLASS_FILES = \
 
 DEMO_CLASS0 = $(subst .,/,$(CVM_DEMO_CLASSES))
 DEMO_CLASS_FILES = $(patsubst %,$(CVM_DEMO_CLASSESDIR)/%.class,$(DEMO_CLASS0))
+
 
 # Convert list of Java source directories to colon-separated paths
 JAVACLASSES_SRCPATH = \
@@ -293,18 +447,52 @@ endif
 # Convert list of jar files to colon-separated path
 TEST_JARFILES = $(subst $(space),$(PS),$(strip $(CVM_TEST_JARFILES)))
 
+$(CVM_BUILD_TOP)/%.list : $(CVM_BUILD_TOP)/%.plist
+	@$(POSIX2HOST_FILTER) < $< > $@
+	@$(RM) $<
+
+$(CVM_BUILD_TOP)/.libclasses.plist : $(CLASSLIB_CLASS_FILES) $(CLASSLIB_JAR_FILES)
+ifeq ($(EVAL_SUPPORTED),true)
+	@printf %s '$(value BUILDjavahclasses)' > \
+	    $(CVM_BUILD_TOP)/.javahclasses.list
+	@printf %s '$(BUILD.libclasses)' > $@
+else
+	@touch $@
+endif
+
+$(CVM_BUILD_TOP)/.btclasses.plist : $(BUILDTIME_CLASS_FILES)
+ifeq ($(EVAL_SUPPORTED),true)
+	@printf %s "$(BUILD.btclasses)" > $@
+else
+	@touch $@
+endif
+
+$(CVM_BUILD_TOP)/.testclasses.plist : $(TEST_CLASS_FILES)
+ifeq ($(EVAL_SUPPORTED),true)
+	@printf %s "$(BUILD.testclasses)" > $@
+else
+	@touch $@
+endif
+
+$(CVM_BUILD_TOP)/.democlasses.plist : $(DEMO_CLASS_FILES)
+ifeq ($(EVAL_SUPPORTED),true)
+	@printf %s "$(BUILD.democlasses)" > $@
+else
+	@touch $@
+endif
+
 .delete.libclasses.list:
-	@$(RM) $(CVM_BUILD_TOP)/.libclasses.list
+	@$(RM) $(CVM_BUILD_TOP)/.libclasses.*list
 	@$(RM) $(CVM_BUILD_TOP)/.javahclasses.list
 
 .delete.btclasses.list:
-	@$(RM) $(CVM_BUILD_TOP)/.btclasses.list
+	@$(RM) $(CVM_BUILD_TOP)/.btclasses.*list
 
 .delete.testclasses.list:
-	@$(RM) $(CVM_BUILD_TOP)/.testclasses.list
+	@$(RM) $(CVM_BUILD_TOP)/.testclasses.*list
 
 .delete.democlasses.list:
-	@$(RM) $(CVM_BUILD_TOP)/.democlasses.list
+	@$(RM) $(CVM_BUILD_TOP)/.democlasses.*list
 
 .report.libclasses.list:
 	@echo "Checking for $(J2ME_PRODUCT_NAME) classes to compile ..."
@@ -318,29 +506,85 @@ TEST_JARFILES = $(subst $(space),$(PS),$(strip $(CVM_TEST_JARFILES)))
 .report.democlasses.list:
 	@echo "Checking for demo classes to compile ..."
 
-.compile.libclasses:
+# Find all the generated btclasses
+CVM_BT_FILES0 = $(wildcard \
+      $(CVM_BUILDTIME_CLASSESDIR)/*/*/*.class \
+      $(CVM_BUILDTIME_CLASSESDIR)/*/*/*/*.class \
+      $(CVM_BUILDTIME_CLASSESDIR)/*/*/*/*/*.class \
+      $(CVM_BUILDTIME_CLASSESDIR)/*/*/*/*/*/*.class)
+CVM_BT_FILES = $(CVM_BT_FILES0)
+
+ifeq ($(CVM_PRELOAD_FULL_CLOSURE), true)
+$(CVM_BUILD_TOP)/.btclasses.plist : $(CVM_BT_FILES)
+endif
+
+CVM_BT_CLASS_FILES = $(patsubst %,%.class,$(BUILDTIME_CLASS0))
+
+.move.extra.btclasses: $(CLASSLIB_JAR_FILES)
+	$(AT)$(MAKE) .move.extra.btclasses2
+
+# javac problably found some dependencies that are not on
+# our list, so copy them to libclasses so they end up in
+# the jar file
+
+CVM_EXCLUDE_FILE = $(CVM_BUILD_TOP)/.EXCLUDE
+
+.move.extra.btclasses2: $(CVM_BUILD_TOP)/.libclasses.list
+ifneq ($(CVM_PRELOAD_FULL_CLOSURE), true)
+	@echo '$(CVM_BT_CLASS_FILES)' | tr ' ' '\n' | sort > $(CVM_EXCLUDE_FILE)
+	@rsync -qav --exclude-from=$(CVM_EXCLUDE_FILE) \
+	    $(CVM_BUILDTIME_CLASSESDIR)/ $(LIB_CLASSESDIR)/
+	@touch $(CVM_BUILD_TOP)/.libclasses;
+endif
+
+CVM_LIB_BOOTCLASSPATH = \
+    $(CVM_BUILDTIME_CLASSESZIP)$(PS)$(JAVACLASSES_CLASSPATH)
+
+.compile.libclasses: .move.extra.btclasses
 	$(AT)if [ -s $(CVM_BUILD_TOP)/.libclasses.list ] ; then		\
 		echo "Compiling $(J2ME_PRODUCT_NAME) classes...";	\
 		$(JAVAC_CMD)						\
 			-d $(LIB_CLASSESDIR) 				\
-			-bootclasspath $(CVM_BUILDTIME_CLASSESDIR) 	\
-			-classpath $(JAVACLASSES_CLASSPATH)             \
+			-bootclasspath $(CVM_LIB_BOOTCLASSPATH) 	\
+			-classpath -none-				\
 			-sourcepath $(JAVACLASSES_SRCPATH)		\
 			@$(CVM_BUILD_TOP)/.libclasses.list ;		\
+		touch $(CVM_BUILD_TOP)/.libclasses;			\
 	fi
 
-.compile.btclasses:
+CVM_BT_BOOTCLASSPATH = \
+    $(CVM_BUILDTIME_CLASSESDIR)$(PS)$(OPTPKGS_CLASSPATH)
+
+.cvm_bt_files:
+	$(AT)$(MAKE) .cvm_bt_files_check
+	$(AT)$(MAKE) $(CVM_BUILD_TOP)/.btclasses.list
+
+# We have files in btclasses/ but how about
+# btclasses.zip?
+.cvm_bt_files_check :
+ifneq ($(words $(CVM_BT_FILES)), 0)
+	@if [ ! -f $(CVM_BUILDTIME_CLASSESZIP) ]; then			\
+	    echo 'btclasses.zip is missing.  Cleaning up.';		\
+	    rm -rf $(CVM_BUILDTIME_CLASSESDIR);				\
+	    mkdir $(CVM_BUILDTIME_CLASSESDIR);				\
+	fi
+else
+	@true
+endif
+
+.compile.btclasses: .cvm_bt_files
 	$(AT)if [ -s $(CVM_BUILD_TOP)/.btclasses.list ] ; then		\
 		echo "Compiling build-time classes...";			\
 		$(JAVAC_CMD)						\
 			-d $(CVM_BUILDTIME_CLASSESDIR)			\
-			-bootclasspath $(CVM_BUILDTIME_CLASSESDIR) 	\
-			-classpath $(CVM_BUILDTIME_CLASSESDIR)$(PS)$(OPTPKGS_CLASSPATH)		\
+			-bootclasspath $(CVM_BT_BOOTCLASSPATH)	 	\
+			-classpath -none- \
 			-sourcepath $(JAVACLASSES_SRCPATH)		\
 			@$(CVM_BUILD_TOP)/.btclasses.list ;		\
+		touch $(CVM_BUILD_TOP)/.btclasses;			\
 	fi
 
-.compile.testclasses:
+.compile.testclasses: $(CVM_BUILD_TOP)/.testclasses.list
 	$(AT)if [ -s $(CVM_BUILD_TOP)/.testclasses.list ] ; then	\
 		echo "Compiling test classes...";			\
 		cp -f $(CVM_TESTCLASSES_SRCDIR)/TestSyncLocker.class	\
@@ -348,22 +592,24 @@ TEST_JARFILES = $(subst $(space),$(PS),$(strip $(CVM_TEST_JARFILES)))
 		$(JAVAC_CMD)						\
 			-d $(CVM_TEST_CLASSESDIR)			\
 			-bootclasspath 					\
-			   $(CVM_BUILDTIME_CLASSESDIR)$(PS)$(LIB_CLASSESDIR)\
+			   $(CVM_BUILDTIME_CLASSESZIP)$(PS)$(LIB_CLASSESDIR)\
 			-classpath $(CVM_TEST_CLASSESDIR)$(PS)$(TEST_JARFILES) \
 			-sourcepath $(TESTCLASSES_SRCPATH)		\
 			@$(CVM_BUILD_TOP)/.testclasses.list ;		\
+		touch $(CVM_BUILD_TOP)/.testclasses;			\
 	fi
 
-.compile.democlasses:
+.compile.democlasses: $(CVM_BUILD_TOP)/.democlasses.list
 	$(AT)if [ -s $(CVM_BUILD_TOP)/.democlasses.list ] ; then	\
 		echo "Compiling demo classes...";			\
 		$(JAVAC_CMD)						\
 			-d $(CVM_DEMO_CLASSESDIR)			\
 			-bootclasspath 					\
-			   $(CVM_BUILDTIME_CLASSESDIR)$(PS)$(LIB_CLASSESDIR)\
+			   $(CVM_BUILDTIME_CLASSESZIP)$(PS)$(LIB_CLASSESDIR)\
 			-classpath $(CVM_DEMO_CLASSESDIR) 		\
 			-sourcepath $(CVM_DEMOCLASSES_SRCPATH)		\
 			@$(CVM_BUILD_TOP)/.democlasses.list ;	\
+		touch $(CVM_BUILD_TOP)/.democlasses;			\
 	fi
 
 #
@@ -373,13 +619,21 @@ TEST_JARFILES = $(subst $(space),$(PS),$(strip $(CVM_TEST_JARFILES)))
 #     test classes
 #     demo classes
 # 
-$(J2ME_CLASSLIB)classes:: .delete.libclasses.list .report.libclasses.list $(CLASSLIB_CLASS_FILES) $(CLASSLIB_JAR_FILES) .compile.libclasses
+$(J2ME_CLASSLIB)classes:: .delete.libclasses.list .report.libclasses.list .compile.libclasses
 
-btclasses: .delete.btclasses.list .report.btclasses.list $(BUILDTIME_CLASS_FILES) .compile.btclasses
+# Compute the complete path for the .java files we need
+# to generate
+GENERATED_JAVA0 = $(subst .,/,$(GENERATED_CLASSES))
+GENERATED_JAVA_FILES = \
+	$(patsubst %,$(CVM_DERIVEDROOT)/classes/%.java,$(GENERATED_JAVA0))
 
-testclasses:: .delete.testclasses.list .report.testclasses.list $(TEST_CLASS_FILES) .compile.testclasses
+generatedclasses : $(GENERATED_JAVA_FILES)
 
-democlasses:: .delete.democlasses.list .report.democlasses.list $(DEMO_CLASS_FILES) .compile.democlasses
+btclasses: generatedclasses .delete.btclasses.list .report.btclasses.list .compile.btclasses
+
+testclasses:: .delete.testclasses.list .report.testclasses.list .compile.testclasses
+
+democlasses:: .delete.democlasses.list .report.democlasses.list .compile.democlasses
 
 #
 # Unit-testing related targets
@@ -388,11 +642,9 @@ democlasses:: .delete.democlasses.list .report.democlasses.list $(DEMO_CLASS_FIL
 
 .PHONY: build-unittests
 build-unittests::
-	$(AT)echo "Building cdc unit-tests ..."
 
 .PHONY: run-unittests
 run-unittests::
-	$(AT)echo "Running cdc unit-tests ..."
 
 # if jarfilename is specified, put jsrclasses in jar file
 ifeq ($(OP_JAR_FILENAME),)
@@ -405,9 +657,9 @@ endif
 # include jcc and jcs makefiles
 #####################################
 
-include ../share/jcc.mk
+include $(CDC_DIR)/build/share/jcc.mk
 ifeq ($(CVM_JIT),true)
-include ../share/jcs.mk
+include $(CDC_DIR)/build/share/jcs.mk
 endif
 
 #####################################
@@ -430,26 +682,47 @@ endif
 # 8) Create miscellneous files needed for the installation.
 #####################################
 
+# As a performance improvement, evaluate some flags in case
+# they contain shell commands.
+# NOTE: Disabled because this causes GCI build failures
+#$(J2ME_CLASSLIB):: CPPFLAGS := $(CPPFLAGS)
+
 $(J2ME_CLASSLIB):: initbuild
 $(J2ME_CLASSLIB):: btclasses $(CVM_BUILDTIME_CLASSESZIP)
 $(J2ME_CLASSLIB):: $(J2ME_CLASSLIB)classes $(LIB_CLASSESJAR)
 ifneq ($(JSR_CLASSES),)
 $(J2ME_CLASSLIB):: jsrclasses
 endif
+ifeq ($(JAVASE),)
 $(J2ME_CLASSLIB):: testclasses $(CVM_TEST_CLASSESZIP)
 $(J2ME_CLASSLIB):: democlasses $(CVM_DEMO_CLASSESJAR)
-ifeq ($(CVM_INCLUDE_JUMP), true)
+endif
+ifeq ($(USE_JUMP), true)
 $(J2ME_CLASSLIB):: jumptargets
 endif
-$(J2ME_CLASSLIB):: $(JSROP_JARS)
+$(J2ME_CLASSLIB):: $(JSROP_JARS) $(JSROP_AGENT_JARS)
 $(J2ME_CLASSLIB):: headers $(CVM_ROMJAVA_LIST)
+ifeq ($(CVM_STATICLINK_TOOLS),true)
+$(J2ME_CLASSLIB):: tools
+endif
 $(J2ME_CLASSLIB):: $(CLASSLIB_DEPS)
 $(J2ME_CLASSLIB):: aotdeps
 $(J2ME_CLASSLIB):: $(CVM_BINDIR)/$(CVM)
+ifneq ($(CVM_RESOURCES_DEPS),)
+$(J2ME_CLASSLIB):: $(CVM_RESOURCES_JAR)
+endif
+ifeq ($(JAVASE),)
 ifeq ($(CDC_10),true)
 $(J2ME_CLASSLIB):: $(CVM_TZDATAFILE)
 endif
-$(J2ME_CLASSLIB):: $(CVM_MIMEDATAFILE) $(CVM_PROPS_BUILD) $(CVM_POLICY_BUILD) $(CVM_MIDPFILTERCONFIG) $(CVM_MIDPCLASSLIST) $(JSR_RESTRICTED_CLASSLIST)
+$(J2ME_CLASSLIB):: $(CVM_MIMEDATAFILE) $(CVM_PROPS_BUILD) $(CVM_POLICY_BUILD)
+ifeq ($(CVM_DUAL_STACK), true)
+$(J2ME_CLASSLIB):: $(CVM_MIDPFILTERCONFIG) $(CVM_MIDPCLASSLIST) $(JSR_CDCRESTRICTED_CLASSLIST)
+endif
+ifeq ($(CVM_CREATE_RTJAR), true)
+$(J2ME_CLASSLIB):: $(CVM_RT_JAR)
+endif
+endif
 
 #####################################
 # make empty.mk depend on CVM_SRCDIRS
@@ -459,7 +732,7 @@ $(J2ME_CLASSLIB):: $(CVM_MIMEDATAFILE) $(CVM_PROPS_BUILD) $(CVM_POLICY_BUILD) $(
 
 $(CVM_DERIVEDROOT)/empty.mk: $(CVM_SRCDIRS) $(JAVA_SRCDIRS)
 	touch $(CVM_DERIVEDROOT)/empty.mk
-include $(CVM_DERIVEDROOT)/empty.mk
+-include $(CVM_DERIVEDROOT)/empty.mk
 
 
 #####################################
@@ -501,7 +774,7 @@ CVM_BUILD_DEFS_FLAGS += \
 CVM_BUILD_DEFS_VARS += \
 	$(foreach flag,$(strip $(CVM_BUILD_DEF_VARS)), '$(flag)	$($(flag))')
 
-$(CVM_BUILD_DEFS_H): $(wildcard ${CVM_BUILD_TOP}/../share/id*.mk)
+$(CVM_BUILD_DEFS_H): $(wildcard $(CDC_DIR)/build/share/id*.mk)
 	@echo ... generating $@
 	@echo "/*** Definitions generated at build time ***/" > $@
 	@echo "#ifndef _BUILD_DEFS_H" >> $@
@@ -529,8 +802,11 @@ $(CVM_BUILD_DEFS_MK)::
 	$(AT) echo "J2ME_CLASSLIB = $(J2ME_CLASSLIB)" >> $@
 	$(AT) echo "CVM_MTASK = $(CVM_MTASK)" >> $@
 	$(AT) echo "CVM_INCLUDE_JUMP = $(CVM_INCLUDE_JUMP)" >> $@
+	$(AT) echo "USE_JUMP = $(USE_JUMP)" >> $@
 	$(AT) echo "JUMP_DIR = $(JUMP_DIR)" >> $@
-	$(AT) echo "CVM_PRELOAD_LIB = $(CVM_PRELOAD_LIB)" >> $@
+	$(AT) echo 'CVM_PRELOAD_LIB = $(CVM_PRELOAD_LIB)' >> $@
+	$(AT) echo "CVM_DLL = $(CVM_DLL)" >> $@
+	$(AT) echo "CVM_STATICLINK_LIBS = $(CVM_STATICLINK_LIBS)" >> $@
 	$(AT) echo "CCFLAGS_SPEED = $(CCFLAGS_SPEED)" >> $@
 	$(AT) echo "" >> $@
 
@@ -671,7 +947,7 @@ endif
 
 $(CVM_FDLIB): $(CVM_FDLIB_FILES)
 	@echo lib $@
-	$(AT)$(call TARGET_AR_CREATE,$@) $^
+	$(AT)$(call TARGET_AR_CREATE,$@) $(call POSIX2HOST,$^)
 	$(AT)$(call TARGET_AR_UPDATE,$@)
 endif
 
@@ -722,10 +998,14 @@ endif
 
 $(CVM_BINDIR)/$(CVM) :: .generate.system_properties.c
 
+LINKCVM_OBJECTS = \
+	$(CVM_OBJECTS) $(CVM_OBJDIR)/$(CVM_ROMJAVA_O) $(CVM_FDLIB) \
+	$(CVM_SHA1OBJ) $(CVM_RESOURCES)
+
 ifneq ($(CVM_PROVIDE_TARGET_RULES), true)
-$(CVM_BINDIR)/$(CVM) :: $(CVM_OBJECTS) $(CVM_OBJDIR)/$(CVM_ROMJAVA_O) $(CVM_FDLIB) $(CVM_SHA1OBJ)
+$(CVM_BINDIR)/$(CVM) :: $(LINKCVM_OBJECTS) $(LINKCVM_EXTRA_DEPS)
 	@echo "Linking $@"
-	$(LINK_CMD) $(LINKLIBS_CVM)
+	$(call CVM_LINK_CMD, $(LINKCVM_OBJECTS) $(LINKCVM_EXTRA_OBJECTS), $(LINKCVM_LIBS))
 	@echo "Done Linking $@"
 endif
 
@@ -742,10 +1022,9 @@ clean::
 	rm -rf $(INSTALLDIR)
 	rm -rf $(CVM_BUILD_TOP)/.*classes
 	rm -rf $(CVM_BUILD_TOP)/.*.list
+	rm -rf $(CVM_BUILD_TOP)/.*.clist
 	rm -rf $(CVM_BUILD_TOP)/.system_properties.c
-	rm -rf .DefaultLocaleList.java
 	rm -rf $(CVM_BUILD_FLAGS_FILE)
-	rm -rf $(CVM_MIDP_BUILDDIR)
 	rm -rf $(BUILDFLAGS_JAVA)
 	rm -rf $(CVM_BUILDTIME_CLASSESDIR) \
 	       $(CVM_TEST_CLASSESDIR) $(CVM_DEMO_CLASSESDIR) *_classes
@@ -757,6 +1036,7 @@ clean::
 	rm -rf $(CVM_DERIVEDROOT)
 	rm -rf $(CVM_PROPS_BUILD) $(CVM_POLICY_BUILD)
 	rm -rf $(CVM_JCS_BUILDDIR)
+	rm -rf $(CVM_RESOURCES_DIR)
 else
 clean::
 	$(MAKE) CVM_REBUILD=true clean
@@ -766,13 +1046,23 @@ endif
 # zip or jar class files
 #####################################
 
-CVM_CLASSES_TMP = $(CVM_BUILD_SUBDIR_NAME)/.classes.tmp
+CVM_CLASSES_TMP = $(CVM_BUILD_TOP)/.classes.tmp
 
 $(CVM_BUILDTIME_CLASSESZIP): $(CVM_BUILD_TOP)/.btclasses
 	@echo ... $@
+ifeq ($(CVM_PRELOAD_FULL_CLOSURE), true)
 	$(AT)(cd $(CVM_BUILDTIME_CLASSESDIR); $(ZIP) -r -0 -q - * ) \
 		> $(CVM_CLASSES_TMP)
 	$(AT)mv -f $(CVM_CLASSES_TMP) $@
+else
+	$(AT)mv -f $@ $(CVM_BUILD_TOP)/.classes.tmp || true
+	@cp $(CVM_BUILD_TOP)/.btclasses.clist $(CVM_BUILDTIME_CLASSESDIR)
+	$(AT)(cd $(CVM_BUILDTIME_CLASSESDIR); \
+	    $(ZIP) -r -D -u -0 -q ../.classes.tmp . -i@.btclasses.clist)
+	$(AT)mv -f $(CVM_BUILD_TOP)/.classes.tmp $@
+endif
+
+ifeq ($(JAVASE),)
 
 $(CVM_TEST_CLASSESZIP): $(CVM_BUILD_TOP)/.testclasses
 	@echo ... $@
@@ -782,10 +1072,24 @@ $(CVM_TEST_CLASSESZIP): $(CVM_BUILD_TOP)/.testclasses
 
 $(CVM_DEMO_CLASSESJAR): $(CVM_BUILD_TOP)/.democlasses
 	@echo ... $@
-	$(AT)for dir in $(CVM_DEMOCLASSES_SRCDIRS); do files=`(cd $$dir; find . -name SCCS -prune -o -name .svn -prune -o -type f -print)`; (cd $$dir; tar -cf - $$files) | (cd $(CVM_DEMO_CLASSESDIR); tar -xf - ); done 
+	$(AT)for dir in $(CVM_DEMOCLASSES_SRCDIRS); do \
+	    files=`(cd $$dir; find . -name .svn -prune -o -type f -print)`; \
+	    (cd $$dir; tar -cf - $$files) | \
+		(cd $(CVM_DEMO_CLASSESDIR); tar -xf - ); \
+	done 
 	$(AT)(cd $(CVM_DEMO_CLASSESDIR); $(ZIP) -r -q - *) > $(CVM_CLASSES_TMP)
 	$(AT)mv -f $(CVM_CLASSES_TMP) $@
 
+endif
+
+
+# Create resources jar file
+ifneq ($(CVM_RESOURCES_DEPS),)
+CVM_JARFILES := "$(CVM_RESOURCES_JAR_FILENAME)", $(CVM_JARFILES)
+$(CVM_RESOURCES_JAR): $(CVM_RESOURCES_DEPS)
+	@echo ... $@
+	$(AT)(cd $(CVM_RESOURCES_DIR); $(CVM_JAR) cf $(call POSIX2HOST, $@) *)
+endif
 
 #
 # Create the profile jar file if there is anything in the profile
@@ -796,8 +1100,7 @@ $(LIB_CLASSESJAR):
 else
 $(LIB_CLASSESJAR): $(CVM_BUILD_TOP)/.libclasses
 	@echo ... $@	
-	$(AT)(cd $(LIB_CLASSESDIR); \
-	      $(CVM_JAR) cf $(CVM_BUILD_SUBDIR_UP)../$@ *)
+	$(AT)(cd $(LIB_CLASSESDIR); $(CVM_JAR) cf $(call POSIX2HOST, $@) *)
 endif
 
 #####################################
@@ -815,14 +1118,20 @@ ifeq ($(CVM_PRELOAD_LIB), true)
 headers:
 else
 headers: $(CVM_DERIVEDROOT)/jni/.time.stamp
+
+JAVAH_HOST_BT_PATH = $(call POSIX2HOST,$(CVM_BUILDTIME_CLASSESZIP))  
+JAVAH_HOST_CP_PATH = $(call POSIX2HOST,$(LIB_CLASSESJAR))$(JSR_JNI_CLASSPATH)
+
 $(CVM_DERIVEDROOT)/jni/.time.stamp : $(LIB_CLASSESJAR)
 	$(AT)if [ -s $(CVM_BUILD_TOP)/.javahclasses.list ] ; then	\
-		echo ... generating jni class headers ;		\
+		echo ... generating jni class headers ;			\
 		$(CVM_JAVAH) -jni					\
 			-d $(CVM_DERIVEDROOT)/jni			\
-			-classpath $(LIB_CLASSESJAR)$(JSR_JNI_CLASSPATH) \
-			-bootclasspath $(CVM_BUILDTIME_CLASSESZIP)	\
-			$(JSR_JNI_CLASSES) @$(CVM_BUILD_TOP)/.javahclasses.list ;		\
+			-bootclasspath $(JAVAH_HOST_BT_PATH)		\
+			-classpath $(JAVAH_HOST_CP_PATH)		\
+			$(JSR_JNI_CLASSES) 				\
+			@$(CVM_BUILD_TOP)/.javahclasses.list		\
+			$(CVM_EXTRA_JNI_CLASSES) ;			\
 	fi
 	@touch $@
 endif
@@ -878,12 +1187,11 @@ ifneq ($(CVM_MIDPFILTERCONFIG), )
 $(CVM_MIDPFILTERCONFIG): $(CVM_MIDPDIR)/MIDPFilterConfig.txt
 	@echo "Updating MIDPFilterConfig...";
 	@cp -f $< $@;
-	@echo "<<<Finished copying $@";
 
-$(CVM_MIDPCLASSLIST): $(CVM_MIDPDIR)/MIDPPermittedClasses.txt
+$(CVM_MIDPCLASSLIST): $(CVM_MIDPCLASSLIST_FILES)
 	@echo "Updating MIDPPermittedClasses...";
-	@cp -f $< $@;
-	@echo "<<<Finished copying $@";
+	$(AT)rm -rf $@
+	$(AT)cat $^ > $@
 endif
 
 ###############################################
@@ -896,6 +1204,33 @@ ifeq ($(CVM_MIDPFILTERINPUT),)
 else
 	@echo "generating dual-stack member filter ..."
 endif
+
+###########################################################
+# Generate MIDP_PKG_CHECKER using the RomConfProcessor tool
+###########################################################
+$(CVM_DERIVEDROOT)/classes/sun/misc/$(MIDP_PKG_CHECKER):
+	@echo "... $@"
+	$(AT)$(JAVAC_CMD) -d $(CVM_MISC_TOOLS_CLASSPATH) \
+		$(CVM_MISC_TOOLS_SRCDIR)/RomConfProcessor/RomConfProcessor.java
+	$(AT)$(CVM_JAVA) -classpath $(CVM_MISC_TOOLS_CLASSPATH) \
+		RomConfProcessor -dirs $(ROMGEN_INCLUDE_PATHS) \
+		-romfiles $(ROMGEN_CFG_FILES)
+	$(AT)mv $(MIDP_PKG_CHECKER) $(CVM_DERIVEDROOT)/classes/sun/misc/
+endif
+
+ifeq ($(CVM_CREATE_RTJAR), true)
+################################################
+# Rule for creating rt.jar
+################################################
+$(CVM_RT_JAR):: $(CVM_RTJARS_LIST)
+	@echo "Packaging $@ ..."; \
+	mkdir -p $(CVM_BUILD_TOP)/.rtclasses; \
+	cd $(CVM_BUILD_TOP)/.rtclasses; \
+	for j in $(CVM_RTJARS_LIST); do \
+		$(CVM_JAR) xf $$j;	\
+	done; \
+	$(CVM_JAR) cf $@ *
+	$(AT)rm -rf $(CVM_BUILD_TOP)/.rtclasses
 endif
 
 ################################################
@@ -977,13 +1312,16 @@ $(CVM_POLICY_BUILD): $(CVM_POLICY_SRC)
 #	revision number to the end of BINARY_BUNDLE_NAME and 
 #	BINARY_BUNDLE_DIRNAME
 #
+# To build the device  binary bundle, just add the "device_bin" target to your
+# make command. You will also need to set some of the following options:
+# 
+# - DEVICE_BUNDLE_NAME: name of the device binary bundle, excluding .zip
+#	extension.
+# - DEVICE_BUNDLE_DIRNAME: directory name the device binary bundle will unzip
+# 	into. Defaults to $(DEVICE_BUNDLE_NAME).
+# - JAVAME_LEGAL_DIR and BINARY_BUNDLE_APPEND_REVISION also work
+#       with the device bundle target
 
-# Make sure the "legal" directory is available if set.
-ifneq ($(JAVAME_LEGAL_DIR),,)
-ifneq ($(JAVAME_LEGAL_DIR),$(wildcard $(JAVAME_LEGAL_DIR)))
-$(error JAVAME_LEGAL_DIR must be set to "legal" directory. The respository can be found at https://phoneme.dev.java.net/svn/phoneme/legal.)
-endif
-endif
 
 # Patterns that we want to bundle. BINARY_BUNDLE_PATTERNS can be appended
 # to from other component makefiles if necssary.
@@ -998,6 +1336,18 @@ BINARY_BUNDLE_PATTERNS += \
 BINARY_BUNDLE_PATTERNS := \
 	$(patsubst $(CVM_BUILD_TOP)%,$(BINARY_BUNDLE_DIRNAME)%,$(BINARY_BUNDLE_PATTERNS))
 
+# Replace $(CVM_BUILD_TOP_ABS) with $(BINARY_BUNDLE_NAME)
+BINARY_BUNDLE_PATTERNS := \
+	$(patsubst $(CVM_BUILD_TOP_ABS)%,$(BINARY_BUNDLE_DIRNAME)%,$(BINARY_BUNDLE_PATTERNS))
+
+CHECK_LEGAL_DIR = \
+	if [ ! -d $(JAVAME_LEGAL_DIR) ]; then				\
+	    echo '*** JAVAME_LEGAL_DIR must be set to the "legal"'	\
+	         'directory. The OSS version can be found at'		\
+		 'https://phoneme.dev.java.net/svn/phoneme/legal.';	\
+	    exit 2;							\
+	fi
+
 .PHONY : bin
 bin: all
 	@echo ">>>Making binary bundle ..."
@@ -1005,7 +1355,6 @@ bin: all
 	@echo "	BINARY_BUNDLE_NAME	= $(BINARY_BUNDLE_NAME)"
 	@echo "	BINARY_BUNDLE_DIRNAME	= $(BINARY_BUNDLE_DIRNAME)"
 	@echo "	JAVAME_LEGAL_DIR	= $(JAVAME_LEGAL_DIR)"
-	@echo "	JAVAME_LEGAL_REPOSITORY = $(JAVAME_LEGAL_REPOSITORY)"
 
 	$(AT)mkdir -p $(INSTALLDIR)
 	$(AT)rm -rf $(INSTALLDIR)/$(BINARY_BUNDLE_DIRNAME)
@@ -1013,11 +1362,9 @@ bin: all
 	$(AT)ln -ns $(CVM_BUILD_TOP)/* $(INSTALLDIR)/$(BINARY_BUNDLE_DIRNAME)
 	$(AT)rm -rf $(INSTALLDIR)/$(BINARY_BUNDLE_NAME).zip
 
-ifneq ($(JAVAME_LEGAL_DIR),)
-	$(AT)ln -ns $(JAVAME_LEGAL_DIR) $(INSTALLDIR)/$(BINARY_BUNDLE_DIRNAME)
-else
-	svn checkout $(JAVAME_LEGAL_REPOSITORY) $(INSTALLDIR)/$(BINARY_BUNDLE_DIRNAME)/legal
-endif
+	$(AT)$(CHECK_LEGAL_DIR)
+	$(AT)ln -ns $(JAVAME_LEGAL_DIR) \
+		$(INSTALLDIR)/$(BINARY_BUNDLE_DIRNAME)/legal
 
 	$(AT)cp $(CVM_BUILDTIME_CLASSESZIP) $(CVM_LIBDIR)/
 
@@ -1027,14 +1374,40 @@ endif
 	$(AT)rm -rf $(INSTALLDIR)/$(BINARY_BUNDLE_DIRNAME)
 	@echo "<<<Finished binary bundle" ;
 
+.PHONY :  device_bin
+
+device_bin: all  device_bin_prep device_bin_legal device_bin_zip
+
+device_bin_zip:
+	@echo ">>>Making device binary bundle ..."
+	@echo "	DEVICE_BUNDLE_NAME	= $(DEVICE_BUNDLE_NAME)"
+	@echo "	JAVAME_LEGAL_DIR	= $(JAVAME_LEGAL_DIR)"
+
+	$(AT)(cd $(INSTALLDIR); \
+	 $(ZIP) -rq  - $(DEVICE_BUNDLE_DIRNAME) ) \
+		> $(INSTALLDIR)/$(DEVICE_BUNDLE_NAME).zip;
+	$(AT)rm -rf $(INSTALLDIR)/$(DEVICE_BUNDLE_DIRNAME)
+	@echo "<<<Finished device binary bundle" ;
+
+device_bin_prep ::
+	$(AT)rm -f $(INSTALLDIR)/$(DEVICE_BUNDLE_NAME).zip
+	$(AT)rm -rf $(INSTALLDIR)/$(DEVICE_BUNDLE_DIRNAME)
+	$(AT)mkdir -p $(INSTALLDIR)/$(DEVICE_BUNDLE_DIRNAME)
+
+device_bin_legal:
+	$(AT)$(CHECK_LEGAL_DIR)
+	$(AT)ln -ns $(JAVAME_LEGAL_DIR) \
+		$(INSTALLDIR)/$(DEVICE_BUNDLE_DIRNAME)/legal
+
+
 ################################################
-# Include target makfiles last
+# Include target makefiles last
 ################################################
 
--include ../$(TARGET_OS)/rules.mk
--include ../$(TARGET_CPU_FAMILY)/rules.mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)/rules.mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/rules.mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/rules.mk
+-include $(CDC_CPU_COMPONENT_DIR)/build/$(TARGET_CPU_FAMILY)/rules.mk
+-include $(CDC_OSCPU_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)/rules.mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/rules.mk
 
 
 ######################################
@@ -1045,7 +1418,7 @@ ifeq ($(MAKELEVEL), 0)
 
 ifeq ($(CVM_JIT),true)
 ifeq ($(CVM_JVMTI),true)
-$(error JVMTI is not supported in JIT builds. Use CVM_JIT=false.)
+$(warning JVMTI debugging is not supported in JITed code.  Compiler is turned off if connected to a debugger)
 endif
 ifeq ($(CVM_JVMPI),true)
 $(warning JVMPI is not fully supported in JIT builds. Programs may not behave properly.)
@@ -1071,28 +1444,29 @@ LOCALE_ELEMENTS_PREFIX = sun.text.resources.LocaleElements_
 endif
 LOCALE_ELEMENTS_LIST = $(patsubst $(LOCALE_ELEMENTS_PREFIX)%,%,$(filter $(LOCALE_ELEMENTS_PREFIX)%,$(CVM_BUILDTIME_CLASSES)))
 
+DEFAULTLOCALELIST_JAVA_TMP = $(CVM_DERIVEDROOT)/.DefaultLocaleList.java
 $(DEFAULTLOCALELIST_JAVA):
 	@echo ... generating sun.misc.DefaultLocaleList.java
-	$(AT) echo "/* This file is used by LocaleData.java */" > .DefaultLocaleList.java
-	$(AT) echo "/* AUTO-GENERATED - DO NOT EDIT */" >> .DefaultLocaleList.java
-	$(AT) echo "" >> .DefaultLocaleList.java
-	$(AT) echo "package sun.misc; " >> .DefaultLocaleList.java
-	$(AT) echo "" >> .DefaultLocaleList.java
-	$(AT) echo "public class DefaultLocaleList { " >> .DefaultLocaleList.java
-	$(AT) echo "   public final static String list[] = { " >> .DefaultLocaleList.java
+	$(AT) echo "/* This file is used by LocaleData.java */" > $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) echo "/* AUTO-GENERATED - DO NOT EDIT */" >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) echo "" >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) echo "package sun.misc; " >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) echo "" >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) echo "public class DefaultLocaleList { " >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) echo "   public final static String list[] = { " >> $(DEFAULTLOCALELIST_JAVA_TMP)
 	$(AT) if [ "$(LOCALE_ELEMENTS_LIST)" != "" ] ; then \
 		for s in "$(LOCALE_ELEMENTS_LIST)" ; do \
 			printf "\t\"%s\", " $$s; \
 		done ; \
-	 fi >> .DefaultLocaleList.java
-	$(AT) printf "\t};" >> .DefaultLocaleList.java
-	$(AT) echo "}" >> .DefaultLocaleList.java
-	$(AT) echo "" >> .DefaultLocaleList.java
-	$(AT) if ! cmp -s .DefaultLocaleList.java $(DEFAULTLOCALELIST_JAVA); then \
+	 fi >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) printf "\t};" >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) echo "}" >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) echo "" >> $(DEFAULTLOCALELIST_JAVA_TMP)
+	$(AT) if ! cmp -s $(DEFAULTLOCALELIST_JAVA_TMP) $(DEFAULTLOCALELIST_JAVA); then \
 		echo ... $(DEFAULTLOCALELIST_JAVA); \
-		cp -f .DefaultLocaleList.java $(DEFAULTLOCALELIST_JAVA); \
+		cp -f $(DEFAULTLOCALELIST_JAVA_TMP) $(DEFAULTLOCALELIST_JAVA); \
 	fi
-	$(AT) rm .DefaultLocaleList.java
+	$(AT) rm $(DEFAULTLOCALELIST_JAVA_TMP)
 
 #####################################
 # BuildFlags.java
@@ -1107,23 +1481,24 @@ ifneq ($(CDC_10),true)
 # The value of this field corresponds to CVM_DEBUG_ASSERTS.
 #
 
+BUIDLFLAGS_JAVA_TMP = $(CVM_DERIVEDROOT)/.BuildFlags.java
 BUILDFLAGS_JAVA = $(CVM_DERIVEDROOT)/classes/sun/misc/BuildFlags.java
 $(BUILDFLAGS_JAVA): 
 	@echo ... generating BuildFlags.java
-	$(AT) echo "/* This file contains information determined at a build time*/" > .BuildFlags.java
-	$(AT) echo "/* AUTO-GENERATED - DO NOT EDIT */" >> .BuildFlags.java
-	$(AT) echo "" >> .BuildFlags.java
-	$(AT) echo "package sun.misc; " >> .BuildFlags.java
-	$(AT) echo "" >> .BuildFlags.java
-	$(AT) echo "public class BuildFlags { " >> .BuildFlags.java
-	$(AT) echo "   public final static boolean qAssertsEnabled = $(CVM_DEBUG_ASSERTS); " >> .BuildFlags.java
-	$(AT) echo "}" >> .BuildFlags.java
-	$(AT) echo "" >> .BuildFlags.java
-	$(AT) if ! cmp -s .BuildFlags.java $(BUILDFLAGS_JAVA); then \
+	$(AT) echo "/* This file contains information determined at a build time*/" > $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) echo "/* AUTO-GENERATED - DO NOT EDIT */" >> $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) echo "" >> $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) echo "package sun.misc; " >> $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) echo "" >> $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) echo "public class BuildFlags { " >> $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) echo "   public final static boolean qAssertsEnabled = $(CVM_DEBUG_ASSERTS); " >> $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) echo "}" >> $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) echo "" >> $(BUIDLFLAGS_JAVA_TMP)
+	$(AT) if ! cmp -s $(BUIDLFLAGS_JAVA_TMP) $(BUILDFLAGS_JAVA); then \
 		echo ... $(BUILDFLAGS_JAVA); \
-		cp -f .BuildFlags.java $(BUILDFLAGS_JAVA); \
+		cp -f $(BUIDLFLAGS_JAVA_TMP) $(BUILDFLAGS_JAVA); \
 	fi
-	$(AT) rm .BuildFlags.java
+	$(AT) rm $(BUIDLFLAGS_JAVA_TMP)
 
 endif
 
@@ -1144,6 +1519,8 @@ CDC_SOURCE_OUTPUT_SUBDIR= cdc
 INCLUDE_JIT		= $(CVM_JIT)
 INCLUDE_MTASK		= $(CVM_MTASK)
 INCLUDE_DUALSTACK	= $(CVM_DUAL_STACK)
+INCLUDE_JCOV		= $(CVM_CLASSLIB_JCOV)
+INCLUDE_GCI		= $(USE_GCI)
 BUNDLE_PORTS 		= "$(TARGET_OS)-$(TARGET_CPU_FAMILY)-*"
 #BUNDLE_PORTS 		= "linux-x86-* linux-arm-*"
 
@@ -1161,25 +1538,31 @@ BUNDLE_FLAGS += J2ME_CLASSLIB=$(J2ME_CLASSLIB)
 BUNDLE_FLAGS += INCLUDE_JIT=$(INCLUDE_JIT)
 BUNDLE_FLAGS += INCLUDE_MTASK=$(INCLUDE_MTASK)
 BUNDLE_FLAGS += INCLUDE_DUALSTACK=$(INCLUDE_DUALSTACK)
+BUNDLE_FLAGS += INCLUDE_JCOV=$(INCLUDE_JCOV)
+BUNDLE_FLAGS += INCLUDE_GCI=$(INCLUDE_GCI)
 BUNDLE_FLAGS += BUNDLE_PORTS="$(BUNDLE_PORTS)"
 BUNDLE_FLAGS += SRC_BUNDLE_NAME=$(SRC_BUNDLE_NAME)
 BUNDLE_FLAGS += SRC_BUNDLE_DIRNAME=$(SRC_BUNDLE_DIRNAME)
 BUNDLE_FLAGS += SRC_BUNDLE_APPEND_REVISION=$(SRC_BUNDLE_APPEND_REVISION)
 BUNDLE_FLAGS += SOURCE_OUTPUT_DIR=$(SOURCE_OUTPUT_DIR)
 BUNDLE_FLAGS += JAVAME_LEGAL_DIR=$(JAVAME_LEGAL_DIR)
+BUNDLE_FLAGS += USE_CDC_COM=$(USE_CDC_COM)
+BUNDLE_FLAGS += CDC_COM_DIR=$(CDC_COM_DIR)
 BUNDLE_FLAGS += USE_VERBOSE_MAKE=$(USE_VERBOSE_MAKE)
 BUNDLE_FLAGS += AT=$(AT)
+BUNDLE_FLAGS += INSTALLDIR=$(INSTALLDIR)
 
 # Build the cdc source bundle
 source_bundle::
 	@echo " ... cdc source bundle"
+	$(AT)cd $(CVM_TOP)/build/share
 	$(AT)$(MAKE) $(MAKE_NO_PRINT_DIRECTORY) \
 		     -f $(CVM_TOP)/build/share/bundle.mk $(BUNDLE_FLAGS)
 	$(AT)$(UNZIP) -q $(INSTALLDIR)/$(CDC_SOURCE_OUTPUT_SUBDIR).zip \
 	      -d $(SOURCE_OUTPUT_DIR)
 	$(AT)rm $(INSTALLDIR)/$(CDC_SOURCE_OUTPUT_SUBDIR).zip
 
-# Note only trigger source_bundle rules, but also setup the legal
+# Not only trigger source_bundle rules, but also setup the legal
 # directory properly, and zip it all up.
 source_bundles::  clean_source_bundles source_bundle_dir source_bundle
 	@echo " ... moving legal docs to source bundle root"

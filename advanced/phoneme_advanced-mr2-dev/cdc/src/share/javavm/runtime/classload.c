@@ -1,7 +1,7 @@
 /*
  * @(#)classload.c	1.94 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -33,6 +33,9 @@
 
 #include "javavm/include/interpreter.h"
 #include "javavm/include/classes.h"
+#ifdef CVM_DUAL_STACK
+#include "javavm/include/dualstack_impl.h"
+#endif
 #include "javavm/include/utils.h"
 #include "javavm/include/common_exceptions.h"
 #include "javavm/include/globals.h"
@@ -377,7 +380,8 @@ CVMclassLoadBootClass(CVMExecEnv* ee, const char* classname)
 	/* create the CVMClassBlock */
 	classRoot =
 	    CVMclassCreateInternalClass(ee, info.classData, info.fileSize32,
-					NULL, classname, info.dirname);
+					NULL, classname, info.dirname,
+					CVM_FALSE);
 	free(info.classData);
 	if (classRoot == NULL) {
 	    goto done;
@@ -709,7 +713,8 @@ defineClassLocal(CVMExecEnv* ee, const char* clname,
     pdCell = info->pathComponent->protectionDomain;
     
     resultCell = CVMdefineClass(ee, clname, appLoader,
-				info->classData, info->fileSize32, pdCell);
+				info->classData, info->fileSize32, pdCell,
+				CVM_FALSE);
 
     return resultCell;
 }
@@ -893,22 +898,24 @@ CVMclassFindContainer(JNIEnv *env, jobject this, jstring name) {
  * Initialize a class path data structure based on the value of
  * CVMglobals classpath pathString. 
  */
-static CVMBool
-classPathInit(JNIEnv* env, CVMClassPath* path, char* additionalPathString,
-	      CVMBool doNotFailWhenPathNotFound, CVMBool initJavaSide);
 
 CVMBool
 CVMclassBootClassPathInit(JNIEnv *env)
 {
-    return classPathInit(env, &CVMglobals.bootClassPath, NULL,
-			 CVM_FALSE, CVM_FALSE);
+    if (CVMglobals.bootClassPath.pathString == NULL) {
+        CVMglobals.bootClassPath.initialized = CVM_TRUE;
+        return CVM_TRUE;
+    } else {
+        return CVMclassPathInit(env, &CVMglobals.bootClassPath, NULL,
+                                CVM_FALSE, CVM_FALSE);
+    }
 }
 
 CVMBool
 CVMclassClassPathInit(JNIEnv *env)
 {
-    return classPathInit(env, &CVMglobals.appClassPath, NULL,
-			 CVM_TRUE, CVM_TRUE);
+    return CVMclassPathInit(env, &CVMglobals.appClassPath, NULL,
+			    CVM_TRUE, CVM_TRUE);
 }
 
 #ifdef CVM_MTASK
@@ -925,19 +932,19 @@ CVMclassClassPathAppend(JNIEnv *env, char* classPath, char* bootClassPath)
 
     jobject props; /* System properties */
     
-    if (!classPathInit(env, &CVMglobals.appClassPath, 
-		       classPath, CVM_TRUE, CVM_TRUE)) {
+    if (!CVMclassPathInit(env, &CVMglobals.appClassPath, 
+			  classPath, CVM_TRUE, CVM_TRUE)) {
 	return CVM_FALSE;
     }
 
-    if (!classPathInit(env, &CVMglobals.bootClassPath, 
-		       bootClassPath, CVM_TRUE, CVM_FALSE)) {
+    if (!CVMclassPathInit(env, &CVMglobals.bootClassPath, 
+			  bootClassPath, CVM_TRUE, CVM_FALSE)) {
 	return CVM_FALSE;
     }
 
     updateAppCLID = 
 	(*env)->GetStaticMethodID(env, 
-			    CVMcbJavaInstance(CVMsystemClass(sun_misc_Launcher)), 
+				  CVMcbJavaInstance(CVMsystemClass(sun_misc_Launcher)), 
 			    "updateLauncher",
 			    "()V");
 
@@ -1100,6 +1107,10 @@ CVMclassGetSystemClassLoader(CVMExecEnv* ee)
 	CVMMethodBlock* mb = 
 	    CVMclassGetStaticMethodBlock(loaderCb, methodID);
 	jobject systemClassLoader;
+#ifdef CVM_DEBUG_ASSERTS
+        CVMBool sameClassLoader;
+#endif
+        
 	CVMassert(mb != NULL);
 	systemClassLoader = 
 	    (CVMClassLoaderICell*)(*env)->CallStaticObjectMethod(
@@ -1107,12 +1118,30 @@ CVMclassGetSystemClassLoader(CVMExecEnv* ee)
 	if (CVMexceptionOccurred(ee)) {
 	    return NULL;
 	}
+        /* When sun.misc.Launcher creates the appClassLoader, it
+         * also sets the systemClassLoader in CVMglobals. */
+#ifdef CVM_DEBUG_ASSERTS
+        CVMID_icellSameObjectNullCheck(ee, CVMsystemClassLoader(ee),
+                              systemClassLoader, sameClassLoader);
+        CVMassert(sameClassLoader);
+#endif
 	if (systemClassLoader != NULL) {
-	    CVMID_icellAssign(ee, CVMsystemClassLoader(ee), systemClassLoader);
 	    CVMjniDeleteLocalRef(env, systemClassLoader);
 	}
     }
     return CVMsystemClassLoader(ee);
+}
+
+/*
+ * Set the system classloader.
+ */
+void
+CVMclassSetSystemClassLoader(CVMExecEnv* ee, jobject loader)
+{
+    CVMassert(loader != NULL);
+    if (CVMID_icellIsNull(CVMsystemClassLoader(ee))) {
+	  CVMID_icellAssign(ee, CVMsystemClassLoader(ee), loader);
+    }
 }
 
 /*
@@ -1164,6 +1193,13 @@ initPathJavaSide(JNIEnv* env, ClassInfo* info) {
     if (!info->pathComponent->javaInitialized) {
         CVMBool ok;
         jobject appclObject = CVMsystemClassLoader(CVMjniEnv2ExecEnv(env));
+
+        /*
+         * This can only be called from the AppClassLoader (the
+         * system classloader). So the CVMsystemClassLoader
+         * should not contain null.
+         */
+        CVMassert(!CVMID_icellIsNull(appclObject));
         if ((*env)->MonitorEnter(env, appclObject) == JNI_OK) {
             if (info->pathComponent->javaInitialized) {
                 ok = (*env)->MonitorExit(env, appclObject);
@@ -1215,10 +1251,11 @@ getNumPathComponents(char* pathStr)
 
 /* Initialize class path. If additionalPathString is supplied, add this to
    what we already know about this classpath */
-static CVMBool
-classPathInit(JNIEnv* env, CVMClassPath* classPath, 
-	      char* additionalPathString,
-	      CVMBool doNotFailWhenPathNotFound, CVMBool initJavaSide)
+/* Note: was static, now used by JVMTI code */
+CVMBool
+CVMclassPathInit(JNIEnv* env, CVMClassPath* classPath, 
+		 char* additionalPathString,
+		 CVMBool doNotFailWhenPathNotFound, CVMBool initJavaSide)
 {
     int idx; /* classpath component index */
     char* pathStr;
@@ -1400,14 +1437,13 @@ classPathInit(JNIEnv* env, CVMClassPath* classPath,
 		CVMtraceClassLoading(("CL: Added directory \"%s\" to the "
 				      "classpath\n", currPath));
 		currEntry->type = CVM_CPE_DIR;
-		currEntry->path = strdup(CVMioNativePath(currPath));
+		currEntry->path = strdup(currPath);
 	    } else if (fileType == CVM_IO_FILETYPE_REGULAR) {
 		/* it's a zip file */
                 char canonicalPath[CVM_PATH_MAXLEN];
 		char* msg = NULL;
 		jzfile* zip;
 
-		CVMioNativePath(currPath);
 		if (CVMcanonicalize(currPath, canonicalPath, CVM_PATH_MAXLEN)
 		    < 0) {
 		    CVMdebugPrintf(("Bad classpath name: \"%s\"\n",
@@ -1425,15 +1461,26 @@ classPathInit(JNIEnv* env, CVMClassPath* classPath,
 		    CVMtraceClassLoading(("CL: Added zip file \"%s\" to the "
 					  "classpath\n", currPath));
 		    currEntry->type = CVM_CPE_ZIP;
-                    /* canonical form not needed */
-		    currEntry->path = strdup(currPath);
+                    /* canonical form *is* needed (6669683) */
+		    currEntry->path = strdup(canonicalPath);
 		    currEntry->zip = zip;
                     /* For classpath entries only */
                     if (initJavaSide) {
+
+/* Java SE Doesn't support this ZIP function
+   FIXME - need to determine where jar file signing occurs in SE and
+   make sure that wearen't disabling some security check with this change.
+*/
+#ifndef JAVASE
                         if (ZIP_IsSigned(currEntry->zip)) {
                             currEntry->isSigned = CVM_TRUE;
                         }
+#endif
                         if (!hasExtInfo) {
+/* Java SE Doesn't support this ZIP function.
+   FIXME - see comment above
+*/
+#ifndef JAVASE
                             if (ZIP_HasExtInfo(currEntry->zip)) {
                                 CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
                                 jclass appclClass; 
@@ -1453,6 +1500,7 @@ classPathInit(JNIEnv* env, CVMClassPath* classPath,
                                 }
                                 hasExtInfo = CVM_TRUE; 
                             }
+#endif
                         }
                     }
 		}
@@ -1535,5 +1583,45 @@ CVMclassClassPathDestroy(CVMExecEnv* ee)
 {
     classPathDestroy(ee, &CVMglobals.appClassPath);
 }
+
+#ifdef CVM_DUAL_STACK
+/* 
+ * Check if the classloader is one of the MIDP dual-stack classloaders.
+ */
+#include "generated/offsets/sun_misc_MIDletClassLoader.h"
+
+CVMBool
+CVMclassloaderIsMIDPClassLoader(CVMExecEnv *ee,
+                                CVMClassLoaderICell* loaderICell,
+                                CVMBool checkImplClassLoader)
+{
+    if (loaderICell != NULL) {
+        CVMClassBlock* loaderCB = CVMobjectGetClass(
+                                  CVMID_icellDirect(ee, loaderICell));
+        CVMClassTypeID loaderID = CVMcbClassName(loaderCB);
+
+        if (loaderID == CVMglobals.midletClassLoaderTid) {
+            if (checkImplClassLoader) {
+                return CVM_TRUE;
+            } else {
+                /* Make sure this is a real MIDletClassLoader with
+                   filtering enabled. */
+                CVMBool enableFilter;
+                CVMD_fieldReadInt(
+                    CVMID_icellDirect(ee, loaderICell),
+                    CVMoffsetOfsun_misc_MIDletClassLoader_enableFilter,
+                    enableFilter);
+                return enableFilter;
+            }
+        } else if (checkImplClassLoader) {
+            if (loaderID == CVMglobals.midpImplClassLoaderTid) {
+	        return CVM_TRUE;
+	    }
+            return CVM_FALSE;
+        }
+    }
+    return CVM_FALSE;
+}
+#endif
 
 #endif /* CVM_CLASSLOADING */

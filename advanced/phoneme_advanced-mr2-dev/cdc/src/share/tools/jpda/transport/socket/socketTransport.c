@@ -1,7 +1,7 @@
 /*
  * @(#)socketTransport.c	1.34 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include "javavm/include/porting/net.h"
 
 #include "jdwpTransport.h"
 #include "sysSocket.h"
@@ -47,8 +48,8 @@ static jdwpTransportCallback *callback;
 static JavaVM *jvm;
 static int tlsIndex;
 static jboolean initialized;
-static struct jdwpTransportNativeInterface_ interface;
-static jdwpTransportEnv single_env = (jdwpTransportEnv)&interface;
+static struct jdwpTransportNativeInterface_ jdwpInterface;
+static jdwpTransportEnv single_env = (jdwpTransportEnv)&jdwpInterface;
 
 #define RETURN_ERROR(err, msg) \
 	if (1==1) { \
@@ -198,13 +199,13 @@ parseAddress(const char *address, struct sockaddr_in *sa, U_SOCKINT32 defaultHos
     /* check for host:port or port */
     colon = strchr(address, ':');
     if (colon == NULL) {
-        u_short port = (u_short)atoi(address);
+        unsigned short port = (unsigned short)atoi(address);
         sa->sin_port = dbgsysHostToNetworkShort(port);
         sa->sin_addr.s_addr = dbgsysHostToNetworkLong(defaultHost);
     } else {
         char *buf;
         char *hostname;
-        u_short port;
+        unsigned short port;
         U_SOCKINT32 addr;
 
         buf = (*callback->alloc)(strlen(address)+1);
@@ -733,21 +734,20 @@ jdwpTransport_OnLoad(JavaVM *vm, jdwpTransportCallback* cbTablePtr,
     callback = cbTablePtr;
 
     /* initialize interface table */
-    interface.GetCapabilities = &socketTransport_getCapabilities;
-    interface.Attach = &socketTransport_attach;
-    interface.StartListening = &socketTransport_startListening;
-    interface.StopListening = &socketTransport_stopListening;
-    interface.Accept = &socketTransport_accept;
-    interface.IsOpen = &socketTransport_isOpen;
-    interface.Close = &socketTransport_close;
-    interface.ReadPacket = &socketTransport_readPacket;
-    interface.WritePacket = &socketTransport_writePacket;
-    interface.GetLastError = &socketTransport_getLastError;
+    jdwpInterface.GetCapabilities = &socketTransport_getCapabilities;
+    jdwpInterface.Attach = &socketTransport_attach;
+    jdwpInterface.StartListening = &socketTransport_startListening;
+    jdwpInterface.StopListening = &socketTransport_stopListening;
+    jdwpInterface.Accept = &socketTransport_accept;
+    jdwpInterface.IsOpen = &socketTransport_isOpen;
+    jdwpInterface.Close = &socketTransport_close;
+    jdwpInterface.ReadPacket = &socketTransport_readPacket;
+    jdwpInterface.WritePacket = &socketTransport_writePacket;
+    jdwpInterface.GetLastError = &socketTransport_getLastError;
     *result = &single_env;
 
+    dbgsysInit(jvm);
     /* initialized TLS */
     tlsIndex = dbgsysTlsAlloc();
     return JNI_OK;
 }
-
-

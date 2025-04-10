@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -30,12 +30,9 @@ CC_ARCH_FLAGS_FDLIB	= /Op
 CC_ARCH_FLAGS_FDLIB	+= /Od
 CC_ARCH_FLAGS_LOOP 	=
 LINK_ARCH_LIBS		= 
-LINK_ARCH_FLAGS		= \
-	/subsystem:windowsce,3.00 /MACHINE:ARM \
-	/base:0x00100000 /entry:_DllMainCRTStartup
-LINKEXE_ARCH_LIBS	=
-LINKEXE_ARCH_FLAGS	= \
-	/subsystem:windowsce,3.00 /MACHINE:ARM /stack:0x010000
+LINK_ARCH_FLAGS		= /subsystem:windowsce,3.00 /MACHINE:ARM
+LINKEXE_STACK		= /stack:0x010000
+LINKDLL_BASE		= /base:0x00100000
 
 # Description of the VC win32 platform.
 # The following are all for the benefit of win32/wince_defs.mk

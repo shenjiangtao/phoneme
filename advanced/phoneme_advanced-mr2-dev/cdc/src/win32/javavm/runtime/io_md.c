@@ -1,36 +1,37 @@
 /*
  * @(#)io_md.c	1.23 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
- *   
- * This program is free software; you can redistribute it and/or  
- * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
- *   
- * This program is distributed in the hope that it will be useful, but  
- * WITHOUT ANY WARRANTY; without even the implied warranty of  
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
- * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
- *   
- * You should have received a copy of the GNU General Public License  
- * version 2 along with this work; if not, write to the Free Software  
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
- *   
- * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
- * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
- *
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
+ * 
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License version
+ * 2 only, as published by the Free Software Foundation.
+ * 
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License version 2 for more details (a copy is
+ * included at /legal/license.txt).
+ * 
+ * You should have received a copy of the GNU General Public License
+ * version 2 along with this work; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA
+ * 
+ * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
+ * Clara, CA 95054 or visit www.sun.com if you need additional
+ * information or have any questions.
  */
 
+#include "javavm/include/globals.h"
 #include "javavm/include/porting/io.h"
 #include "javavm/include/porting/int.h"
 #include "javavm/include/porting/sync.h"
 #include "javavm/include/porting/threads.h"
 #include "javavm/include/porting/doubleword.h"
 #include "javavm/include/wceUtil.h"
+#include "javavm/include/io_sockets.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -45,6 +46,7 @@ static int MAX_INPUT_EVENTS = 2000;
 /* sometimes, HANDLE which is the return value of CreateFile become minus */
 #define NUM_FDTABLE_ENTRIES 255
 static HANDLE fdTable[NUM_FDTABLE_ENTRIES];
+static CRITICAL_SECTION fdTableLock;
 #if 0
 #define STD_FDS_BIAS 3
 #else
@@ -62,29 +64,16 @@ WIN_GET_HANDLE(HANDLE fdd)
 void WIN32ioInit()
 {
 #ifdef WINCE
-	int i;
-	for (i = 0; i < NUM_FDTABLE_ENTRIES; i++) {
-		fdTable[i] = INVALID_HANDLE_VALUE; 
-	}
-    {
-	HANDLE h;
-	h = _fileno(stdin);
-	if (h != INVALID_HANDLE_VALUE) {
-	    fdTable[0] = h; 
-	} 
-	h = _fileno(stdout);
-	if (h != INVALID_HANDLE_VALUE) {
-	    fdTable[1] = h; 
-	} 
-	h = _fileno(stderr);
-	if (h != INVALID_HANDLE_VALUE) {
-	    fdTable[2] = h; 
-	} 
+    int i;
+
+    InitializeCriticalSection(&fdTableLock);
+
+    for (i = 0; i < NUM_FDTABLE_ENTRIES; i++) {
+	fdTable[i] = INVALID_HANDLE_VALUE; 
     }
 
-    if (fdTable[0] == INVALID_HANDLE_VALUE) { /* initialize stdio redirection */ 
-       initializeStandardIO(); 
-    }
+    /* initialize stdio redirection */ 
+    initializeStandardIO();
 #endif
 }
 
@@ -106,35 +95,34 @@ fileMode(HANDLE fd, int *mode)
 CVMInt32
 CVMioGetLastErrorString(char *buf, CVMInt32 len)
 {
-	DWORD err = GetLastError();
-	if (err == 0) {
-		return 0;
-	} else {
-		TCHAR* lpMsgBuf = 0;
-		int n;
-		int ret = FormatMessage( 
-					FORMAT_MESSAGE_ALLOCATE_BUFFER | 
-					FORMAT_MESSAGE_FROM_SYSTEM | 
-					FORMAT_MESSAGE_IGNORE_INSERTS,
-					NULL,
-					err,
-			MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
-					(LPTSTR) &lpMsgBuf,
-					0,
-					NULL 
-				);
+    DWORD err = GetLastError();
+    if (err == 0) {
+	return 0;
+    } else {
+	TCHAR* lpMsgBuf = 0;
+	int n;
+	int ret = FormatMessage( 
+				FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+				FORMAT_MESSAGE_FROM_SYSTEM | 
+				FORMAT_MESSAGE_IGNORE_INSERTS,
+				NULL,
+				err,
+				MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+				(LPTSTR) &lpMsgBuf,
+				0,
+				NULL);
  
-		if ((lpMsgBuf != NULL) && (ret != 0)) {
-			if (sizeof lpMsgBuf[0] == 1) {
-				n = _tcslen(lpMsgBuf);
-				if (n >= len) n = len - 1;
-				strncpy(buf, (char*)lpMsgBuf, n);
-				buf[n] = '\0';
-			} else {
-				wcstombs(buf, lpMsgBuf, len);
-			}
-			LocalFree( lpMsgBuf );
-		}
+	if ((lpMsgBuf != NULL) && (ret != 0)) {
+	    if (sizeof lpMsgBuf[0] == 1) {
+		n = _tcslen(lpMsgBuf);
+		if (n >= len) n = len - 1;
+		strncpy(buf, (char*)lpMsgBuf, n);
+		buf[n] = '\0';
+	    } else {
+		wcstombs(buf, lpMsgBuf, len);
+	    }
+	    LocalFree( lpMsgBuf );
+	}
 	return err;
     }
 }
@@ -175,7 +163,9 @@ CVMioNativePath(char *path)
 	*dst++ = *src++;
 	colon = dst;
 	*dst++ = ':'; src++;
-    } else {
+    } else
+#endif
+    {
 	src = path;
 	if (isfilesep(src[0]) && isfilesep(src[1])) {
 	    /* UNC pathname: Retain first separator; leave src pointed at
@@ -186,7 +176,6 @@ CVMioNativePath(char *path)
 	    path[0] = '\\';	/* Force first separator to '\\' */
 	}
     }
-#endif
 
     /* Remove redundant separators from remainder of path, forcing all
        separators to be '\\' rather than '/' */
@@ -199,7 +188,7 @@ CVMioNativePath(char *path)
 		if (colon == dst - 2) break;                      /* "z:\\" */
 #endif
 		if (dst == path + 1) break;                       /* "\\" */
-#ifndef WINCE
+
 		if (dst == path + 2 && isfilesep(path[0])) {
 		    /* "\\\\" is not collapsed to "\\" because "\\\\" marks the
 		       beginning of a UNC pathname.  Even though it is not, by
@@ -210,7 +199,7 @@ CVMioNativePath(char *path)
 		       directory of the current drive. */
 		    break;
 		}
-#endif
+
 		dst--;		/* Path does not denote a root directory, so
 				   remove trailing separator */
 		break;
@@ -253,30 +242,29 @@ CVMioFileType(const char *path)
     DWORD attr;
 
 #ifdef WINCE
-{
-  WCHAR *wc = createWCHAR(path);
-  attr = GetFileAttributes(wc); 
-  free(wc); 
-}
+    {
+	WCHAR *wc = createWCHAR(path);
+	attr = GetFileAttributes(wc); 
+	free(wc); 
+    }
 #else
     attr = GetFileAttributesA(path);
 #endif
 
-  if (attr == 0xFFFFFFFF) {
-    return -1;
-  }
-  if (attr & FILE_ATTRIBUTE_DIRECTORY) {
-    return CVM_IO_FILETYPE_DIRECTORY;
-        }
-  if ((attr == FILE_ATTRIBUTE_NORMAL) || (attr & FILE_ATTRIBUTE_ARCHIVE)
-      || attr & FILE_ATTRIBUTE_READONLY) {
-    return CVM_IO_FILETYPE_REGULAR;
-  }
-  if (attr == 0) {
-    return CVM_IO_FILETYPE_REGULAR;  /* maybe samba */
-  }
-  return CVM_IO_FILETYPE_OTHER;
-
+    if (attr == 0xFFFFFFFF) {
+	return -1;
+    }
+    if (attr & FILE_ATTRIBUTE_DIRECTORY) {
+	return CVM_IO_FILETYPE_DIRECTORY;
+    }
+    if ((attr == FILE_ATTRIBUTE_NORMAL) || (attr & FILE_ATTRIBUTE_ARCHIVE)
+	|| attr & FILE_ATTRIBUTE_READONLY) {
+	return CVM_IO_FILETYPE_REGULAR;
+    }
+    if (attr == 0) {
+	return CVM_IO_FILETYPE_REGULAR;  /* maybe samba */
+    }
+    return CVM_IO_FILETYPE_OTHER;
 }
 
 CVMInt32
@@ -295,8 +283,8 @@ CVMioOpen(const char *name, CVMInt32 openMode,
     }
 
     cFlag = OPEN_EXISTING;
-    if ((openMode & (_O_CREAT | _O_TRUNC)) ==  (_O_CREAT | _O_TRUNC) )
-		cFlag = CREATE_ALWAYS;
+    if ((openMode & (_O_CREAT | _O_TRUNC)) ==  (_O_CREAT | _O_TRUNC))
+	cFlag = CREATE_ALWAYS;
     else if (openMode & _O_CREAT) cFlag = OPEN_ALWAYS;
     else if (openMode & _O_TRUNC) cFlag = TRUNCATE_EXISTING;
     
@@ -304,75 +292,80 @@ CVMioOpen(const char *name, CVMInt32 openMode,
 	cFlag = CREATE_NEW;
 
 #ifdef WINCE
-{
+    {
 	WCHAR *wc;
 	int fdIndex = -1;
 	int i;
 
+	EnterCriticalSection(&fdTableLock);
+
         /* for (i = 0; i < NUM_FDTABLE_ENTRIES; i++) {  */
 	for (i = 3; i < NUM_FDTABLE_ENTRIES; i++) { 
-		if (fdTable[i] == INVALID_HANDLE_VALUE) {
-			fdIndex = i;
-			break;
-		}
+	    if (fdTable[i] == INVALID_HANDLE_VALUE) {
+		fdIndex = i;
+		break;
+	    }
 	} 
 
-	if (fdIndex == -1)
-		return -1;
+	if (fdIndex == -1) {
+	    LeaveCriticalSection(&fdTableLock);
+	    return -1;
+	}
 
 	wc = createWCHAR(name);
 	fdTable[fdIndex] = CreateFile(wc, mode, 
-							FILE_SHARE_READ | FILE_SHARE_WRITE,
-							0, cFlag, FILE_ATTRIBUTE_NORMAL, 0);
+				      FILE_SHARE_READ | FILE_SHARE_WRITE,
+				      0, cFlag, FILE_ATTRIBUTE_NORMAL, 0);
+        printf("fdTable[fdIndex] = %d", fdTable[fdIndex]); //djm: Added: Testing
 	if (fdTable[fdIndex] == INVALID_HANDLE_VALUE) {
-		free(wc);
-		return -1;
+	    LeaveCriticalSection(&fdTableLock);
+	    free(wc);
+	    return -1;
 	}
 	fd = (HANDLE)(fdIndex + STD_FDS_BIAS);
-    free(wc);
-}
+	LeaveCriticalSection(&fdTableLock);
+	free(wc);
+    }
 #else
-	fd = CreateFileA(name, mode, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                             0, cFlag, FILE_ATTRIBUTE_NORMAL, 0);
-	if (fd == INVALID_HANDLE_VALUE)
-		return -1;
+    fd = CreateFileA(name, mode, FILE_SHARE_READ | FILE_SHARE_WRITE,
+		     0, cFlag, FILE_ATTRIBUTE_NORMAL, 0);
+    if (fd == INVALID_HANDLE_VALUE)
+	return -1;
 
 #endif
-	statres = fileMode(WIN_GET_HANDLE(fd), &mode);
-	if (statres == -1) {
-		CloseHandle(WIN_GET_HANDLE(fd));
-		return -1;
+    statres = fileMode(WIN_GET_HANDLE(fd), &mode);
+    if (statres == -1) {
+	CloseHandle(WIN_GET_HANDLE(fd));
+	return -1;
+    }
+    if (mode & FILE_ATTRIBUTE_DIRECTORY) {
+	CloseHandle(WIN_GET_HANDLE(fd));
+	return (CVMInt32)-1;
+    }
+    if (openMode & _O_APPEND) {
+	if (SetFilePointer(WIN_GET_HANDLE(fd), 0, 0, FILE_END) == 0xFFFFFFFF) {
+	    CloseHandle(WIN_GET_HANDLE(fd));
+	    return (CVMInt32)-1;
 	}
-	if (mode & FILE_ATTRIBUTE_DIRECTORY) {
-		CloseHandle(WIN_GET_HANDLE(fd));
-		return (CVMInt32)-1;
-	}
-	if (openMode & _O_APPEND) {
-		if (SetFilePointer(WIN_GET_HANDLE(fd), 0, 0, FILE_END) == 0xFFFFFFFF)
- 		{
-			CloseHandle(WIN_GET_HANDLE(fd));
- 			return (CVMInt32)-1;
-		}
-	}
-	return (CVMInt32)fd;
+    }
+    return (CVMInt32)fd;
 }
 
 CVMInt32
 CVMioClose(CVMInt32 fd)
 {
-
-	CVMInt32 ret;
-	if (fd < 0)
-		return -1;
-
-	if (0 <= fd && fd <=2)
-		return 0;
+    CVMInt32 ret;
+    if (fd < 0)
+	return -1;
+    
+    if (0 <= fd && fd <=2)
+	return 0;
     ret = (CloseHandle(WIN_GET_HANDLE((HANDLE)fd)) == 0) ? -1 : 0;
 
 #ifdef WINCE
-		fdTable[fd - STD_FDS_BIAS] = INVALID_HANDLE_VALUE; 
+    fdTable[fd - STD_FDS_BIAS] = INVALID_HANDLE_VALUE; 
 #endif
-	return ret;
+    return ret;
 }
 
 
@@ -383,16 +376,14 @@ CVMioSeek(CVMInt32 fd, CVMInt64 offset, CVMInt32 whence)
     LONG lo = (LONG)(offset & 0xffffffff);
     LONG hi = (LONG)((offset >> 32) & 0xffffffff);
     DWORD ret = SetFilePointer(WIN_GET_HANDLE((HANDLE)fd), lo, &hi, whence);
-    if (ret == 0xFFFFFFFF && GetLastError() != NO_ERROR )
-    {
+    if (ret == 0xFFFFFFFF && GetLastError() != NO_ERROR) {
         r = -1;
     }
     else {
-        r = ret | (hi << 32);
+        r = ret | ((CVMInt64)hi << 32);
     }
 
     return r;
-
 }
 
 CVMInt32
@@ -460,7 +451,7 @@ stdinAvailable(int fd, long *pbytes) {
     /* Construct an array of input records in the console buffer */
     error = GetNumberOfConsoleInputEvents(han, &numEvents);
     if (error == 0) {
-      return nonSeekAvailable(han, pbytes);
+	return nonSeekAvailable(han, pbytes);
     }
 
     /* lpBuffer must fit into 64K or else PeekConsoleInput fails */
@@ -482,10 +473,10 @@ stdinAvailable(int fd, long *pbytes) {
     /* Examine input records for the number of bytes available */
     for(i=0; i<numEvents; i++) {
 	if (lpBuffer[i].EventType == KEY_EVENT) {
-            KEY_EVENT_RECORD *keyRecord = (KEY_EVENT_RECORD *)
-                                          &(lpBuffer[i].Event);
+            KEY_EVENT_RECORD *keyRecord =
+		(KEY_EVENT_RECORD*)&(lpBuffer[i].Event);
 	    if (keyRecord->bKeyDown == TRUE) {
-                CHAR *keyPressed = (CHAR *) &(keyRecord->uChar);
+                CHAR* keyPressed = (CHAR*) &(keyRecord->uChar);
 	       	curLength++;
 	       	if (*keyPressed == '\r')
                     actualLength = curLength;
@@ -509,65 +500,65 @@ CVMioAvailable(CVMInt32 fd, CVMInt64 *bytes)
 
 #ifndef WINCE
     if (fd == 0) {
-      if (stdinAvailable(fd, &stdbytes)) {
-        *bytes = (CVMInt64)stdbytes;
-        return 1;
-      }
-      else {
-        return 0;
-      }
+	if (stdinAvailable(fd, &stdbytes)) {
+	    *bytes = (CVMInt64)stdbytes;
+	    return 1;
+	} else {
+	    return 0;
+	}
     }
 #endif
 
     stat = fileMode(WIN_GET_HANDLE((HANDLE)fd), &mode);
-	if (stat == 0) {
-		if (!(mode & FILE_ATTRIBUTE_DIRECTORY)) {
-			cur = (DWORD)CVMioSeek(fd, 0, FILE_CURRENT);
-			end = (DWORD)CVMioSeek(fd, 0, FILE_END);
-			if (CVMioSeek(fd, cur, FILE_BEGIN) != -1) {
-				*bytes = CVMlongSub(end, cur);
-				return 1;
-			}
-		}
+    if (stat == 0) {
+	if (!(mode & FILE_ATTRIBUTE_DIRECTORY)) {
+	    cur = (DWORD)CVMioSeek(fd, 0, FILE_CURRENT);
+	    end = (DWORD)CVMioSeek(fd, 0, FILE_END);
+	    if (CVMioSeek(fd, cur, FILE_BEGIN) != -1) {
+		*bytes = CVMlongSub(end, cur);
+		return 1;
+	    }
 	}
+    }
     return 0;
-
 }
 
 CVMInt32
 CVMioRead(CVMInt32 fd, void *buf, CVMUint32 nBytes)
 {
     DWORD bytes;
-    int b;
+    BOOL b;
     HANDLE h = WIN_GET_HANDLE((HANDLE)fd);
 
 #ifdef WINCE
     if (fd == 0 && h == INVALID_HANDLE_VALUE) { /* stdin, no PocketConsole */ 
-      b = readStandardIO(fd, buf, nBytes);   
+	bytes = readStandardIO(fd, buf, nBytes);
+        b = (bytes != 0);
     } else
-#else 
-      switch (fd) {
-      case 0: h = GetStdHandle(STD_INPUT_HANDLE); break;
-      case 1: h = GetStdHandle(STD_OUTPUT_HANDLE); break;
-      case 2: h = GetStdHandle(STD_ERROR_HANDLE); break;
-      }
+#else
+    switch (fd) {
+        case 0: h = GetStdHandle(STD_INPUT_HANDLE); break;
+        case 1: h = GetStdHandle(STD_OUTPUT_HANDLE); break;
+        case 2: h = GetStdHandle(STD_ERROR_HANDLE); break;
+    }
 #endif
     { 
-      b = ReadFile(h, buf, nBytes, &bytes, NULL);
+	b = ReadFile(h, buf, nBytes, &bytes, NULL);
     }
 
     if (b) {
-      return bytes;
+	return bytes;
     } else {
-      /* Behaviour similar to POSIX read( ) and ensures that 
-       * a parent process reading from a child's output and 
-       * error streams doesn't encounter an IOException when 
-       * the child exits. 
-       */
-      if (GetLastError () == ERROR_BROKEN_PIPE) 
-         return 0;
-      else 
-        return -1;
+	/* Behaviour similar to POSIX read( ) and ensures that 
+	 * a parent process reading from a child's output and 
+	 * error streams doesn't encounter an IOException when 
+	 * the child exits. 
+	 */
+	if (GetLastError () == ERROR_BROKEN_PIPE) {
+	    return 0;
+        } else {
+	    return -1;
+	}
     }
 }
 
@@ -581,48 +572,49 @@ CVMInt32
 CVMioWrite(CVMInt32 fd, const void *buf, CVMUint32 nBytes)
 {
     DWORD bytes;
-    HANDLE h = INVALID_HANDLE_VALUE;
-
+    HANDLE h = WIN_GET_HANDLE((HANDLE)fd);
     int b;
-    {
+    
+    /* check if redirection sockets are used */
+    if (CVMglobals.target.stdoutPort >= 0 || CVMglobals.target.stderrPort >= 0) {
+        /* check if output should be redirected */ 
+        if ((fd >= 1) && (fd <= 2)) {
+            SIOWrite(fd, (char *)buf, nBytes);
+        }
+    }
+
 #ifndef WINCE
-	switch (fd) {
-	case 0: fd = (CVMInt32)GetStdHandle(STD_INPUT_HANDLE); break;
-	case 1: fd = (CVMInt32)GetStdHandle(STD_OUTPUT_HANDLE); break;
-	case 2: fd = (CVMInt32)GetStdHandle(STD_ERROR_HANDLE); break;
-	}
-#else
+    switch (fd) {
+        case 0: h = GetStdHandle(STD_INPUT_HANDLE); break;
+        case 1: h = GetStdHandle(STD_OUTPUT_HANDLE); break;
+        case 2: h = GetStdHandle(STD_ERROR_HANDLE); break;
+    }
+    b = WriteFile(h, buf, nBytes, &bytes, NULL);
+#else /* WINCE */
+    if (fd >= 1 && fd <= 2) {
+	FILE *fp = NULL;
 #ifdef CVM_DEBUG
-	if (fd >= 1 && fd <= 2) {
-	    NKDbgPrintfW(TEXT("%.*hs"), nBytes, buf);
-	    switch (fd) {
+	NKDbgPrintfW(TEXT("%.*hs"), nBytes, buf);
+#endif
+	switch (fd) {
 	    case 1:
-		h = _fileno(stdout);
+		fp = stdout;
 		break;
 	    case 2:
-		h = _fileno(stderr);
+		fp = stderr;
 		break;
-	    }
 	}
-#endif
-#endif
+	fwrite(buf, sizeof (char), nBytes, fp);
+	
+	/* Silently ignore errors */
+	writeStandardIO(fd, buf, nBytes);
+	bytes = nBytes;
+	b = 1;
+    } else {
+	b = WriteFile(h, buf, nBytes, &bytes, NULL);
     }
-    h = WIN_GET_HANDLE((HANDLE)fd);
-#ifdef WINCE
-    switch(fd) {
-       case 1:
-       case 2:
-          if (h == INVALID_HANDLE_VALUE) { 
-             bytes = writeStandardIO(fd, buf, nBytes);
-             b = ((bytes == -1) ? 0 : 1);
-             break;
-          }
-       default: 
-          b = WriteFile(h, buf, nBytes, &bytes, NULL);
-    }
-#else
-    b = WriteFile(h, buf, nBytes, &bytes, NULL);
-#endif
+
+#endif /* WINCE */
     if (b) {
         return (bytes);
     } else {
@@ -639,7 +631,7 @@ CVMioFileSizeFD(CVMInt32 fd, CVMInt64 *size)
     if (lo == 0xFFFFFFFF)
         return -1;
     else {
-        *size = lo | (hi << 32);
+        *size = lo | ((CVMInt64)hi << 32);
         return 0;
     }
 }

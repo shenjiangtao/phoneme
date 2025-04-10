@@ -1,7 +1,7 @@
 /*
  * @(#)jitinit_cpu.c	1.18 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -69,6 +69,16 @@ gcPatchPointsBranchTargets[CVMCPU_NUM_CCM_PATCH_POINTS] = {
 #endif
 };
 #endif /* CVMJIT_PATCH_BASED_GC_CHECKS */
+
+#ifdef CVMJIT_INTRINSICS
+extern void CVMCCMMIPSintrinsic_java_lang_System_identityHashCodeGlue(void);
+extern void CVMCCMMIPSintrinsic_java_lang_Object_hashCodeGlue(void);
+extern void CVMCCMMIPSintrinsic_java_lang_String_hashCodeGlue(void);
+extern void CVMCCMintrinsic_java_lang_String_indexOf0_STRING_I(void);
+extern void CVMCCMintrinsic_sun_misc_CVM_copyCharArray(void);
+extern void CVMCCMintrinsic_sun_misc_CVM_copyObjectArray(void);
+extern void CVMCCMintrinsic_java_lang_System_arraycopyGlue(void);
+#endif /* CVMJIT_INTRINSICS */
 
 /*
  * A table so profiling code can tell what part of ccmcodecachecopy_cpu.o
@@ -156,6 +166,29 @@ static const CVMCCMCodeCacheCopyEntry ccmCodeCacheCopyEntries[] = {
     ENTRY(CVMCCMruntimeIDiv)
     ENTRY(CVMCCMruntimeIRem)
 #endif
+#ifdef CVMJIT_INTRINSICS
+#ifndef CVMCCM_DISABLE_MIPS_CVM_INDENTITYHASHCODE_INTRINSIC
+    ENTRY(CVMCCMMIPSintrinsic_java_lang_System_identityHashCodeGlue)
+#endif
+#ifndef CVMCCM_DISABLE_MIPS_CVM_OBJECTHASHCODE_INTRINSIC
+    ENTRY(CVMCCMMIPSintrinsic_java_lang_Object_hashCodeGlue)
+#endif
+#ifndef CVMCCM_DISABLE_MIPS_CVM_STRINGHASHCODE_INTRINSIC
+    ENTRY(CVMCCMMIPSintrinsic_java_lang_String_hashCodeGlue)
+#endif
+#ifndef CVMCCM_DISABLE_MIPS_CVM_INDEXOF_INTRINSIC
+    ENTRY(CVMCCMintrinsic_java_lang_String_indexOf0_STRING_I)
+#endif
+#ifndef CVMCCM_DISABLE_MIPS_CVM_COPYCHARARRAY_INTRINSIC
+    ENTRY(CVMCCMintrinsic_sun_misc_CVM_copyCharArray)
+#endif
+#ifndef CVMCCM_DISABLE_MIPS_CVM_COPYOBJECTARRAY_INTRINSIC
+    ENTRY(CVMCCMintrinsic_sun_misc_CVM_copyObjectArray)
+#endif
+#ifndef CVMCCM_DISABLE_MIPS_CVM_ARRAYCOPY_INTRINSIC
+    ENTRY(CVMCCMintrinsic_java_lang_System_arraycopyGlue)
+#endif
+#endif /* CVMJIT_INTRINSICS */
     {(CVMUint8*)&CVMCCMcodeCacheCopyEnd, NULL},
 };
 #undef ENTRY
@@ -219,3 +252,27 @@ CVMJITdestroyCompilerBackEnd(void)
     }
 #endif
 }
+
+#ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
+/* Purpose: back-end PMI initialization. */
+CVMBool
+CVMJITPMIinitBackEnd(void)
+{
+    CVMJITGlobalState* jgs = &CVMglobals.jit;
+    const CVMUint32 regionMask = 0xf0000000;
+    
+    /* In order for PMI to work on MIPS, the entire code cache has to
+       fit entirely in one 256mb region. Otherwise we will not be able
+       to properly patch JAL instructions that end up jumping between
+       JAL regions.
+    */
+    if (((CVMUint32)jgs->codeCacheStart & regionMask) !=
+        ((CVMUint32)jgs->codeCacheEnd & regionMask))
+    {
+        CVMdebugPrintf(("WARNING: PMI disabled because code cache is not "
+                        "entirely located within one 256mb JAL region\n"));
+        CVMglobals.jit.pmiEnabled = CVM_FALSE;
+    }
+    return CVM_TRUE;
+}
+#endif

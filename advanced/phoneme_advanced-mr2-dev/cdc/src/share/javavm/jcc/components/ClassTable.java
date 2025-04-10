@@ -1,7 +1,7 @@
 /*
  * @(#)ClassTable.java	1.9 06/11/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -69,6 +69,7 @@ class ClassTable
     static Vector allClasses = new Vector();
     static ClassLoader bootLoader = new ClassLoader("boot", null);
     static ClassLoader loader = bootLoader;
+    static ClassLoader allLoader = new ClassLoader("all", null);
     static Hashtable loaders = new Hashtable();
     static Hashtable classTable = loader.classes;
     static String classLoaderNames = "";
@@ -76,12 +77,16 @@ class ClassTable
 
     static {
 	loaders.put("boot", bootLoader);		// ID 0
+        loaders.put("all", allLoader);                  // ID 1
 	allClasses = new Vector();
     }
 
     private static boolean primitivesDone = false;
 
-    public static void init(int verbosity) {
+    /**
+     * Initializes the class table if it hasn't already been initialized.
+     */
+    public static void initIfNeeded(int verbosity) {
 	if (!primitivesDone) {
 	    vm.PrimitiveClassInfo.init(verbosity > 1);
 	    primitivesDone = true;
@@ -128,26 +133,26 @@ class ClassTable
     }
 
     public static boolean
-    enterClass(ClassInfo c, ClassLoader l){
-	l.enterClass(c);
-	String className = c.className;
+    enterClass(ClassInfo cinfo, ClassLoader loader) {
+	loader.enterClass(cinfo);
+	String className = cinfo.className;
 	// Make sure a classvector hasn't been created yet.
 	// (used to add, now we just assert that it isn't necessary).
 	if (vm.ClassClass.hasClassVector()){
-	    System.err.println(Localizer.getString("classtable.class_vector_in_place",
-				className));
+	    System.err.println(Localizer.getString(
+                "classtable.class_vector_in_place", className));
 	    return false;
 	}
-	allClasses.add(c);
+	allClasses.add(cinfo);
 	return true;
     }
 
     public static boolean
-    enterClass(ClassInfo c){
-	if (!(c instanceof vm.ArrayClassInfo)) {
-	    return enterClass(c, loader);
+    enterClass(ClassInfo cinfo){
+	if (!(cinfo instanceof vm.ArrayClassInfo)) {
+	    return enterClass(cinfo, loader);
 	} else {
-	    return enterClass(c, c.loader);
+	    return enterClass(cinfo, cinfo.loader);
 	}
     }
 

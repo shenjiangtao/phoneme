@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -126,5 +126,5 @@ $(CVM_JCS): $(CVM_JCS_COBJS)
 $(CVM_CODEGEN_CFILES): $(CVM_JCS) $(CVM_JCS_INPUT_FILES)
 	@echo ... running jcs
 	$(AT)$(CVM_JCS) -a  $(CVM_JCS_OPTIONS) \
-	    $(CVM_JCS_INPUT_FILES) \
-	    -o $(CVM_CODEGEN_CFILES) $(CVM_CODEGEN_HFILE)
+	    $(call abs2rel,$(CVM_JCS_INPUT_FILES)) \
+	    -o $(call abs2rel,$(CVM_CODEGEN_CFILES) $(CVM_CODEGEN_HFILE))

@@ -1,7 +1,5 @@
 /*
- * @(#)gen_markcompact.c	1.54 06/10/10
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -49,6 +47,9 @@
 
 #include "javavm/include/porting/system.h"
 #include "javavm/include/porting/ansi/setjmp.h"
+#ifdef CVM_JVMTI
+#include "javavm/include/jvmtiExport.h"
+#endif
 
 #ifdef CVM_JVMPI
 #include "javavm/include/jvmpi_impl.h"
@@ -292,6 +293,8 @@ updateCTForRange(CVMGenMarkCompactGeneration* thisGen,
     CVMassert(curr == top); /* This had better be exact */
 }
 
+#define CHUNK_SIZE 2*1024*1024
+
 /*
  * Scan objects in contiguous range, and do all special handling as well.
  */
@@ -319,7 +322,7 @@ scanObjectsInRange(CVMExecEnv* ee, CVMGCOptions* gcOpts,
     CVMassert(curr == top); /* This had better be exact */
 }
 
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
 
 void CVMgcReplaceWithPlaceHolderObject(CVMObject *currObj, CVMUint32 objSize)
 {
@@ -334,7 +337,7 @@ void CVMgcReplaceWithPlaceHolderObject(CVMObject *currObj, CVMUint32 objSize)
 	sizeOfArrayHeader += sizeof(CVMUint32) /* pad */;
 #endif
         arrayLength = (objSize - sizeOfArrayHeader) / sizeof(CVMJavaInt);
-	CVMassert(arrayLength >= 0);
+	CVMassert(objSize >= sizeOfArrayHeader);
 	array->length = arrayLength;
 
         objCb = CVMsystemClass(manufacturedArrayOfInt);
@@ -388,11 +391,18 @@ scanObjectsInYoungGenRange(CVMGenMarkCompactGeneration* thisGen,
 	} else {
 #ifdef CVM_JVMPI
 	    {
-	        extern CVMUint32 liveObjectCount;
-                if (CVMjvmpiEventObjectFreeIsEnabled()) {
+		extern CVMUint32 liveObjectCount;
+		if (CVMjvmpiEventObjectFreeIsEnabled()) {
                     CVMjvmpiPostObjectFreeEvent(currObj);
                 }
-                liveObjectCount--;
+		liveObjectCount--;
+	    }
+#endif
+#ifdef CVM_JVMTI
+	    {
+                if (CVMjvmtiShouldPostObjectFree()) {
+                    CVMjvmtiPostObjectFreeEvent(currObj);
+                }
 	    }
 #endif
 #ifdef CVM_INSPECTOR
@@ -412,7 +422,7 @@ scanObjectsInYoungGenRange(CVMGenMarkCompactGeneration* thisGen,
 
 #else
 #define scanObjectsInYoungGenRange scanObjectsInRangeSkipUnmarked
-#endif /* CVM_INSPECTOR || CVM_JVMPI */
+#endif /* CVM_INSPECTOR || CVM_JVMPI || CVM_JVMTI */
 
 
 /*
@@ -429,20 +439,28 @@ scanObjectsInRangeSkipUnmarked(CVMGenMarkCompactGeneration* thisGen,
 		       "Scanning object range (skip unmarked) [%x,%x)\n",
 		       base, top));
     while (curr < top) {
-	CVMObject* currObj    = (CVMObject*)curr;
-	CVMAddr    classWord  = CVMobjectGetClassWord(currObj);
-	CVMClassBlock* currCb = CVMobjectGetClassFromClassWord(classWord);
-	CVMUint32  objSize    = CVMobjectSizeGivenClass(currObj, currCb);
-	if (CVMobjectMarkedOnClassWord(classWord)) {
-	    CVMobjectWalkRefsWithSpecialHandling(ee, gcOpts, currObj,
-						 classWord, {
-		if (*refPtr != 0) {
-		    CVMgenMarkCompactFilteredUpdateRoot(refPtr, thisGen);
-		}
-	    }, CVMgenMarkCompactFilteredUpdateRoot, thisGen);
-	}
-	/* iterate */
-	curr += objSize / 4;
+        CVMUint32* nextChunk = curr + CHUNK_SIZE;
+        if (nextChunk > top) {
+            nextChunk = top;
+        }
+
+        while (curr < nextChunk) {
+	    CVMObject* currObj    = (CVMObject*)curr;
+	    CVMAddr    classWord  = CVMobjectGetClassWord(currObj);
+	    CVMClassBlock* currCb = CVMobjectGetClassFromClassWord(classWord);
+	    CVMUint32  objSize    = CVMobjectSizeGivenClass(currObj, currCb);
+	    if (CVMobjectMarkedOnClassWord(classWord)) {
+	        CVMobjectWalkRefsWithSpecialHandling(ee, gcOpts, currObj,
+						     classWord, {
+		    if (*refPtr != 0) {
+		        CVMgenMarkCompactFilteredUpdateRoot(refPtr, thisGen);
+		    }
+	        }, CVMgenMarkCompactFilteredUpdateRoot, thisGen);
+	    }
+	    /* iterate */
+	    curr += objSize / 4;
+        }
+        CVMthreadSchedHook(CVMexecEnv2threadID(ee));
     }
     CVMassert(curr == top); /* This had better be exact */
 }
@@ -663,13 +681,29 @@ CVMgenMarkCompactAlloc(CVMUint32* space, CVMUint32 totalNumBytes)
     thisGen->gen.freeMemory = CVMgenMarkcompactFreeMemory;
     thisGen->gen.totalMemory = CVMgenMarkcompactTotalMemory;
 
-    CVMdebugPrintf(("GC[MC]: Initialized mark-compact gen "
-		  "for generational GC\n"));
-    CVMdebugPrintf(("\tSize of the space in bytes=%d\n"
-		  "\tLimits of generation = [0x%x,0x%x)\n",
-		  numBytes, thisGen->gen.allocBase, thisGen->gen.allocTop));
+#if defined(CVM_DEBUG)
+    CVMgenMarkCompactDumpSysInfo(thisGen);
+#endif /* CVM_DEBUG */
+
     return (CVMGeneration*)thisGen;
 }
+
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+/* Dumps info about the configuration of the markcompact generation. */
+void CVMgenMarkCompactDumpSysInfo(CVMGenMarkCompactGeneration* thisGen)
+{
+    CVMUint32 numBytes;
+
+    numBytes = (thisGen->gen.heapTop - thisGen->gen.heapBase) *
+	       sizeof(CVMUint32);
+
+    CVMconsolePrintf("GC[MC]: Initialized mark-compact gen "
+		     "for generational GC\n");
+    CVMconsolePrintf("\tSize of the space in bytes=%d\n"
+		     "\tLimits of generation = [0x%x,0x%x)\n",
+		     numBytes, thisGen->gen.allocBase, thisGen->gen.allocTop);
+}
+#endif /* CVM_DEBUG || CVM_INSPECTOR */
 
 /*
  * Free all the memory associated with the current mark-compact generation
@@ -827,54 +861,71 @@ preserveHeaderWord(CVMGenMarkCompactGeneration* thisGen,
 /* Sweep the heap, compute the compacted addresses, write them into the
    original object headers, and return the new allocPtr of this space. */
 static CVMUint32*
-sweep(CVMGenMarkCompactGeneration* thisGen, CVMUint32* base, CVMUint32* top)
+sweep(CVMExecEnv* ee, CVMGenMarkCompactGeneration* thisGen,
+      CVMUint32* base, CVMUint32* top)
 {
     CVMUint32* forwardingAddress = base;
     CVMUint32* curr = base;
+
     CVMtraceGcCollect(("GC[MC,%d]: Sweeping object range [%x,%x)\n",
 		       thisGen->gen.generationNo, base, top));
     while (curr < top) {
-	CVMObject* currObj    = (CVMObject*)curr;
-	CVMAddr    classWord  = CVMobjectGetClassWord(currObj);
-	CVMClassBlock* currCb = CVMobjectGetClassFromClassWord(classWord);
-	CVMUint32  objSize    = CVMobjectSizeGivenClass(currObj, currCb);
-	if (CVMobjectMarkedOnClassWord(classWord)) {
-	    volatile CVMAddr* headerAddr   = &CVMobjectVariousWord(currObj);
-	    CVMAddr  originalWord = *headerAddr;
-	    CVMtraceGcScan(("GC[MC,%d]: obj 0x%x -> 0x%x\n",
-			    thisGen->gen.generationNo, curr,
-			    forwardingAddress));
-	    if (!CVMobjectTrivialHeaderWord(originalWord)) {
-		/* Preserve the old header word with the new address
-                   of object, but only if it is non-trivial. */
-		preserveHeaderWord(thisGen, 
-		    (CVMObject *)forwardingAddress, originalWord);
-	    }
+        CVMUint32* nextChunk = curr + CHUNK_SIZE;
+        if (nextChunk > top) {
+            nextChunk = top;
+        }
 
-	    /* Set forwardingAddress in header */
-	    *headerAddr = (CVMAddr)forwardingAddress;
-	    /* Pretend to have copied this live object! */
-	    forwardingAddress += objSize / 4;
-        } else {
+        while (curr < nextChunk) {
+	    CVMObject* currObj    = (CVMObject*)curr;
+	    CVMAddr    classWord  = CVMobjectGetClassWord(currObj);
+	    CVMClassBlock* currCb = CVMobjectGetClassFromClassWord(classWord);
+	    CVMUint32  objSize    = CVMobjectSizeGivenClass(currObj, currCb);
+	    if (CVMobjectMarkedOnClassWord(classWord)) {
+	        volatile CVMAddr* headerAddr   = &CVMobjectVariousWord(currObj);
+	        CVMAddr  originalWord = *headerAddr;
+	        CVMtraceGcScan(("GC[MC,%d]: obj 0x%x -> 0x%x\n",
+			        thisGen->gen.generationNo, curr,
+			        forwardingAddress));
+	        if (!CVMobjectTrivialHeaderWord(originalWord)) {
+		    /* Preserve the old header word with the new address
+                       of object, but only if it is non-trivial. */
+		    preserveHeaderWord(thisGen, 
+		        (CVMObject *)forwardingAddress, originalWord);
+	        }
+
+	        /* Set forwardingAddress in header */
+	        *headerAddr = (CVMAddr)forwardingAddress;
+	        /* Pretend to have copied this live object! */
+	        forwardingAddress += objSize / 4;
+            } else {
 #ifdef CVM_JVMPI
-	    {
-	        extern CVMUint32 liveObjectCount;
-                if (CVMjvmpiEventObjectFreeIsEnabled()) {
-                    CVMjvmpiPostObjectFreeEvent(currObj);
-                }
-                liveObjectCount--;
-	    }
+	        {
+		    extern CVMUint32 liveObjectCount;
+                    if (CVMjvmpiEventObjectFreeIsEnabled()) {
+                        CVMjvmpiPostObjectFreeEvent(currObj);
+                    }
+		    liveObjectCount--;
+	        }
+#endif
+#ifdef CVM_JVMTI
+	        {
+                    if (CVMjvmtiShouldPostObjectFree()) {
+                        CVMjvmtiPostObjectFreeEvent(currObj);
+                    }
+	        }
 #endif
 #ifdef CVM_INSPECTOR
-	    /* We only need to report this if there are captured states that
-	       need to be updated: */
-	    if (CVMglobals.inspector.hasCapturedState) {
-    	        CVMgcHeapStateObjectFreed(currObj);
-	    }
+	        /* We only need to report this if there are captured states that
+	           need to be updated: */
+	        if (CVMglobals.inspector.hasCapturedState) {
+    	            CVMgcHeapStateObjectFreed(currObj);
+	        }
 #endif
-	}
-	/* iterate */
-	curr += objSize / 4;
+	    }
+	    /* iterate */
+	    curr += objSize / 4;
+        }
+        CVMthreadSchedHook(CVMexecEnv2threadID(ee));
     }
     CVMassert(curr == top); /* This had better be exact */
     CVMtraceGcCollect(("GC[MC,%d]: Swept object range [%x,%x) -> 0x%x\n",
@@ -1015,53 +1066,62 @@ unsweepAndUnmark(CVMGenMarkCompactGeneration* thisGen, CVMUint32* base,
 /* Finally we can move objects, reset marks, and restore original
    header words. */
 static void 
-compact(CVMGenMarkCompactGeneration* thisGen, CVMUint32* base, CVMUint32* top)
+compact(CVMExecEnv* ee, CVMGenMarkCompactGeneration* thisGen,
+        CVMUint32* base, CVMUint32* top)
 {
     CVMUint32* curr = base;
     CVMtraceGcCollect(("GC[MC,%d]: Compacting object range [%x,%x)\n",
 		       thisGen->gen.generationNo, base, top));
     while (curr < top) {
-	CVMObject*     currObj   = (CVMObject*)curr;
-	CVMAddr        classWord = CVMobjectGetClassWord(currObj);
-	CVMClassBlock* currCb    = CVMobjectGetClassFromClassWord(classWord);
-	CVMUint32      objSize   = CVMobjectSizeGivenClass(currObj, currCb);
+        CVMUint32* nextChunk = curr + CHUNK_SIZE;
+        if (nextChunk > top) {
+            nextChunk = top;
+        }
 
-	if (CVMobjectMarkedOnClassWord(classWord)) {
-	    CVMUint32* destAddr = (CVMUint32*)
-		CVMgenMarkCompactGetForwardingPtr(currObj);
-	    CVMobjectClearMarkedOnClassWord(classWord);
+        while (curr < nextChunk) {
+	    CVMObject*     currObj   = (CVMObject*)curr;
+	    CVMAddr        classWord = CVMobjectGetClassWord(currObj);
+	    CVMClassBlock* currCb = CVMobjectGetClassFromClassWord(classWord);
+	    CVMUint32      objSize = CVMobjectSizeGivenClass(currObj, currCb);
+
+	    if (CVMobjectMarkedOnClassWord(classWord)) {
+	        CVMUint32* destAddr = (CVMUint32*)
+		    CVMgenMarkCompactGetForwardingPtr(currObj);
+	        CVMobjectClearMarkedOnClassWord(classWord);
 #ifdef CVM_DEBUG
-	    /* For debugging purposes, make sure the deleted mark is
-	       reflected in the original copy of the object as well. */
-	    CVMobjectSetClassWord(currObj, classWord);
+	        /* For debugging purposes, make sure the deleted mark is
+	           reflected in the original copy of the object as well. */
+	        CVMobjectSetClassWord(currObj, classWord);
 #endif
-	    CVMgenMarkCompactCopyDown(destAddr, curr, objSize);
+	        CVMgenMarkCompactCopyDown(destAddr, curr, objSize);
 
 #ifdef CVM_JVMPI
-            if (CVMjvmpiEventObjectMoveIsEnabled()) {
-                CVMjvmpiPostObjectMoveEvent(1, curr, 1, destAddr);
-            }
+                if (CVMjvmpiEventObjectMoveIsEnabled()) {
+                    CVMjvmpiPostObjectMoveEvent(1, curr, 1, destAddr);
+                }
 #endif
 #ifdef CVM_INSPECTOR
-	    if (CVMglobals.inspector.hasCapturedState) {
-	        CVMgcHeapStateObjectMoved(currObj, (CVMObject *)destAddr);
-	    }
+	        if (CVMglobals.inspector.hasCapturedState) {
+	            CVMgcHeapStateObjectMoved(currObj, (CVMObject *)destAddr);
+	        }
 #endif
 
-	    /*
-	     * First assume that all objects had the default various
-	     * word. We'll patch the rest shortly.
-	     * 
-	     * Note that this clears the GC bits portion. No worries,
-	     * we won't need that anymore in this generation.
-	     */
-	    CVMobjectVariousWord((CVMObject*)destAddr) =
-		CVM_OBJECT_DEFAULT_VARIOUS_WORD;
-	    /* Write the class word whose mark has just been cleared */
-	    CVMobjectSetClassWord((CVMObject*)destAddr, classWord);
-	}
-	/* iterate */
-	curr += objSize / 4;
+	        /*
+	         * First assume that all objects had the default various
+	         * word. We'll patch the rest shortly.
+	         * 
+	         * Note that this clears the GC bits portion. No worries,
+	         * we won't need that anymore in this generation.
+	         */
+	        CVMobjectVariousWord((CVMObject*)destAddr) =
+		    CVM_OBJECT_DEFAULT_VARIOUS_WORD;
+	        /* Write the class word whose mark has just been cleared */
+	        CVMobjectSetClassWord((CVMObject*)destAddr, classWord);
+	    }
+	    /* iterate */
+	    curr += objSize / 4;
+        }
+        CVMthreadSchedHook(CVMexecEnv2threadID(ee)); 
     }
 
     CVMassert(curr == top); /* This had better be exact */
@@ -1285,6 +1345,9 @@ CVMgenMarkCompactCollect(CVMGeneration* gen,
      */
     CVMgenScanAllRoots((CVMGeneration*)thisGen,
 		       ee, gcOpts, CVMgenMarkCompactScanTransitively, &tsd);
+
+    CVMthreadSchedHook(CVMexecEnv2threadID(ee));
+
     /*
      * Don't discover any more weak references.
      */
@@ -1344,7 +1407,7 @@ CVMgenMarkCompactCollect(CVMGeneration* gen,
     */
     thisGen->gcPhase = GC_PHASE_SWEEP;
 
-    newAllocPtr = sweep(thisGen, gen->allocBase, gen->allocPtr);
+    newAllocPtr = sweep(ee, thisGen, gen->allocBase, gen->allocPtr);
     CVMassert(newAllocPtr <= gen->allocPtr);
 
     /* At this point, the new addresses of each object are written in
@@ -1372,7 +1435,7 @@ CVMgenMarkCompactCollect(CVMGeneration* gen,
     unmark(thisGen, youngGen->allocBase, youngGen->allocPtr);
 
     /* Compact: Move objects and reset marks in the oldGen: */
-    compact(thisGen, gen->allocBase, gen->allocPtr);
+    compact(ee, thisGen, gen->allocBase, gen->allocPtr);
 
     /* Restore the "non-trivial" old header words into the object header words
        which were used for storing forwarding addresses: */

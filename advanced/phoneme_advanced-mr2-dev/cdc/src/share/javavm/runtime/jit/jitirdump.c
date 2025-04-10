@@ -1,7 +1,7 @@
 /*
  * @(#)jitirdump.c	1.102 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -104,6 +104,8 @@ static const char *const opcodeTagMap[] = {
     "CONVERT_FLOAT",
     "CONVERT_DOUBLE",
     "NEG",
+    "NOT",
+    "INT2BIT",
     "RET",
     "RETURN_VALUE",
     "IDENTITY",
@@ -724,7 +726,7 @@ CVMJITirdumpIRBlock(CVMJITCompilationContext* con, CVMJITIRBlock* bk)
 	    int j;
 	    CVMconsolePrintf("\tID(%d) LocalOrder(%d) AssignOrder(%d)"
 			     " RefsOK(%d) Locals(",
-			     successorBk->blockID,
+                             CVMJITirblockGetBlockID(successorBk),
 			     bk->successorBlocksLocalOrder[i],
 			     bk->successorBlocksAssignOrder[i],
 			     bk->okToMergeSuccessorBlockRefs[i]);

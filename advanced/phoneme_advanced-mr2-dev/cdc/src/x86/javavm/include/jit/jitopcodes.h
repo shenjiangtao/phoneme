@@ -1,27 +1,28 @@
 /*
  * @(#)jitopcodes.h	1.76 03/11/14
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+ * Reserved.  Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #ifndef _INCLUDED_JITOPCODES_H
@@ -110,12 +111,13 @@ CVMJITgetMassagedIROpcode(CVMJITCompilationContext *con, CVMJITIRNode *ip);
 #define ICONSTANT32	CVMJIT_ENCODE_CONST_JAVA_NUMERIC32(CVM_TYPEID_INT)
 #define ALENGTH		CVMJIT_ENCODE_ARRAY_LENGTH
 #define INEG32		CVMJIT_ENCODE_IUNARY(CVMJIT_NEG)
+#define NOT32		CVMJIT_ENCODE_IUNARY(CVMJIT_NOT)
+#define INT2BIT32       CVMJIT_ENCODE_IUNARY(CVMJIT_INT2BIT)
 #define IADD32		CVMJIT_ENCODE_IBINARY(CVMJIT_ADD)
 #define ISUB32		CVMJIT_ENCODE_IBINARY(CVMJIT_SUB)
 #define IMUL32		CVMJIT_ENCODE_IBINARY(CVMJIT_MUL)
 #define IDIV32		CVMJIT_ENCODE_IBINARY(CVMJIT_DIV)
 #define IREM32		CVMJIT_ENCODE_IBINARY(CVMJIT_REM)
-/* #define NOT32		CVMJIT_ENCODE_IUNARY(CVMJIT_NEG) */
 #define AND32		CVMJIT_ENCODE_IBINARY(CVMJIT_AND)
 #define OR32		CVMJIT_ENCODE_IBINARY(CVMJIT_OR)
 #define XOR32		CVMJIT_ENCODE_IBINARY(CVMJIT_XOR)

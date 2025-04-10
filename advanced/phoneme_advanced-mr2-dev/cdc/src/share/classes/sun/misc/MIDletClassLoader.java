@@ -1,7 +1,7 @@
 /*
- * @(#)MIDletClassLoader.java	1.11 06/10/10
+ * @(#)MIDletClassLoader.java   1.11 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -25,7 +25,7 @@
  *
  */
 /*
- * @(#)MIDletClassLoader.java	1.5	03/07/09
+ * @(#)MIDletClassLoader.java   1.5     03/07/09
  *
  * Class loader for midlets running on CDC/PP
  *
@@ -47,6 +47,7 @@ package sun.misc;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLClassLoader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashSet;
@@ -59,130 +60,263 @@ import java.security.PrivilegedAction;
 
 public class MIDletClassLoader extends URLClassLoader {
 
-    URL	    myBase[];
+    URL     myBase[];
     String[]systemPkgs;
     private MemberFilter memberChecker; /* to check for amputated members */
     private PermissionCollection perms;
     private HashSet badMidletClassnames = new HashSet();
     private MIDPImplementationClassLoader implementationClassLoader;
     private AccessControlContext ac = AccessController.getContext();
+    /*
+     * If the filter is disabled, all classes on the bootclasspath
+     * can be accessed from midlet.
+     */
+    private boolean enableFilter;
+    private ClassLoader auxClassLoader;
+
+    private MIDPBridgeInterface bridgeInterface;
 
     public MIDletClassLoader(
-	URL base[],
-	String systemPkgs[],
-	PermissionCollection pc,
-	MemberFilter mf,
-	MIDPImplementationClassLoader  parent)
+        URL base[],
+        String systemPkgs[],
+        PermissionCollection pc,
+        MemberFilter mf,
+        MIDPImplementationClassLoader  parent,
+        boolean enableFilter,
+        ClassLoader auxClassLoader,
+        MIDPBridgeInterface bridgeInterface)
     {
-	super(base, parent);
-	myBase = base;
-	this.systemPkgs = systemPkgs;
-	memberChecker = mf;
-	perms = pc;
-	implementationClassLoader = parent;
-    }
+        super(base, parent);
+        myBase = base;
+        this.systemPkgs = systemPkgs;
+        memberChecker = mf;
+        perms = pc;
+        implementationClassLoader = parent;
+        this.enableFilter = enableFilter;
+        this.auxClassLoader = auxClassLoader;
+        this.bridgeInterface = bridgeInterface;
 
+        /* Register the classloader */
+        String p = base[0].getPath();
+        int idx = p.lastIndexOf('.');
+        if (idx != -1) {
+            String name = p.substring(
+                p.lastIndexOf(File.separatorChar)+1, idx);
+            CVM.Preloader.registerClassLoader(name, this);
+        }
+    }
 
     protected PermissionCollection getPermissions(CodeSource cs){
-	URL srcLocation = cs.getLocation();
-	for (int i=0; i<myBase.length; i++){
-	    if (srcLocation.equals(myBase[i])){
-		return perms;
-	    }
-	}
-	return super.getPermissions(cs);
+        URL srcLocation = cs.getLocation();
+        for (int i=0; i<myBase.length; i++){
+            if (srcLocation.equals(myBase[i])){
+                return perms;
+            }
+        }
+        return super.getPermissions(cs);
     }
 
+    /* Check if class belongs to restricted system packages. */
+    private boolean
+    packageCheck(String pkg) {
+        String forbidden[] = systemPkgs;
+        int fLength = forbidden.length;
+
+        /* First check the default list specified by MIDPConfig */
+        for (int i=0; i< fLength; i++){
+            if (pkg.startsWith(forbidden[i])){
+                return true;
+            }
+        }
+
+        /* Then Check with MIDPPkgChecker. The MIDPPkgChecker knows
+         * the restricted MIDP and JSR packages specified in their
+         * rom.conf files. */
+        return MIDPPkgChecker.checkPackage(pkg);
+    }
 
     private Class
     loadFromUrl(String classname) throws ClassNotFoundException
     {
-	// first ensure we like componentName.
-	// it should not have a systemPkg entry as a prefix!
-	// this is probably paranoid. There are probably other
-	// mechanisms to avoid this.
-	String forbidden[] = systemPkgs;
-	int fLength = forbidden.length;
-	for (int i=0; i< fLength; i++){
-	    if (classname.startsWith(forbidden[i])){
-		return null; // go look elsewhere.
-	    }
-	}
-	Class newClass;
-	try {
-	    newClass = super.findClass(classname); // call URLClassLoader
-	}catch(Exception e){
-	    /*DEBUG e.printStackTrace(); */
-	    // didn't find it.
-	    return null;
-	}
-	if (newClass == null )
-	    return null;
-	try {
-	    // memberChecker will throw an Error if it doesn't like
-	    // the class.
-	    memberChecker.checkMemberAccessValidity(newClass);
-	    return newClass;
-	} catch (Error e){
-	    // If this happens, act as if we cannot find the class.
-	    // remember this class, too. If the MIDlet catches the
-	    // Exception and tries again, we don't want findLoadedClass()
-	    // to return it!!
-	    badMidletClassnames.add(classname);
-	    throw new ClassNotFoundException(e.getMessage());
-	}
+        Class newClass;
+        try {
+            newClass = super.findClass(classname); // call URLClassLoader
+        }catch(Exception e){
+            /*DEBUG e.printStackTrace(); */
+            // didn't find it.
+            return null;
+        }
+        if (newClass == null )
+            return null;
+
+        /*
+         * Found the requested class. Make sure it's not from
+         * restricted system packages.
+         */
+        int idx = classname.lastIndexOf('.');
+        if (idx != -1) {
+            String pkg = classname.substring(0, idx);
+            if (packageCheck(pkg)) {
+                throw new ClassNotFoundException(classname +
+                              ". Prohibited package name: " + pkg);
+            }
+        }
+
+        /*
+         * Check member access to make sure the class doesn't
+         * access any hidden CDC APIs.
+         */
+        try {
+            // memberChecker will throw an Error if it doesn't like
+            // the class.
+            if (enableFilter) {
+                memberChecker.checkMemberAccessValidity(newClass);
+            }
+            return newClass;
+        } catch (Error e){
+            // If this happens, act as if we cannot find the class.
+            // remember this class, too. If the MIDlet catches the
+            // Exception and tries again, we don't want findLoadedClass()
+            // to return it!!
+            badMidletClassnames.add(classname);
+            throw new ClassNotFoundException(e.getMessage());
+        }
     }
 
 
     public synchronized Class
     loadClass(String classname, boolean resolve) throws ClassNotFoundException
     {
-	Class resultClass;
-	classname = classname.intern();
-	if (badMidletClassnames.contains(classname)){
-	    // the system thinks it successfully loaded this class.
-	    // But the member checker does not think we should be able
-	    // to use it. We threw an Exception before. Do it again.
-	    throw new ClassNotFoundException(classname.concat(
-			" contains illegal member reference"));
-	}
-	resultClass = findLoadedClass(classname);
-	if (resultClass == null){
-	    resultClass = loadFromUrl(classname);
-	    if (resultClass == null){
-		resultClass = implementationClassLoader.loadClass(classname,
-								  false, true);
-	    }
-	}
-	if (resultClass == null)
-	    throw new ClassNotFoundException(classname);
-	if (resolve)
-	    resolveClass(resultClass);
-	return resultClass;
+        Class resultClass;
+        Throwable err = null;
+        int i = classname.lastIndexOf('.');
+
+        if (i != -1) {
+            SecurityManager sm = System.getSecurityManager();
+            if (sm != null) {
+                sm.checkPackageAccess(classname.substring(0, i));
+            }
+        }
+
+        classname = classname.intern();
+
+        if (badMidletClassnames.contains(classname)){
+            // the system thinks it successfully loaded this class.
+            // But the member checker does not think we should be able
+            // to use it. We threw an Exception before. Do it again.
+            throw new ClassNotFoundException(classname.concat(
+                        " contains illegal member reference"));
+        }
+
+        /* First, check to see if the class has already been loaded. */
+        resultClass = findLoadedClass(classname);
+
+        /* Class has not been loaded. Delegate to the parent classloader. */
+        if (resultClass == null){
+            try {
+                /* Ask the parent to load the class for us. But first
+                 * make sure the class is allowed to be accessed by
+                 * midlet.
+                 */
+                if (!enableFilter ||
+                    MIDPConfig.isClassAllowed(classname)) {
+                    resultClass = implementationClassLoader.loadClass(
+                                      classname, false);
+                }
+            } catch (ClassNotFoundException e) {
+            } catch (NoClassDefFoundError e) {
+            }
+        }
+
+        /* Try loading the class ourselves. */
+        if (resultClass == null) {
+            try {
+                resultClass = loadFromUrl(classname);
+            } catch (ClassNotFoundException e) {
+                err = e;
+            } catch (NoClassDefFoundError e) {
+                err = e;
+            }
+        }
+
+        /*
+         * If MIDletClassLoader and the parents failed to
+         * load the class, try the auxClassLoader.
+         */
+        if (resultClass == null && auxClassLoader != null) {
+            resultClass = auxClassLoader.loadClass(classname);
+        }
+
+        if (resultClass == null && bridgeInterface != null) {
+            resultClass = bridgeInterface.loadClass(classname);
+        }
+
+        if (resultClass == null) {
+            if (err == null) {
+                throw new ClassNotFoundException(classname);
+            } else {
+                if (err instanceof ClassNotFoundException) {
+                    throw (ClassNotFoundException)err;
+                } else {
+                    throw (NoClassDefFoundError)err;
+                }
+            }
+        }
+
+        if (resolve) {
+            resolveClass(resultClass);
+        }
+
+        return resultClass;
     }
 
    public InputStream
-   getResourceAsStream(final String name){
-	// prohibit reading .class as a resource
-	if (name.endsWith(".class")){
-	    return null; // not allowed!
-	}
-	// do not delegate. We only use our own URLClassLoader.findResource to
-	// look in our own JAR file. That is always allowed.
-	// Nothing else is.
-	InputStream retval;
-	retval = (InputStream) AccessController.doPrivileged(
-		new PrivilegedAction(){
-		    public Object run(){
-			URL url = findResource(name);
-			try {
-			    return url != null ? url.openStream() : null;
-			} catch (IOException e) {
-			    return null;
-			}
-		    }
-		}, ac);
-	return retval;
+   getResourceAsStream(String name){
+        // prohibit reading .class as a resource
+        if (name.endsWith(".class")){
+            return null; // not allowed!
+        }
+        
+        int i;
+        // Replace /./ with /
+        while ((i = name.indexOf("/./")) >= 0) {
+            name = name.substring(0, i) + name.substring(i + 2);
+        }
+        // Replace /segment/../ with /
+        i = 0;
+        int limit;
+        while ((i = name.indexOf("/../", i)) > 0) {
+            if ((limit = name.lastIndexOf('/', i - 1)) >= 0) {
+                name = name.substring(0, limit) + name.substring(i + 3);
+                i = 0;
+            } else {
+                i = i + 3;
+            }
+        }
+
+        // The JAR reader cannot find the resource if the name starts with 
+        // a slash.  So we remove the leading slash if one exists.
+        if (name.startsWith("/") || name.startsWith(File.separator)) {      
+            name = name.substring(1);
+        }
+        
+        final String n = name;
+        // do not delegate. We only use our own URLClassLoader.findResource to
+        // look in our own JAR file. That is always allowed.
+        // Nothing else is.
+        InputStream retval;
+        retval = (InputStream) AccessController.doPrivileged(
+                new PrivilegedAction(){
+                    public Object run(){
+                        URL url = findResource(n);
+                        try {
+                            return url != null ? url.openStream() : null;
+                        } catch (IOException e) {
+                            return null;
+                        }
+                    }
+                }, ac);
+        return retval;
     }
 
 }

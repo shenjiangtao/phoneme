@@ -1,7 +1,7 @@
 #
 # @(#)rules_jump.mk	1.3 06/10/25
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -24,14 +24,17 @@
 # information or have any questions. 
 #
 
-ifeq ($(CVM_INCLUDE_JUMP),true)
+ifeq ($(USE_JUMP),true)
 
 # print our configuration
 printconfig::
 	@echo "JUMP_DIR           = $(JUMP_DIR)"
 
-.PHONY: jumptargets force_jump_build
-jumptargets: force_jump_build
+.PHONY: jumptargets jumptargets-api jumptargets-impl 
+jumptargets: jumptargets-api jumptargets-impl
+
+jumptargets-api: force_jump_build-api
+jumptargets-impl: $(JSROP_JARS) force_jump_build-impl $(CVM_BINDIR)/runjump $(CVM_BINDIR)/autotest $(CVM_BINDIR)/runinstall $(CVM_BINDIR)/runxinstall
 
 $(CVM_BUILD_DEFS_MK)::
 	$(AT) echo updating $@ [from rules_jump.mk]
@@ -44,15 +47,36 @@ $(CVM_BUILD_DEFS_MK)::
 # that force it to be rebuilt. But list $(JUMP_DEPENDENCIES) anyway just to
 # make things explicit
 #
-force_jump_build: $(JUMP_DEPENDENCIES)
-	@echo "====> start building jump api's and implementation"
-	$(AT)(cd $(JUMP_DIR); $(CVM_ANT) $(CVM_ANT_OPTIONS) $(JUMP_ANT_OPTIONS) -f build/build.xml all)
-	$(AT)cp $(JUMP_API_CLASSESZIP) \
-                $(JUMP_IMPL_CLASSESZIP) \
-                $(JUMP_SHARED_BOOTCLASSESZIP) \
+force_jump_build-api: $(JUMP_DEPENDENCIES)
+	@echo "====> start building jump api's"
+	$(AT)(cd $(JUMP_DIR); $(CVM_ANT) $(CVM_ANT_OPTIONS) $(JUMP_ANT_OPTIONS) -f build/build.xml build-api)
+	@echo "====> done building jump api's"
+
+force_jump_build-impl: $(JUMP_DEPENDENCIES)
+	@echo "====> start building jump impl's"
+	$(AT)(cd $(JUMP_DIR); $(CVM_ANT) $(CVM_ANT_OPTIONS) $(JUMP_ANT_OPTIONS) -f build/build.xml build-impl)
+	$(AT)cp $(JUMP_SHARED_BOOTCLASSESZIP) \
                 $(JUMP_EXECUTIVE_BOOTCLASSESZIP) \
                 $(CVM_LIBDIR)
-	@echo  "<==== done building jump api's and implementation"
+	@echo  "<==== done building jump implementation"
+
+#
+# For a non-romized build we should add JSRs jarfiles to Xbootclasspath
+# for a server cvm instance. After forking the classpath will be inherited by
+# executive and isolates cvm instances.
+# For a romized build all JSR classes are included in cvm executable.
+#
+$(CVM_BINDIR)/runjump: $(JUMP_SCRIPTS_DIR)/runjump
+ifneq ($(CVM_PRELOAD_LIB), true)
+	$(AT)sed -e "s,^ *SERVER_JARFILE=.*$$,&$(JUMP_JSROP_JARS)," $^ > $@
+else
+	$(AT)cp $^ $@
+endif
+	$(AT)chmod 755 $@
+
+$(CVM_BINDIR)/%: $(JUMP_SCRIPTS_DIR)/%
+	$(AT)cp $^ $@
+	$(AT)chmod 755 $@
 
 .PHONY: javadoc-api
 javadoc-api:
@@ -62,24 +86,28 @@ javadoc-api:
 
 $(JUMP_NATIVE_LIBRARY_PATHNAME) :: $(JUMP_NATIVE_LIB_OBJS)
 	@echo "Linking $@"
-	$(SO_LINK_CMD)
+	$(call SO_LINK_CMD, $^,)
 	$(AT)cp $@ $(CVM_LIBDIR)
 
 #
 # JUMP unit testing
 #
-# NOTE: due to quirks of Ant 1.6.x JUnit3.8.1 jar should be added into ant libs
+# NOTE: due to quirks of Ant 1.6.x JUnit3.8.x jar should be added into ant libs
 #
 
-BUILD_UNITTEST_ANT_OPTIONS := $(CVM_ANT_OPTIONS) $(JUMP_ANT_OPTIONS) -Djunit3.8.1.jar=$(JUNIT_JAR)
-RUN_UNITTEST_ANT_OPTIONS := $(BUILD_UNITTEST_ANT_OPTIONS) -lib $(JUNIT_JAR) -Dreports.dir=$(REPORTS_DIR)/jump
+BUILD_UNITTEST_ANT_OPTIONS = $(CVM_ANT_OPTIONS) $(JUMP_ANT_OPTIONS) -Djunit3.8.jar=$(JUNIT_JAR)
+RUN_UNITTEST_ANT_OPTIONS = $(BUILD_UNITTEST_ANT_OPTIONS) -lib $(JUNIT_JAR) -Dreports.dir=$(REPORTS_DIR)/jump
 
 # Provide a default value to JUNIT_JAR if it's not set
-JUNIT_JAR ?= /usr/share/ant/lib/junit.jar
+ifdef JUNIT_JARFILE
+JUNIT_JAR ?= $(JUNIT_JARFILE)
+else
+JUNIT_JAR ?= /usr/share/java/junit.jar
+endif
 
 # Quick check of JUNIT_JAR validity
 define check_JUNIT_JAR
-	$(AT)($(CVM_JAR) tf $(JUNIT_JAR) &> /dev/null || (echo "JUNIT_JAR appears to be invalid or missing: [$(JUNIT_JAR)]" ; exit -1))
+	$(AT)($(CVM_JAR) tf $(JUNIT_JAR) > /dev/null || (echo "JUNIT_JAR appears to be invalid or missing: [$(JUNIT_JAR)]" ; exit -1))
 endef
 
 build-unittests::

@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -34,8 +34,8 @@
 ASM_ARCH_FLAGS		= -mips2
 CC_ARCH_FLAGS   	= -mips2
 # Fix gcc fp extra precision bug on mips 
-CC_ARCH_FLAGS_FDLIB	= -mips2 -ffloat-store
-CC_ARCH_FLAGS_LOOP 	= -mips2
+CC_ARCH_FLAGS_FDLIB	= -ffloat-store
+CC_ARCH_FLAGS_LOOP 	=
 LINK_ARCH_FLAGS 	=
 LINK_ARCH_LIBS		= -lm
 

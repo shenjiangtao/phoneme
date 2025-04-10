@@ -1,7 +1,7 @@
 /*
  * @(#)StringBuffer.c	1.11 04/12/05
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -24,6 +24,12 @@
  * information or have any questions. 
  *
  */
+
+/*
+ * In SE6, the implementations of these methods have all moved out of
+ * StringBuffer and into its superclass AbstractStringBuilder.
+ */
+#ifndef JAVASE
 
 #include "javavm/export/jvm.h"
 #include "javavm/include/indirectmem.h"
@@ -236,7 +242,7 @@ unlock:
  * Method:	append
  * Signature:	([C)Ljava/lang/StringBuffer;
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_StringBuffer_append___3C(CVMExecEnv* ee, CVMStackVal32 *arguments,
                            CVMMethodBlock **p_mb)
 {
@@ -278,7 +284,7 @@ CNIjava_lang_StringBuffer_append___3C(CVMExecEnv* ee, CVMStackVal32 *arguments,
  * Method:	append
  * Signature:	([CII)Ljava/lang/StringBuffer;
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_StringBuffer_append___3CII(
     CVMExecEnv* ee, CVMStackVal32* arguments, CVMMethodBlock** p_mb)
 {
@@ -316,7 +322,7 @@ CNIjava_lang_StringBuffer_append___3CII(
  * Method:	expandCapacity
  * Signature:	(I)V
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_StringBuffer_expandCapacity(
     CVMExecEnv* ee, CVMStackVal32* arguments, CVMMethodBlock** p_mb)
 {
@@ -334,3 +340,5 @@ CNIjava_lang_StringBuffer_expandCapacity(
     
     return CNI_VOID;
 }
+
+#endif /* !JAVASE */

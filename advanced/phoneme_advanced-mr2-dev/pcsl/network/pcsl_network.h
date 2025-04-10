@@ -1,27 +1,27 @@
 /*
  *  
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 #ifndef _PCSL_NETWORK_H
 #define _PCSL_NETWORK_H
@@ -157,7 +157,7 @@ extern "C" {
 #define PCSL_NET_INTERRUPTED -3
 
 /** 
- * Return value indicating that there was an error and 
+ * Return value indicating that there was an error and
  * ConnectionNotFoundException needs to be thrwon to the calling Java thread
  */
 #define PCSL_NET_CONNECTION_NOTFOUND -4
@@ -166,6 +166,13 @@ extern "C" {
  * Return value indicating that a function parameter had an invalid value.
  */
 #define PCSL_NET_INVALID -5
+
+/**
+ * A value that is guaranteed to be different from any
+ * possible PCSL_NET_* return value.
+ * No function will ever return it as a status code.
+ */
+#define PCSL_NET_NOSTATUS -6
 
 /**
  * The value which valid handle returned by pcsl network functions cannot have
@@ -183,12 +190,83 @@ extern "C" {
 #define MAX_HOST_LENGTH MAX_HOST_LENGTH_MD
 
 /**
+ * Type of a function that will be called when the network initialization
+ * or finalization is completed.
+ *
+ * @param isInit 0 if the network finalization has been finished,
+ *               not 0 - if the initialization
+ * @param status one of PCSL_NET_* completion codes
+ */
+typedef void (*PCSL_NET_CALLBACK)(int isInit, int status);
+
+/**
  * Performs platform-specific initialization of the networking system.
  * 
  * @return PCSL_NET_SUCCESS upon success;\n 
  *         PCSL_NET_IOERROR for an error
  */
 extern int pcsl_network_init(void);
+
+/**
+ * Starts platform-specific initialization of the networking system.
+ *
+ * @param pcsl_network_callback pointer to a function that must be called after
+ *                              completion of the network initialization;
+ *                              can be NULL.
+ *
+ * @return PCSL_NET_SUCCESS upon success;
+ *         PCSL_NET_IOERROR if there is a network error;
+ *         PCSL_NET_WOULDBLOCK if the initialization is started, but if can't be
+ *                             completed right now; if pcsl_network_callback
+ *                             is not null, it will be called when the
+ *                             initialization is finished.
+ * Note that Winsock and BSD sockets implementations
+ * never return PCSL_NET_WOULDBLOCK. 
+ */
+extern int pcsl_network_init_start(PCSL_NET_CALLBACK pcsl_network_callback);
+
+/**
+ * Finalize platform-specific initialization of the networking system.
+ *
+ *
+ * @return PCSL_NET_SUCCESS upon success; 
+ *         PCSL_NET_IOERROR if there is a network error;
+ *         PCSL_NET_WOULDBLOCK if the initialization is not finished yet
+ * Note that Winsock and BSD sockets implementations
+ * never return PCSL_NET_WOULDBLOCK.
+ */
+extern int pcsl_network_init_finish(void);
+
+
+/**
+ * Starts platform-specific finalization of the networking system.
+ *
+ * @param pcsl_network_callback pointer to a function that must be called after
+ *                              completion of the network finalization;
+ *                              can be NULL.
+ *
+ * @return PCSL_NET_SUCCESS upon success;
+ *         PCSL_NET_IOERROR if there is a network error;
+ *         PCSL_NET_WOULDBLOCK if the finalization is started, but if can't be
+ *                             completed right now; if pcsl_network_callback
+ *                             is not null, it will be called when the
+ *                             initialization is finished.
+ * Note that Winsock and BSD sockets implementations
+ * never return PCSL_NET_WOULDBLOCK.
+ */
+extern int pcsl_network_finalize_start(PCSL_NET_CALLBACK pcsl_network_callback);
+
+/**
+ * Finalize platform-specific finalization of the networking system.
+ *
+ *
+ * @return PCSL_NET_SUCCESS upon success; 
+ *         PCSL_NET_IOERROR if there is a network error;
+ *         PCSL_NET_WOULDBLOCK if the finalization is not finished yet
+ * Note that Winsock and BSD sockets implementations
+ * never return PCSL_NET_WOULDBLOCK.
+ */
+extern int pcsl_network_finalize_finish(void);
 
 /**
  * Initiates lookup of the given host name to find its IP address.
@@ -239,7 +317,6 @@ extern int pcsl_network_gethostbyname_finish(
 	int *pLen,
 	void *handle,
 	void *context);
-
 
 /**
  * Gets a platform-specific error code for the previous operation on an open 

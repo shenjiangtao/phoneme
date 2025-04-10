@@ -1,7 +1,7 @@
 /*
  * @(#)LineNumberTableAttribute.java	1.9 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -66,23 +66,23 @@ class LineNumberTableAttribute extends Attribute
 	return finishReadAttribute( i, name );
     }
 
-    //
-    // for those cases where we alread read the name index
-    // and know that its not something requiring special handling.
-    //
+    /**
+     * for those cases where we already read the name index
+     * and know that its not something requiring special handling.
+     */
     public static Attribute
-    finishReadAttribute( DataInput in, UnicodeConstant name ) throws IOException {
+    finishReadAttribute(DataInput in, UnicodeConstant name) throws IOException {
 	int l;
 	int n;
 	LineNumberTableEntry d[];
 
 	l  = in.readInt();
 	n  = in.readUnsignedShort();
-	d = new LineNumberTableEntry[ n ];
-	for ( int i = 0; i < n; i++ ){
-	    d[i] = new LineNumberTableEntry( in.readUnsignedShort(), in.readUnsignedShort() );
+	d = new LineNumberTableEntry[n];
+	for (int i = 0; i < n; i++) {
+	    d[i] = new LineNumberTableEntry(in.readUnsignedShort(), in.readUnsignedShort());
 	}
-	return new LineNumberTableAttribute( name, l, d );
+	return new LineNumberTableAttribute(name, l, d);
     }
 
 }

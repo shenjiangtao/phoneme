@@ -1,27 +1,28 @@
 /*
  * @(#)ccmmath_cpu.S	1.112 06/10/10
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -67,9 +68,9 @@
  *       condition code register.  This method of returning the result is
  *       done for optimization purposes.
  */
-	ENTRY ( CVMCCMruntimeFCmp )
+	ENTRY(CVMCCMruntimeFCmp)
 ENTRY1 ( CVMCCMruntimeFCmp )
-	ENTRY ( CVMCCMruntimeFCmp_C )
+	ENTRY(CVMCCMruntimeFCmp_C)
 ENTRY1 ( CVMCCMruntimeFCmp_C )
         /* r0 = a1 = float1 
          * r1 = a2 = float2 
@@ -187,9 +188,9 @@ LABEL(_fcmpFloat2CheckForNan)
  * Entry point for subtracting floats.
  * NOTE: The result is in r0.
  */
-	ENTRY ( CVMCCMruntimeFSub )
+	ENTRY(CVMCCMruntimeFSub)
 ENTRY1 ( CVMCCMruntimeFSub )
-	ENTRY ( CVMCCMruntimeFSub_C )
+	ENTRY(CVMCCMruntimeFSub_C)
 ENTRY1 ( CVMCCMruntimeFSub_C )
         /* r0 = a1 = float1 */
         /* r1 = a2 = float2 */
@@ -204,9 +205,9 @@ ENTRY1 ( CVMCCMruntimeFSub_C )
  * Entry point for adding floats.
  * NOTE: The result is in r0.
  */
-	ENTRY ( CVMCCMruntimeFAdd )
+	ENTRY(CVMCCMruntimeFAdd)
 ENTRY1 ( CVMCCMruntimeFAdd )
-	ENTRY ( CVMCCMruntimeFAdd_C )
+	ENTRY(CVMCCMruntimeFAdd_C)
 ENTRY1 ( CVMCCMruntimeFAdd_C )
         /* r0 = a1 = float1 
          * r1 = a2 = float2 
@@ -576,9 +577,9 @@ LABEL(_faddFloat1CheckForNanOrInfinity)
  * Entry point for multiplying floats.
  * NOTE: The result is in r0.
  */
-	ENTRY ( CVMCCMruntimeFMul )
+	ENTRY(CVMCCMruntimeFMul)
 ENTRY1 ( CVMCCMruntimeFMul )
-	ENTRY ( CVMCCMruntimeFMul_C )
+	ENTRY(CVMCCMruntimeFMul_C)
 ENTRY1 ( CVMCCMruntimeFMul_C )
         /* r0 = a1 = float1 
          * r1 = a2 = float2 
@@ -1044,9 +1045,9 @@ LABEL(_floatReturnNaN)
  * Entry point for dividing floats.
  * NOTE: The result is in r0.
  */
-	ENTRY ( CVMCCMruntimeFDiv )
+	ENTRY(CVMCCMruntimeFDiv)
 ENTRY1 ( CVMCCMruntimeFDiv )
-	ENTRY ( CVMCCMruntimeFDiv_C )
+	ENTRY(CVMCCMruntimeFDiv_C)
 ENTRY1 ( CVMCCMruntimeFDiv_C )
         /* r0 = a1 = float1 
          * r1 = a2 = float2 
@@ -1229,9 +1230,9 @@ LABEL(_fdivCheckFloat2ForZero)
  * Entry point for converting floats to doubles.
  * NOTE: The result is in FLOAT (high word) and MANT (low word).
  */
-	ENTRY ( CVMCCMruntimeF2D )
+	ENTRY(CVMCCMruntimeF2D)
 ENTRY1 ( CVMCCMruntimeF2D )
-	ENTRY ( CVMCCMruntimeF2D_C )
+	ENTRY(CVMCCMruntimeF2D_C)
 ENTRY1 ( CVMCCMruntimeF2D_C )
         /* r0 = a1 = float1 
          * v1 = jfp  
@@ -1334,9 +1335,9 @@ LABEL(_f2dNormalizing)
  *       condition code register.  This method of returning the result is
  *       done for optimization purposes.
  */
-	ENTRY ( CVMCCMruntimeDCmpg )
+	ENTRY(CVMCCMruntimeDCmpg)
 ENTRY1 ( CVMCCMruntimeDCmpg )
-	ENTRY ( CVMCCMruntimeDCmpg_C )
+	ENTRY(CVMCCMruntimeDCmpg_C)
 ENTRY1 ( CVMCCMruntimeDCmpg_C )
         /* r0 = a1 = double1 high 
          * r1 = a2 = double1 low 
@@ -1350,9 +1351,9 @@ ENTRY1 ( CVMCCMruntimeDCmpg_C )
         orr     lr, lr, #0x2            /* NaN returns 'greater than' status.*/
         /* Fall through to _dcmpStart: */
 
-	ENTRY ( CVMCCMruntimeDCmpl )
+	ENTRY(CVMCCMruntimeDCmpl)
 ENTRY1 ( CVMCCMruntimeDCmpl )
-	ENTRY ( CVMCCMruntimeDCmpl_C )
+	ENTRY(CVMCCMruntimeDCmpl_C)
 ENTRY1 ( CVMCCMruntimeDCmpl_C )
         /* r0 = a1 = double1 high 
          * r1 = a2 = double1 low 
@@ -1487,9 +1488,9 @@ LABEL(_dcmpNanFound)
 #undef DBL1LO
 #undef DBL1HI
 
-	ENTRY( CVMCCMruntimeF2I )
+	ENTRY(CVMCCMruntimeF2I)
 ENTRY1 ( CVMCCMruntimeF2I )
-	ENTRY( CVMCCMruntimeF2I_C )
+	ENTRY(CVMCCMruntimeF2I_C)
 ENTRY1 ( CVMCCMruntimeF2I_C )
 	/*
 	 * Keep the original argument in r0 (it has the sign)
@@ -1528,9 +1529,9 @@ LABEL(_f2iTooLittle)
 #undef EXP
 #undef F
 
-	ENTRY( CVMCCMruntimeI2F )
+	ENTRY(CVMCCMruntimeI2F)
 ENTRY1( CVMCCMruntimeI2F )
-	ENTRY( CVMCCMruntimeI2F_C )
+	ENTRY(CVMCCMruntimeI2F_C)
 ENTRY1( CVMCCMruntimeI2F_C )
 	/*
 	 * Keep the original argument in r0 (it has the sign)
@@ -1589,9 +1590,9 @@ ENTRY1( CVMCCMruntimeI2F_C )
 #undef EXP
 #undef F
 
-	ENTRY( CVMCCMruntimeI2D )
+	ENTRY(CVMCCMruntimeI2D)
 ENTRY1( CVMCCMruntimeI2D )
-	ENTRY( CVMCCMruntimeI2D_C )
+	ENTRY(CVMCCMruntimeI2D_C)
 ENTRY1( CVMCCMruntimeI2D_C )
 	/*
 	 * Keep the original argument in H (it has the sign)
@@ -1620,7 +1621,7 @@ ENTRY1( CVMCCMruntimeI2D_C )
 	 * -1 is to account for the implied high-order bit. Rather
 	 * than masking it out, we just subtract it out here.
 	 */
-	ldr	EXP, =(31+0x3ff-1)
+	ldr	EXP, L_EXP_CONSTANT
 
 	/*
 	 * use shifts to get the high-order bit set.
@@ -1658,9 +1659,9 @@ ENTRY1( CVMCCMruntimeI2D_C )
 #undef F
 #undef EXP
 
-	ENTRY( CVMCCMruntimeD2I )
+	ENTRY(CVMCCMruntimeD2I)
 ENTRY1( CVMCCMruntimeD2I )
-	ENTRY( CVMCCMruntimeD2I_C )
+	ENTRY(CVMCCMruntimeD2I_C)
 ENTRY1( CVMCCMruntimeD2I_C )
 	/*
 	 * Keep the original argument in H/L (it has the sign)
@@ -1859,9 +1860,9 @@ LABEL(_d2iTooLittle)
  * On exit, product will be in r0/r1.
  */
 
-	ENTRY( CVMCCMruntimeDMul )
+	ENTRY(CVMCCMruntimeDMul)
 ENTRY1( CVMCCMruntimeDMul )
-	ENTRY( CVMCCMruntimeDMul_C )
+	ENTRY(CVMCCMruntimeDMul_C)
 ENTRY1( CVMCCMruntimeDMul_C )
 
 /* IAI-06 */
@@ -2219,7 +2220,7 @@ LABEL(_double_deliver_signed_result)
         orrmi       A1,         A1,         #0x80000000 
         ldmfd       sp!,        DOUBLE_RESTORE_SET      
 LABEL(_double_deliver_NaN)
-        ldr         A1,         =0x7ff80000 
+        ldr         A1,         CONSTANT(0x7ff80000) 
         mov         A2,         #0          
         ldmfd       sp!,        DOUBLE_RESTORE_SET      
 LABEL(_double_deliver_signed_zero)
@@ -2260,7 +2261,7 @@ LABEL(_double_deliver_Infinity)
 	bic	A1,A1,#0x80000000 /* no thinking here */
 	bic	B1,B1,#0x80000000 /* no thinking here */
 	and	FLAGS, FLAGS, #0x80000000 /* clear other flags */
-	ldr	EXPMASK, =DOUBLE_EXPVAL	  /* exponent mask */
+	ldr	EXPMASK, CONSTANT(DOUBLE_EXPVAL)   /* exponent mask */
 	DOUBLE_UNPACK( A1, EXPA, _dmult_normalizeA, _dmult_exceptionalA )
 LABEL(_dmult_unpackB)
 	DOUBLE_UNPACK( B1, EXPB, _dmult_normalizeB, _dmult_exceptionalB )
@@ -2369,7 +2370,7 @@ LABEL(_double_deliver_signed_result)
 	ldmfd	sp!, DOUBLE_RESTORE_SET
 
 LABEL(_double_deliver_NaN)
-	ldr	A1,  =0x7ff80000
+	ldr	A1,  CONSTANT(0x7ff80000)
 	mov	A2, #0
 	ldmfd	sp!, DOUBLE_RESTORE_SET
 
@@ -2469,16 +2470,16 @@ LABEL(_double_denorm_done_rounding)
 	orrmi	A1, A1, #0x80000000
 	ldmfd	sp!, DOUBLE_RESTORE_SET
 
-	ENTRY( CVMCCMruntimeDSub )
+	ENTRY(CVMCCMruntimeDSub)
 ENTRY1( CVMCCMruntimeDSub )
-	ENTRY( CVMCCMruntimeDSub_C )
+	ENTRY(CVMCCMruntimeDSub_C)
 ENTRY1( CVMCCMruntimeDSub_C )
 	eor	B1, B1, #0x80000000 /* flip sign bit */
 	/* fall through */
 
-	ENTRY( CVMCCMruntimeDAdd )
+	ENTRY(CVMCCMruntimeDAdd)
 ENTRY1( CVMCCMruntimeDAdd )
-	ENTRY( CVMCCMruntimeDAdd_C )
+	ENTRY(CVMCCMruntimeDAdd_C)
 ENTRY1( CVMCCMruntimeDAdd_C )
 /* IAI-06 */
 #ifdef IAI_DADD
@@ -2913,7 +2914,7 @@ LABEL(_dadd_deliver_a)
 	orrcs	FLAGS, FLAGS, #BNEGFLAG	/* (may not matter) */
 
 LABEL(_dadd_noxchng)
-	ldr	EXPMASK, =DOUBLE_EXPVAL	  /* exponent mask */
+	ldr	EXPMASK, CONSTANT(DOUBLE_EXPVAL)	  /* exponent mask */
 	DOUBLE_UNPACK( A1, EXPA, _dadd_subnormalA, _dadd_exceptionalA )
 LABEL(_dadd_unpackB)
 	DOUBLE_UNPACK( B1, EXPB, _dadd_subnormalB, _dadd_exceptionalB )
@@ -3127,9 +3128,9 @@ LABEL(_dadd_infinite_operands)
  * On exit, quotient will be in r0/r1.
  */
 
-	ENTRY( CVMCCMruntimeDDiv )
+	ENTRY(CVMCCMruntimeDDiv)
 ENTRY1( CVMCCMruntimeDDiv )
-	ENTRY( CVMCCMruntimeDDiv_C )
+	ENTRY(CVMCCMruntimeDDiv_C)
 ENTRY1( CVMCCMruntimeDDiv_C )
 	stmfd	sp!, DOUBLE_SAVE_SET
 	/*
@@ -3150,7 +3151,7 @@ ENTRY1( CVMCCMruntimeDDiv_C )
 	bic	A1,A1,#0x80000000 /* no thinking here */
 	bic	B1,B1,#0x80000000 /* no thinking here */
 	and	FLAGS, FLAGS, #0x80000000 /* clear other flags */
-	ldr	EXPMASK, =DOUBLE_EXPVAL	  /* exponent mask */
+	ldr	EXPMASK, CONSTANT(DOUBLE_EXPVAL)	  /* exponent mask */
 	DOUBLE_UNPACK( A1, EXPA, _ddivNormalizeA, _ddivExceptionalA )
 LABEL(_ddivUnpackB)
 	DOUBLE_UNPACK( B1, EXPB, _ddivNormalizeB, _ddivExceptionalB )
@@ -3349,9 +3350,9 @@ LABEL(_ddivSpecialOperands)
  * Entry point for doing an unsigned shift right on longs.
  * NOTE: The result is in r0 and r1.
  */
-	ENTRY ( CVMCCMruntimeLUshr )
+	ENTRY(CVMCCMruntimeLUshr)
 ENTRY1 ( CVMCCMruntimeLUshr )
-	ENTRY ( CVMCCMruntimeLUshr_C )
+	ENTRY(CVMCCMruntimeLUshr_C)
 ENTRY1 ( CVMCCMruntimeLUshr_C )
         /* r0, r1 = a1, a2 = longValue */
         /* r2 = a3 = shiftCount */
@@ -3377,9 +3378,9 @@ LABEL(_lushrShiftGreaterThan32)
  * Entry point for doing a signed shift right on longs.
  * NOTE: The result is in r0 and r1.
  */
-	ENTRY ( CVMCCMruntimeLShr )
+	ENTRY(CVMCCMruntimeLShr)
 ENTRY1 ( CVMCCMruntimeLShr )
-	ENTRY ( CVMCCMruntimeLShr_C )
+	ENTRY(CVMCCMruntimeLShr_C)
 ENTRY1 ( CVMCCMruntimeLShr_C )
         /* r0, r1 = a1, a2 = longValue */
         /* r2 = a3 = shiftCount */
@@ -3405,9 +3406,9 @@ LABEL(_lshrShiftGreaterThan32)
  * Entry point for doing an unsigned shift left on longs.
  * NOTE: The result is in r0 and r1.
  */
-	ENTRY ( CVMCCMruntimeLShl )
+	ENTRY(CVMCCMruntimeLShl)
 ENTRY1 ( CVMCCMruntimeLShl )
-	ENTRY ( CVMCCMruntimeLShl_C )
+	ENTRY(CVMCCMruntimeLShl_C)
 ENTRY1 ( CVMCCMruntimeLShl_C )
         /* r0, r1 = a1, a2 = longValue */
         /* r2 = a3 = shiftCount */
@@ -3450,9 +3451,9 @@ LABEL(doubleMantissaMask)
  * On exit, result will be in r0.
  */
 
-	ENTRY ( CVMCCMruntimeIDiv )
+	ENTRY(CVMCCMruntimeIDiv)
 ENTRY1( CVMCCMruntimeIDiv )
-	ENTRY ( CVMCCMruntimeIDiv_C )
+	ENTRY(CVMCCMruntimeIDiv_C)
 ENTRY1 ( CVMCCMruntimeIDiv_C )
 
 #define DIVIDE_STEP0(shiftcount, R, V, QUOT) \
@@ -3700,7 +3701,8 @@ LABEL(_idiv_pow_of_2_DeliverRemainder)
 	 * 0 is a problem, 1 is just a special case.
 	 */
 LABEL(_idivByZeroOrOne)
-        blo         CVMCCMruntimeThrowDivideByZeroGlue /* go throw an exception */
+	/* go throw an exception */
+        blo         SYM_NAME(CVMCCMruntimeThrowDivideByZeroGlueLocal)
         mov         QUOT,       R           
         mov         R,          #0          
         b           _idivCorrectResult      
@@ -3824,7 +3826,8 @@ LABEL(_idivNegative)
 	 * 0 is a problem, 1 is just a special case.
 	 */
 LABEL(_idivByZeroOrOne)
-	blo	CVMCCMruntimeThrowDivideByZeroGlue /* go throw an exception */
+	/* go throw an exception */
+	blo	SYM_NAME(CVMCCMruntimeThrowDivideByZeroGlueLocal)
 	mov	QUOT, R
 	mov	R, #0
 	b	_idivCorrectResult
@@ -3835,9 +3838,9 @@ LABEL(_idivByZeroOrOne)
  * Entry for integer remainder.
  * Set a flag and jump into the division routine.
  */
-	ENTRY ( CVMCCMruntimeIRem )
+	ENTRY(CVMCCMruntimeIRem)
 ENTRY1 ( CVMCCMruntimeIRem )
-	ENTRY ( CVMCCMruntimeIRem_C )
+	ENTRY(CVMCCMruntimeIRem_C)
 ENTRY1 ( CVMCCMruntimeIRem_C )
 	mov	FLAGS, #REMFLAG
 	b	_idivOperation
@@ -3855,5 +3858,8 @@ ENTRY1 ( CVMCCMruntimeIRem_C )
 #undef DIVIDE_STEP_INSTRUCTIONS
 #undef DIVIDE_STEP_SIZE
 #undef MAX_ITER
+
+LABEL(L_EXP_CONSTANT)
+        WORD(31+0x3ff-1)
 
 	POOL

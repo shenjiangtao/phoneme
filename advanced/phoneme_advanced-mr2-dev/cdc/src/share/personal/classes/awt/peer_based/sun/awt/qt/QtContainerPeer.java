@@ -1,7 +1,7 @@
 /*
  * @(#)QtContainerPeer.java	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -46,6 +46,20 @@ abstract class QtContainerPeer extends QtComponentPeer implements ContainerPeer
 	
     abstract void add (QtComponentPeer peer);
     abstract void remove (QtComponentPeer peer);
+
+
+    public void paint(Graphics g)
+    {
+	clearBackground(g);
+	super.paint(g);
+    }
+
+    public void clearBackground(Graphics g)
+    {
+	g.setColor(target.getBackground());
+	g.fillRect(0, 0, target.getWidth(), target.getHeight());
+	g.setColor(target.getForeground());
+    }
 
     public Insets getInsets () 
     {

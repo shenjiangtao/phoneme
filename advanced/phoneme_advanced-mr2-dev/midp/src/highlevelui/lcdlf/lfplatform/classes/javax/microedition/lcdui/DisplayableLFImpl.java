@@ -1,27 +1,27 @@
 /*
  *   
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 package javax.microedition.lcdui;
@@ -61,9 +61,8 @@ abstract class DisplayableLFImpl implements DisplayableLF {
      */
     DisplayableLFImpl(Displayable d) {
         owner = d;
-        // complex to create Displayable with a full screen mode set
-        width  = Constants.NORMALWIDTH;
-        height = Constants.NORMALHEIGHT;
+        width  = Display.WIDTH;
+        height = Display.HEIGHT;
     }
     
     /**
@@ -255,16 +254,13 @@ abstract class DisplayableLFImpl implements DisplayableLF {
      */
     public void uSetFullScreenMode(boolean mode) {
 
-        int widthCopy, heightCopy;
         boolean requestRepaint = false;
-
 
         synchronized (Display.LCDUILock) {
 
             if (lIsShown()) {
                 // currentDisplay is not null when lIsShown is true
                 currentDisplay.lSetFullScreen(mode);
-                
                 if (mode) {
                     setTicker(null);
                 } else if (owner.ticker != null) {
@@ -273,14 +269,13 @@ abstract class DisplayableLFImpl implements DisplayableLF {
                 updateCommandSet();
                 requestRepaint = true;
             }
-
-            widthCopy = Display.getScreenWidth0(); 
-            heightCopy = Display.getScreenHeight0();
         }
-
-        // This may call into app code, so do it outside LCDUILock
-        uCallSizeChanged(widthCopy, heightCopy);
-
+        if (currentDisplay != null) {
+            // This may call into app code, so do it outside LCDUILock
+            uCallSizeChanged(currentDisplay.width, currentDisplay.height);
+        } else {
+            uCallSizeChanged(Display.WIDTH, Display.HEIGHT);
+        }
         // app's sizeChanged has to be called before repaint
         synchronized (Display.LCDUILock) {
             if (requestRepaint) {
@@ -300,23 +295,30 @@ abstract class DisplayableLFImpl implements DisplayableLF {
         boolean copyDefferedSizeChange;
 
         synchronized (Display.LCDUILock) {
-
             // Assure correct screen mode
             currentDisplay.lSetFullScreen(owner.isInFullScreenMode);
+            // display dimentions may change as the resulr of lSetFullScreen
+            width = currentDisplay.width;
+            height = currentDisplay.height;
+            if (owner.isInFullScreenMode) {
+                setTicker(null);
+            } else if (owner.ticker != null) {
+                setTicker(owner.ticker);
+            }
             copyDefferedSizeChange = defferedSizeChange;
             defferedSizeChange = false;
-
         }
 
-            if (copyDefferedSizeChange) {
-                synchronized (Display.calloutLock) {
-                    try {
-                        owner.sizeChanged(width, height);
-                    } catch (Throwable t) {
-                        Display.handleThrowable(t);
-                    }
-                }
-            }
+        if (copyDefferedSizeChange) {
+            synchronized (Display.calloutLock) { 
+                try { 
+                    owner.sizeChanged(width, height); 
+                } catch (Throwable t) {
+                    Display.handleThrowable(t); 
+                } 
+             }
+        }
+
         synchronized (Display.LCDUILock) {
             // Do the internal show preparation
             lCallShow();
@@ -356,7 +358,7 @@ abstract class DisplayableLFImpl implements DisplayableLF {
         // set Game key event flag based on value passed in
         // GameCanvas constructor.
         if (owner instanceof GameCanvas) {
-            GameMap.register(owner, currentDisplay.accessor);
+            GameMap.registerDisplayAccess(owner, currentDisplay.accessor);
             stickyKeyMask = currentKeyMask = 0;
         } else {
             // set the keymask to -1 when
@@ -492,12 +494,13 @@ abstract class DisplayableLFImpl implements DisplayableLF {
         boolean copyDefferedSizeChange;
 
         synchronized (Display.LCDUILock) {
-        if (owner instanceof GameCanvas) {
-            GameCanvasLFImpl gameCanvasLF = GameMap.getTableElement((GameCanvas)owner);
-            if (gameCanvasLF != null) {
-                gameCanvasLF.uCallSizeChanged(w, h);
+            if (owner instanceof GameCanvas) {
+                GameCanvasLFImpl gameCanvasLF =
+                    GameMap.getGameCanvasImpl((GameCanvas)owner);
+                if (gameCanvasLF != null) {
+                    gameCanvasLF.lCallSizeChanged(w, h);
+                }
             }
-        }
 
             // If there is no Display, or if this Displayable is not
             // currently visible, we simply record the fact that the
@@ -511,15 +514,13 @@ abstract class DisplayableLFImpl implements DisplayableLF {
              * Canvas now, rather than later
              */
 
-            width = Display.getScreenWidth0();
-            height = Display.getScreenHeight0();
-
+            width = w;
+            height = h;
             if (!defferedSizeChange) {
                 lRequestInvalidate();
             }
 
         }
-
         if (!copyDefferedSizeChange) {
             synchronized (Display.calloutLock) {
                 try {
@@ -539,6 +540,27 @@ abstract class DisplayableLFImpl implements DisplayableLF {
      */
     public void uCallScrollContent(int scrollType, int thumbPosition) {
         // by default nothing to do 
+    }
+
+    /**
+     * Checks whether it is allowed to start content dragging from
+     * this point
+     * @param x the x coordinate of the point to check
+     * @param y the y coordinate of the point to check
+     */
+    public boolean uIsDraggable(int x, int y) {
+        return true;
+    }
+    
+    /**
+     * This method notifies displayable to drag its content
+     *
+     * @param deltaY
+     * @return desired drag amount to become stable
+     */
+    public int uCallDragContent(int deltaY) {
+        // by default nothing to do
+        return 0;
     }
 
     /**
@@ -861,7 +883,15 @@ abstract class DisplayableLFImpl implements DisplayableLF {
     private void setTicker(Ticker t) {
 
         if (nativeId != INVALID_NATIVE_ID) {
-            setTicker0(nativeId, (t == null) ? null : t.displayedMessage);
+    	    // According to the spec, linebreak characters should 
+    	    // not be displayed in the ticker and could be used as 
+    	    // separators. We will use a single white space as the
+    	    // separator.
+            String displayedMessage = null;
+            if (null != t) {
+                displayedMessage = t.getString().trim().replace('\n', ' ');
+            }
+            setTicker0(nativeId, displayedMessage);
         }
     }
 

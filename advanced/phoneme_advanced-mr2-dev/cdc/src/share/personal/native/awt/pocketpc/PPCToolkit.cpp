@@ -1,7 +1,7 @@
 /*
 * @(#)PPCToolkit.cpp	1.57 03/02/21
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -96,7 +96,6 @@ Java_sun_awt_pocketpc_ShutdownHook_winceMainQuit (JNIEnv *env, jobject thisObj)
 JNIEXPORT void JNICALL
 Java_sun_awt_pocketpc_PPCToolkit_initIDs (JNIEnv *env, jclass cls)
 {
-
     GET_FIELD_ID(PPCToolkit_dbgTraceFID, "dbgTrace", "Z");
     GET_FIELD_ID(PPCToolkit_dbgVerifyFID, "dbgVerify", "Z");
     GET_FIELD_ID(PPCToolkit_dbgBreakFID, "dbgBreak", "Z");

@@ -1,7 +1,7 @@
 /*
  * @(#)HttpClient.java	1.124 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -135,6 +135,8 @@ public class HttpClient extends NetworkClient {
     
     /* if set, the client will be reused and must not be put in cache */
     public boolean reuse = false; 
+
+    int totalBytesRead;
 
     /**
      * A NOP method kept for backwards binary compatibility
@@ -311,7 +313,7 @@ public class HttpClient extends NetworkClient {
 		: proxyPort;
 	}
 	/* try to set host to "%d.%d.%d.%d" string if
-	 * visible - Sprint bug - brown */
+	 * visible - customer bug - brown */
 	try {
 	    InetAddress addr = InetAddress.getByName(url.getHost());
 	    this.host = addr.getHostAddress();
@@ -705,14 +707,18 @@ public class HttpClient extends NetworkClient {
 	serverOutput.flush();
     }
 
-    public void writeRequests(MessageHeader head, 
+    public int writeRequests(MessageHeader head, 
 			      PosterOutputStream pos) throws IOException {
+        int bytesWritten;
 	requests = head;
-	requests.print(serverOutput);
+	bytesWritten = requests.print(serverOutput);
 	poster = pos;
-	if (poster != null)
+	if (poster != null) {
 	    poster.writeTo(serverOutput);
+            bytesWritten += poster.size();
+        }
 	serverOutput.flush();
+        return bytesWritten;
     }
 
     /** Parse the first line of the HTTP request.  It usually looks
@@ -731,8 +737,8 @@ public class HttpClient extends NetworkClient {
 
 	try {
 	    serverInput = serverSocket.getInputStream();
-	    serverInput = new BufferedInputStream(serverInput);
-	    return (parseHTTPHeader(responses, pe));
+	    serverInput = new HttpClientInputStream(serverInput);
+            return (parseHTTPHeader(responses, pe));
 	} catch (IOException e) {
 	    closeServer();
             if (!failedOnce && requests != null) {
@@ -978,5 +984,43 @@ public class HttpClient extends NetworkClient {
      */
     public int getProxyPortUsed() {
 	return instProxyPort;
+    }
+
+    public Socket getServerSocket() {
+        return serverSocket;
+    }
+
+    public int getBytesRead() {
+        return totalBytesRead;
+    }
+
+    class HttpClientInputStream extends BufferedInputStream {
+
+        public HttpClientInputStream (InputStream is) {
+	    super (is);
+            totalBytesRead = 0;
+        }
+
+        public int read() throws IOException {
+            int ret = super.read();
+            totalBytesRead ++;
+            return ret;
+        }
+
+        public synchronized void mark(int readlimit) {
+            super.mark(readlimit);
+            markpos = totalBytesRead;
+        }
+
+        public synchronized void reset() throws IOException {
+            super.reset();
+            totalBytesRead = markpos;
+        }
+
+        public int read(byte b[], int off, int len) throws IOException {
+            int ret = super.read(b, off, len);
+            totalBytesRead += ret;
+            return ret;
+        }
     }
 }

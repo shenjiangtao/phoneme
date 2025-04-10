@@ -1,7 +1,7 @@
 /*
  * @(#)JavaFilter.java	1.27 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -640,10 +640,10 @@ class JavaFilter extends DepgenUtil{
 	}
     }
 
-}
 
-class NeverAccept extends util.ClassnameFilter{
-    public boolean accept( java.io.File dir, String className ){
-	return false;
+    class NeverAccept extends util.ClassnameFilter{
+        public boolean accept( java.io.File dir, String className ){
+            return false;
+        }
     }
 }

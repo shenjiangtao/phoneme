@@ -1,7 +1,7 @@
 /*
  * @(#)doubleword_arch.h	1.8 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -41,6 +41,7 @@
 #define USE_NATIVE_FCOMPARE
 #undef USE_ANSI_FCOMPARE
 
+#if defined(_WIN32_WCE) && (_WIN32_WCE < 500)
 /* NOTE: In the implementation of CVMdouble2Float() below, we need to check
    for the case where the double value could be rounded up to Float.MIN_VALUE
    as well.  That's why we compare against Float.MIN_VALUE/2.0.
@@ -55,5 +56,6 @@
             ((val) < (-CVM_DOUBLE_MIN_FLOAT_VALUE/2.0)) ? \
                ((CVMJavaFloat)-CVM_DOUBLE_MIN_FLOAT_VALUE) : \
                    ((val) >= 0.0) ? 0.0f : -0.0f)
+#endif
 
 #endif /* _WIN32_DOUBLEWORD_ARCH_H */

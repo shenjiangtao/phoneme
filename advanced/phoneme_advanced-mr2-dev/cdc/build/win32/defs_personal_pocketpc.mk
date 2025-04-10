@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -28,13 +28,16 @@
 
 ##### wceCompat library
 
-AWT_CPPFLAGS += -I$(WCECOMPAT_LIB_SRC_DIR) \
-	-I$(CVM_TOP)/src/win32/javavm/runtime
-CCFLAGS += $(AWT_CPPFLAGS)
+CVM_INCLUDE_DIRS  += $(WCECOMPAT_LIB_SRC_DIR) \
+	$(CVM_TOP)/src/win32/javavm/runtime
 
 # by default we don't want PocketPC menu style
-POCKETPC_MENUS = false
+POCKETPC_MENUS = true
 CVM_FLAGS += POCKETPC_MENUS
+
+# Replace *_SUFFIX with *_POSTFIX? See definition in host_defs.mk
+LIB_SUFFIX              = .dll
+LIB_LINK_SUFFIX         = .lib
 
 WCECOMPAT_LIB_NAME      = wcecompat
 WCECOMPAT_LIB_OBJS      = wceCompat.o

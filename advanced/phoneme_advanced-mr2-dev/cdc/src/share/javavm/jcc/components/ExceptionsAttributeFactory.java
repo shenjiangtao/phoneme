@@ -1,7 +1,7 @@
 /*
  * @(#)ExceptionsAttributeFactory.java	1.8 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -34,8 +34,8 @@ class ExceptionsAttributeFactory extends AttributeFactory {
     public static AttributeFactory instance = new ExceptionsAttributeFactory();
 
     Attribute finishReadAttribute(
-	DataInput in, UnicodeConstant name, ConstantObject constants[] )
+	DataInput in, UnicodeConstant name, ConstantPool cp )
 	throws IOException{
-	    return ExceptionsAttribute.finishReadAttribute( in, name, constants );
+	    return ExceptionsAttribute.finishReadAttribute( in, name, cp );
     }
 }

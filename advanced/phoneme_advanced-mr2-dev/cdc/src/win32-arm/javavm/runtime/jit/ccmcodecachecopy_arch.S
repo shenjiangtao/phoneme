@@ -1,7 +1,7 @@
 /*
  * @(#)ccmcodecachecopy_arch.S	1.8 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -48,8 +48,8 @@
 #include "javavm/runtime/jit/ccmglue_cpu.S"
 #include "javavm/runtime/jit/ccmallocators_cpu.S"
 #include "javavm/runtime/jit/ccminvokers_cpu.S"
-#include "javavm/runtime/jit/ccmmath_cpu.S"
 #include "javavm/runtime/jit/ccmintrinsics_asm_cpu.S"
+#include "javavm/runtime/jit/ccmmath_cpu.S"
 #include "javavm/runtime/memory_asm_cpu.S"
 
 /*************************************************************************

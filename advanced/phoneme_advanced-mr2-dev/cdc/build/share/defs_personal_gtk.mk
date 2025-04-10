@@ -1,7 +1,7 @@
 #
 # @(#)defs_personal_gtk.mk	1.19 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -54,9 +54,9 @@ ifdef GTK_DEFAULT_FONT
 endif
 
 #
-# Get the CPP includes for gtk
+# Get the gtk include directories.
 #
-PROFILE_INCLUDES += $(shell $(GTK_CONFIG) --cflags)
+PROFILE_INCLUDE_DIRS += $(patsubst -I%,%,$(shell $(GTK_CONFIG) --cflags))
 
 CLASSLIB_CLASSES += \
 	sun.awt.gtk.GButtonPeer \

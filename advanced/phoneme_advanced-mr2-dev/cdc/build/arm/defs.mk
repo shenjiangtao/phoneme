@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -35,8 +35,8 @@ CVM_TARGETOBJS_OTHER += \
 CVM_SRCDIRS   += \
 	$(CVM_TOP)/src/$(TARGET_CPU_FAMILY)/javavm/runtime
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src/$(TARGET_CPU_FAMILY)
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src/$(TARGET_CPU_FAMILY)
 
 #
 # JIT related settings
@@ -59,14 +59,19 @@ CVM_JCS_CPU_RULES_FILE    = \
 # with a branch instruction.
 CVM_JIT_COPY_CCMCODE_TO_CODECACHE ?= true
 
-CVM_JIT_PATCHED_METHOD_INVOCATIONS = false
-ifeq ($(CVM_JIT_PATCHED_METHOD_INVOCATIONS), true)
+CVM_JIT_PMI ?= false
+ifeq ($(CVM_JIT_PMI), true)
 ifneq ($(CVM_JIT_COPY_CCMCODE_TO_CODECACHE), true)
-$(error cannot specify CVM_JIT_PATCHED_METHOD_INVOCATIONS=true with CVM_JIT_COPY_CCMCODE_TO_CODECACHE=false)
+$(error cannot specify CVM_JIT_PMI=true with CVM_JIT_COPY_CCMCODE_TO_CODECACHE=false)
 endif
 endif
 
-include  ../portlibs/defs_jit_risc.mk
+ifeq ($(CVM_JIT_USE_FP_HARDWARE), true)
+CVM_JCS_CPU_RULES_FILE    += \
+    $(CVM_TOP)/src/arm/javavm/runtime/jit/jitfloatgrammarrules.jcs
+endif
+
+include  $(CDC_DIR)/build/portlibs/defs_jit_risc.mk
 
 endif
 

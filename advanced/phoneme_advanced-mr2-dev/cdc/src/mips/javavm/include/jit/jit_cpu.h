@@ -1,7 +1,7 @@
 /*
  * @(#)jit_cpu.h	1.19 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -27,6 +27,10 @@
 
 #ifndef _INCLUDED_MIPS_JIT_CPU_H
 #define _INCLUDED_MIPS_JIT_CPU_H
+
+#ifdef USE_CDC_COM
+#include "javavm/include/iai_opt_config.h"
+#endif
 
 /*
  * This file #defines all of the macros that shared parts of the jit
@@ -81,11 +85,23 @@
 /* This platform will support intrinsics: */
 #define CVMJIT_INTRINSICS
 
+/* This platform supports custom intrinsics with register arguments
+   in non-std registers. For o32, this means supporting args 5 to 8
+   in t0 to t3 just like n32 does. */
+#define CVMJIT_INTRINSICS_HAVE_PLATFORM_SPECIFIC_REG_ARGS
+
 /* Max number of args registers. */
 #define CVMCPU_MAX_ARG_REGS CVMMIPS_MAX_ARG_REGS
 
-/* This platform does not support args beyond the max number of arg registers*/
-#undef CVMCPU_ALLOW_C_ARGS_BEYOND_MAX_ARG_REGS
+/* o32 calling conventions only use 4 arg registers. n32 and n64 use 8
+ * arg registers. If only 4 args are supported, then we support up to 8
+ * total args by storing the extra args on the C stack per normal
+ * o32 calling conventions.
+ * See CVMMIPSCCALLgetRequired.
+ */
+#if CVMCPU_MAX_ARG_REGS != 8
+#define CVMCPU_ALLOW_C_ARGS_BEYOND_MAX_ARG_REGS
+#endif
 
 /* the size of one instruction */
 #define CVMCPU_INSTRUCTION_SIZE 4
@@ -139,5 +155,31 @@
  * The number of patch points in ccm code
  */
 #define CVMCPU_NUM_CCM_PATCH_POINTS   3
+
+#ifdef CVMJIT_INTRINSICS
+#ifndef CVM_JIT_CCM_USE_C_HELPER
+#ifndef _ASM
+#ifdef USE_CDC_COM
+/*
+ * CVMJITintrinsicsList: define this value to be the name of the CPU
+ * specific intrinsics config list if one if available.  If the OS/platform
+ * does not define it, then the CVMJITmipsIntrinsicsList will be used.
+ */
+#ifndef CVMJITintrinsicsList
+#define CVMJITintrinsicsList CVMJITmipsIntrinsicsList
+#endif
+
+extern const CVMJITIntrinsicConfigList CVMJITmipsIntrinsicsList;
+
+/*
+ * CVMJITriscParentIntrinsicsList: Leave this value alone because the
+ * OS/platform may wish to override it.
+ */
+/* #undef CVMJITriscParentIntrinsicsList */
+#endif
+#endif /* _ASM */
+#endif /* CVM_JIT_CCM_USE_C_HELPER */
+#endif /* CVMJIT_INTRINSICS */
+
 
 #endif /* _INCLUDED_MIPS_JIT_CPU_H */

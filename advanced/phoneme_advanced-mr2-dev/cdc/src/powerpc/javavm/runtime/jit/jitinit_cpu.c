@@ -1,7 +1,7 @@
 /*
  * @(#)jitinit_cpu.c	1.15 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -205,3 +205,12 @@ CVMJITdestroyCompilerBackEnd(void)
     }
 #endif
 }
+
+#ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
+/* Purpose: back-end PMI initialization. */
+CVMBool
+CVMJITPMIinitBackEnd(void)
+{
+    return CVM_TRUE;
+}
+#endif

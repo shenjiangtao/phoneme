@@ -1,7 +1,5 @@
 /*
- * @(#)defs_md.h	1.20 06/10/10
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -43,6 +41,8 @@
 #pragma include_alias(<winnt.h>, <javavm/include/win32/winnt.h>)
 #endif
 
+#define CVM_HAS_PLATFORM_SPECIFIC_SUBOPTIONS
+
 #ifdef WINCE
 #define CVM_HDR_ANSI_ERRNO_H	"javavm/include/ansi/errno.h"
 #ifndef _ASM
@@ -81,7 +81,7 @@
 #define CVM_HDR_ENDIANNESS_H	"javavm/include/endianness_md.h"
 #define CVM_HDR_SYSTEM_H	"javavm/include/defs_md.h" /* no-op */
 #define CVM_HDR_TIMEZONE_H	"javavm/include/defs_md.h" /* no-op */
-#define CVM_HDR_MEMORY_H	"javavm/include/defs_md.h" /* no-op */
+#define CVM_HDR_MEMORY_H	"javavm/include/memory_md.h"
 
 #define CVM_HDR_JIT_JIT_H	"javavm/include/jit/jit_arch.h"
 
@@ -133,5 +133,7 @@ typedef double		CVMfloat64;
 typedef CVMUint32 CVMSize;
 
 #endif
+#define CONST64(x)  (x ## i64)
+#define UCONST64(x) ((uint64_t)CONST64(x))
 
 #endif /* _WIN32_DEFS_MD_H */

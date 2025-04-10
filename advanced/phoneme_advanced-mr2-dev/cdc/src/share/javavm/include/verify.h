@@ -1,7 +1,7 @@
 /*
  * @(#)verify.h	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -61,11 +61,12 @@ typedef struct {
  * Returns JNI_FALSE if verification fails. A detailed error message
  * will be places in msg_buf, whose length is specified by buf_len.
  */
-jboolean 
+jint
 VerifyClass(CVMExecEnv *ee, 
 	    CVMClassBlock *cb,
 	    char * msg_buf, 
-	    jint buf_len);
+	    jint buf_len,
+            CVMBool isRedefine);
 
 /* 
  * This performs class format checks and fills in size 

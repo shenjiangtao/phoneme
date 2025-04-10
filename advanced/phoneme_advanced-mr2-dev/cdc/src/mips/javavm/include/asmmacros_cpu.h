@@ -1,7 +1,7 @@
 /*
  * @(#)asmmacros_cpu.h	1.5 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -33,5 +33,10 @@
 #endif
 
 #include "javavm/include/asmmacros_arch.h"
-	
+
+/* some versions of platforms only support fp as a register and not s8 */
+#ifndef s8
+#define s8 fp
+#endif
+
 #endif /* _INCLUDED_ASMMACROS_CPU_H */

@@ -1,7 +1,7 @@
 /*
  * @(#)classcreate.c	1.195 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -28,6 +28,9 @@
 #include "javavm/include/defs.h"
 #include "javavm/include/objects.h"
 #include "javavm/include/classes.h"
+#ifdef CVM_DUAL_STACK
+#include "javavm/include/dualstack_impl.h"
+#endif
 #include "javavm/include/limits.h"
 #include "javavm/include/common_exceptions.h"
 #include "javavm/include/typeid.h"
@@ -48,6 +51,9 @@
 #endif
 #ifdef CVM_JVMPI
 #include "javavm/include/jvmpi_impl.h"
+#endif
+#ifdef CVM_JVMTI
+#include "javavm/include/jvmtiExport.h"
 #endif
 #ifdef CVM_JIT
 #include "javavm/include/jit/jitmemory.h"
@@ -85,7 +91,8 @@
 
 CVMClassICell*
 CVMdefineClass(CVMExecEnv* ee, const char *name, CVMClassLoaderICell* loader,
-		const CVMUint8* buf, CVMUint32 bufLen, CVMObjectICell* pd)
+	       const CVMUint8* buf, CVMUint32 bufLen, CVMObjectICell* pd,
+	       CVMBool isRedefine)
 
 {
 #ifndef CVM_CLASSLOADING
@@ -113,7 +120,8 @@ CVMdefineClass(CVMExecEnv* ee, const char *name, CVMClassLoaderICell* loader,
     }
 
     classGlobalRoot = 
-	CVMclassCreateInternalClass(ee, buf, bufLen, loader, name, NULL);
+	CVMclassCreateInternalClass(ee, buf, bufLen, loader, name, NULL,
+				    isRedefine);
     if (classGlobalRoot == NULL) {
 	CVMjniDeleteLocalRef(CVMexecEnv2JniEnv(ee), resultCell);
 	if (pdCell != NULL) {
@@ -344,7 +352,7 @@ CVMclassAddToLoadedClasses(CVMExecEnv* ee, CVMClassBlock* cb,
  * array class type that wasn't reference by romized code and we make 
  * a reference to it at runtime.
  */
-CVMClassBlock*
+static CVMClassBlock*
 CVMclassCreateArrayClass(CVMExecEnv* ee, CVMClassTypeID arrayTypeId,
 			 CVMClassLoaderICell* loader, CVMObjectICell* pd)
 {
@@ -497,7 +505,7 @@ CVMclassCreateArrayClass(CVMExecEnv* ee, CVMClassTypeID arrayTypeId,
     /*
      * We are as public as our element class
      */
-    elemClassAccess = (CVMcbAccessFlags(elemCb) & CVM_CLASS_ACC_PUBLIC);
+    elemClassAccess = CVMcbIs(elemCb, PUBLIC);
     CVMcbAccessFlags(arrayCb) =
 	elemClassAccess | CVM_CLASS_ACC_ABSTRACT | CVM_CLASS_ACC_FINAL;
 
@@ -511,6 +519,8 @@ CVMclassCreateArrayClass(CVMExecEnv* ee, CVMClassTypeID arrayTypeId,
      */
     CVMcbMethodTablePtr(arrayCb) =
 	CVMcbMethodTablePtr(CVMsystemClass(java_lang_Object));
+    CVMcbMethodTableCount(arrayCb) =
+        CVMcbMethodTableCount(CVMsystemClass(java_lang_Object));
 
     /* 
      * Create the Java side "mirror" to this class
@@ -621,6 +631,134 @@ CVMclassCreateArrayClass(CVMExecEnv* ee, CVMClassTypeID arrayTypeId,
 }
 
 /*
+ * CVMclassCreateMultiArrayClass - creates the specified array class by
+ * iteratively (i.e. non-recursively) creating all the layers of the array
+ * class from the inner most to the outer most.  Needed for any array class
+ * type that wasn't reference by romized code and we make a reference to it
+ * at runtime.
+ */
+CVMClassBlock*
+CVMclassCreateMultiArrayClass(CVMExecEnv* ee, CVMClassTypeID arrayTypeId,
+			      CVMClassLoaderICell* loader, CVMObjectICell* pd)
+{
+    int outerDepth = 0;
+    CVMClassBlock *arrayCb = NULL;
+    CVMClassTypeID currentTypeID = arrayTypeId;
+    CVMClassTypeID elemTypeID;
+    CVMBool currentTypeIDWasAcquired = CVM_FALSE;
+    int i;
+
+    CVMassert(CVMtypeidIsArray(arrayTypeId));
+
+    /* Count the array layers that haven't been loaded yet.  We start from the
+       outer most until we get to an array element that has been loaded or an
+       array element that is not an array type.  We can assume that at least
+       one layer isn't loaded yet (regardless of whether it is or not).
+
+       CVMclassCreateArrayClass() will do the real work of loading the array
+       class later, and will be called once for each layer that we counted.
+       In the case that we only counted one layer, we'll call
+       CVMclassCreateArrayClass() only once, and it will take care of loading
+       the array (if it hasn't already been loaded) where its element is
+       guaranteed to either have already been loaded, or is a non-array type.
+
+       The guarantee comes from our pre-counting the number of layers that need
+       to be loaded, and doing the loading from the innermost layer to the
+       outermost.
+    */
+    while (CVM_TRUE) {
+	elemTypeID = CVMtypeidIncrementArrayDepth(ee, currentTypeID , -1);
+
+	outerDepth++;
+
+	/* If the element is also an array, then keep probing.  Otherwise,
+	    we need to load it using the normal path: */
+	if (CVMtypeidIsArray(elemTypeID)) {
+
+	    CVMClassBlock *elemCb = NULL;
+
+	    /* The element of the current type is also an array.  Look it up: */
+	    if (loader == NULL ||
+		CVMtypeidIsPrimitive(CVMtypeidGetArrayBasetype(elemTypeID))) {
+    		elemCb = CVMpreloaderLookupFromType(ee, elemTypeID, NULL);
+	    }
+	    if (elemCb == NULL) {
+		CVM_LOADERCACHE_LOCK(ee);
+		elemCb = CVMloaderCacheLookup(ee, elemTypeID, loader);
+		CVM_LOADERCACHE_UNLOCK(ee);
+	    }
+
+	    /* If we've found the element cb, then we're done because we can
+	       start building the array layers from there: */
+	    if (elemCb != NULL) {
+		break;
+	    }
+	} else {
+	    /* If we get here, then we've peeled the layers down to a single
+	       dimensional array (we have reached the non-array element here).
+	       We can start building the array layers from here: */
+	    break;
+	}
+
+	/* If we get here, then the element isn't loaded yet and is not a
+	   single dimension array.  Let's see if the element's element has
+	   been loaded yet.  Set prepare to repeat this loop for element
+	   layer. */
+
+	/* If the previous currentTypeID is one that we acquired using
+	   CVMtypeidIncrementArrayDepth() above, then we need to dispose
+	   of it before losing track of it: */
+	if (currentTypeIDWasAcquired) {
+	    CVMtypeidDisposeClassID(ee, currentTypeID);
+	}
+
+	/* Prepare to inspect the next inner level of array type: */
+	currentTypeID = elemTypeID;
+	currentTypeIDWasAcquired = CVM_TRUE;
+    }
+
+    /* We have to dispose of the last elemTypeID that we acquired above using
+       CVMtypeidIncrementArrayDepth(): */
+    CVMtypeidDisposeClassID(ee, elemTypeID);
+
+    for (i = 0; i < outerDepth; i++) {
+	CVMClassTypeID newTypeID;
+	
+	arrayCb = CVMclassCreateArrayClass(ee, currentTypeID, loader, pd);
+	/* If we fail to load the element, then something wrong must have
+	   happened (e.g. an OutOfMemoryError): */
+	if (arrayCb == NULL) {
+	    break;
+	}
+	/* If we've just loaded the requested array type, then we're done.
+	   Skip the typeid work below: */
+	if (currentTypeID == arrayTypeId) {
+	    CVMassert(i == outerDepth - 1);
+	    break;
+	}
+
+	/* Prepare to load the next outer level of array type: */
+	newTypeID = CVMtypeidIncrementArrayDepth(ee, currentTypeID, 1);
+	if (newTypeID == CVM_TYPEID_ERROR) {
+	    /* InternalError should have been thrown */
+	    CVMassert(CVMlocalExceptionOccurred(ee));
+	    arrayCb = NULL;
+	    break;
+	}
+	if (currentTypeIDWasAcquired) {
+	    CVMtypeidDisposeClassID(ee, currentTypeID);
+	}
+	currentTypeID = newTypeID;
+	currentTypeIDWasAcquired = CVM_TRUE;
+    }
+    if (currentTypeIDWasAcquired) {
+	CVMtypeidDisposeClassID(ee, currentTypeID);
+    }
+
+    return arrayCb;
+}
+
+/*
  * CVMclassCreateInternalClass - Creates a CVMClassBlock out of the
  * array of bytes passed to it.
  */
@@ -712,6 +850,11 @@ CVMreadCheckedExceptions(CICcontext *context, CVMMethodBlock* mb,
 			 CVMCheckedExceptions* checkedExceptions);
 
 #ifdef CVM_SPLIT_VERIFY
+/* Read in JVMSv3-style StackMapTable attribute */
+static CVMsplitVerifyStackMaps*
+CVMreadStackMapTable(CVMExecEnv* ee, CICcontext* context, CVMMethodBlock *mb,
+	     CVMUint32 length, CVMUint32 codeLength,
+	     CVMUint32 maxLocals, CVMUint32 maxStack);
 /* Read in CLDC-style StackMap attribute */
 static CVMsplitVerifyStackMaps*
 CVMreadStackMaps(CVMExecEnv* ee, CICcontext* context, CVMUint32 length,
@@ -738,7 +881,7 @@ static void
 CVMlimitHandler(CVMExecEnv* ee, CICcontext* context, char* comment);
 
 static CVMClassBlock*
-CVMallocClassSpace(CVMExecEnv* ee, CICcontext* context);
+CVMallocClassSpace(CVMExecEnv* ee, CICcontext* context, CVMBool isRedefine);
 
 /* Purpose: Creates an CVMClassBlock out of the array of bytes passed to it. */
 /* Parameters: externalClass - the buffer.
@@ -751,7 +894,8 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 			    CVMUint32 classSize, 
 			    CVMClassLoaderICell* loader, 
 			    const char* classname,
-			    const char* dirNameOrZipFileName)
+			    const char* dirNameOrZipFileName,
+			    CVMBool isRedefine)
 {
     CVMClassBlock*   cb;
     CVMConstantPool* cp;
@@ -760,21 +904,56 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
     int i, j, cpIdx;
     CICcontext context_block;
     CICcontext *context = &context_block;
-    CVMUint8 *buffer = (CVMUint8 *) externalClass;
-    CVMInt32 bufferLength = classSize;
-#ifdef CVM_DUAL_STACK
-    extern CVMBool
-    CVMclassloaderIsCLDCClassLoader(CVMExecEnv *ee,
-                                    CVMClassLoaderICell* loader);
-    CVMBool isCLDCClass;
+    CVMUint8 * volatile buffer = (CVMUint8 *) externalClass;
+    volatile CVMInt32 bufferLength = classSize;
+#ifdef CVM_JVMTI
+    CVMUint8 *newBuffer = NULL;
+    CVMInt32 newBufferLength = 0;
+    volatile CVMBool jvmtiBufferWasReplaced = CVM_FALSE;
 #endif
-
+#ifdef CVM_DUAL_STACK
+    CVMBool isMidletClass;
+#endif
 #ifdef CVM_JVMPI
     volatile CVMBool bufferWasReplaced = CVM_FALSE;
+#endif
+#ifdef CVM_JVMTI
+    if (CVMjvmtiShouldPostClassFileLoadHook()) {
+	jclass klass = NULL;
+	CVMClassLoaderICell* loaderToUse = loader;
+	/* At this point in time we may not have a classblock or
+	 * a protection domain so we pass NULL
+	 */
+	if (isRedefine) {
+	    CVMClassBlock*   oldCb = NULL;
+	    /* ClassLoadHook event tests require klass to be the
+	     * class that is being redefined.  Also the loader 
+	     * should be the loader for the class being redefined
+	     */
+	    oldCb = CVMjvmtiGetCurrentRedefinedClass(ee);
+	    CVMassert(oldCb != NULL);
+	    klass = CVMcbJavaInstance(oldCb);
+	    if (loader == NULL) {
+		loaderToUse = CVMcbClassLoader(oldCb);
+	    }
+	}
+	CVMjvmtiPostClassLoadHookEvent(klass, loaderToUse, classname,
+				       NULL, bufferLength, buffer,
+				       &newBufferLength, &newBuffer);
+	if (newBuffer != NULL) {
+	    /* class was replaced with new one */
+            jvmtiBufferWasReplaced = CVM_TRUE;
+	    buffer = newBuffer;
+	    bufferLength = newBufferLength;
+	}
+    }
+#endif
+#ifdef CVM_JVMPI
 
     if (CVMjvmpiEventClassLoadHookIsEnabled()) {
-        CVMjvmpiPostClassLoadHookEvent(&buffer, &bufferLength,
-                                        (void *(*)(unsigned int))&malloc);
+        CVMjvmpiPostClassLoadHookEvent((CVMUint8**)&buffer,
+                                       (CVMInt32*)&bufferLength,
+                                       (void *(*)(unsigned int))&malloc);
 
         /* If buffer is NULL, then the profiler must have attempted to allocate
          * a buffer of its own for instrumentation and failed: */
@@ -804,23 +983,24 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 
 #ifdef CVM_DUAL_STACK
     CVMD_gcUnsafeExec(ee, {
-        isCLDCClass = CVMclassloaderIsCLDCClassLoader(ee, loader);
+        isMidletClass = CVMclassloaderIsMIDPClassLoader(
+	    ee, loader, CVM_FALSE);
     });
 #endif
 
     {
         char buf[200];
 	jboolean measure_only =
-	    CVM_NEED_VERIFY(loader != NULL) ? JNI_FALSE : JNI_TRUE;
+	    CVMloaderNeedsVerify(ee, loader, CVM_TRUE) ? JNI_FALSE : JNI_TRUE;
 	jboolean check_relaxed =
-	    CVM_NEED_VERIFY(!CVMisTrustedClassLoader(ee, loader)) ? JNI_FALSE 
+	    CVMloaderNeedsVerify(ee, loader, CVM_FALSE) ? JNI_FALSE 
 	    				        	          : JNI_TRUE;
         jint res = CVMverifyClassFormat(classname, buffer, bufferLength,
 					&(context->size), 
 					buf, sizeof(buf),
 					measure_only,
 #ifdef CVM_DUAL_STACK
-                                        isCLDCClass,
+                                        isMidletClass,
 #endif
 					check_relaxed);
 	if (res == -1) { /* nomem */
@@ -839,6 +1019,12 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 	    CVMthrowNoClassDefFoundError(ee, "%s", buf);
             goto doCleanup;
 	}
+#ifdef JAVASE
+	if (res == -5) { /* verify error, failure in byte code verification */
+	    CVMthrowVerifyError(ee, "%s", buf);
+            goto doCleanup;
+	}
+#endif
 	context->needsVerify = !(CVMBool)measure_only;
     }
 
@@ -914,7 +1100,7 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
         goto doCleanup;
     }
 
-    cb = CVMallocClassSpace(ee, context);
+    cb = CVMallocClassSpace(ee, context, isRedefine);
 
     /* not in ROM, no <clinit> */
     CVMassert(!CVMcbIsInROM(cb));
@@ -927,7 +1113,6 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
     if (context->oldClassRoot == NULL) {
 	CVMexceptionHandler(ee, context);
     }
-
     /*
      * This assignment is just temporary until CVMclassAddToLoadedClasses()
      * creates a new ClassLoader global root for the class loader.
@@ -940,9 +1125,11 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 	CVMcbCheckedExceptions(cb) = (CVMUint16*)
 	    (context->mainSpace + context->offset.main.excs);
     }
-    CVMcbStatics(cb) = (CVMJavaVal32*) 
-	(context->mainSpace + context->offset.staticFields);
-    CVMcbNumStaticRefs(cb) = context->size.staticRefFields;
+    if (!isRedefine) {
+	CVMcbStatics(cb) = (CVMJavaVal32*) 
+	    (context->mainSpace + context->offset.staticFields);
+	CVMcbNumStaticRefs(cb) = context->size.staticRefFields;
+    }
 
     /* Set up the context */
     context->ptr = buffer;
@@ -954,6 +1141,9 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
     context->minor_version = get2bytes(context);
     context->major_version = get2bytes(context);
 
+    cb->major_version = context->major_version;
+    cb->minor_version = context->minor_version;
+
     CVMreadConstantPool(ee, context);
     cp = context->cp;
     utf8Cp = context->utf8Cp;
@@ -961,18 +1151,19 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
     {
 	CVMUint16 accessFlags = 
 	    get2bytes(context) & JVM_RECOGNIZED_CLASS_MODIFIERS;
-	/*
-	 * Our internal flags do not map one-to-one with class file flags. We
-	 * need to remap flags that have values greater than 0x80.
-	 */
-	CVMassert(JVM_ACC_PUBLIC == CVM_CLASS_ACC_PUBLIC);
-	CVMassert(JVM_ACC_FINAL == CVM_CLASS_ACC_FINAL);
-	CVMassert(JVM_ACC_SUPER == CVM_CLASS_ACC_SUPER);
+
+	CVMassert(JVM_ACC_PUBLIC     == CVM_CLASS_ACC_PUBLIC);
+	CVMassert(JVM_ACC_FINAL      == CVM_CLASS_ACC_FINAL);
+	CVMassert(JVM_ACC_SUPER      == CVM_CLASS_ACC_SUPER);
+	CVMassert(JVM_ACC_INTERFACE  == CVM_CLASS_ACC_INTERFACE);
+	CVMassert(JVM_ACC_ABSTRACT   == CVM_CLASS_ACC_ABSTRACT);
+	CVMassert(JVM_ACC_SYNTHETIC  == CVM_CLASS_ACC_SYNTHETIC);
+	CVMassert(JVM_ACC_ANNOTATION == CVM_CLASS_ACC_ANNOTATION);
+	CVMassert(JVM_ACC_ENUM       == CVM_CLASS_ACC_ENUM);
+
 	if (accessFlags & JVM_ACC_INTERFACE) {
-	    accessFlags &= ~JVM_ACC_INTERFACE;
-	    accessFlags |= CVM_CLASS_ACC_INTERFACE;
 #ifdef CVM_DUAL_STACK
-            if (!isCLDCClass) {
+            if (!isMidletClass) {
 #endif
                 /* This is a workaround for a javac bug. Interfaces are not
                  * always marked as ABSTRACT.
@@ -982,11 +1173,6 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
             }
 #endif
 	}
-	if (accessFlags & JVM_ACC_ABSTRACT) {
-	    accessFlags &= ~JVM_ACC_ABSTRACT;
-	    accessFlags |= CVM_CLASS_ACC_ABSTRACT;
-	}
-	CVMassert(accessFlags <= 255); /* must fit in one byte */
 	CVMcbAccessFlags(cb) = accessFlags;
     }
 
@@ -1029,7 +1215,7 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 	i = 0;
 	while (i < CVMcbFieldCount(cb)) {
 	    CVMFieldBlock* fb = CVMcbFieldSlot(cb, i);
-	    CVMUint16 accessFlags; 
+	    CVMUint16 accessFlags, newAccessFlags;
 	    CVMUtf8* fieldname;
 	    CVMUtf8* fieldsig;
 
@@ -1041,16 +1227,45 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 	     * file flags, although in the case of field access flags they
 	     * do. Make sure the following invariants are met.
 	     */
-	    CVMassert(JVM_ACC_PUBLIC    == CVM_FIELD_ACC_PUBLIC);
-	    CVMassert(JVM_ACC_PRIVATE   == CVM_FIELD_ACC_PRIVATE);
-	    CVMassert(JVM_ACC_PROTECTED == CVM_FIELD_ACC_PROTECTED);
 	    CVMassert(JVM_ACC_STATIC    == CVM_FIELD_ACC_STATIC);
 	    CVMassert(JVM_ACC_FINAL     == CVM_FIELD_ACC_FINAL);
 	    CVMassert(JVM_ACC_VOLATILE  == CVM_FIELD_ACC_VOLATILE);
 	    CVMassert(JVM_ACC_TRANSIENT == CVM_FIELD_ACC_TRANSIENT);
+
 	    accessFlags = get2bytes(context) & JVM_RECOGNIZED_FIELD_MODIFIERS;
-	    CVMassert(accessFlags <= 255); /* must fit in one byte */
-	    CVMfbAccessFlags(fb) = accessFlags;
+
+	    newAccessFlags = accessFlags & 
+		~(JVM_ACC_PUBLIC | JVM_ACC_PRIVATE | JVM_ACC_PROTECTED |
+		  JVM_ACC_SYNTHETIC | JVM_ACC_ENUM);
+
+	    /* In the event that more than one of the private, protected, and
+	       public flags are set (which is not allowed by the VM spec), we
+	       always set it to private to be conservative.  This can only
+	       occur with unverified code that isn't conforming to the spec.
+	    */
+#undef JVM_PPP_MASK
+#define JVM_PPP_MASK  (JVM_ACC_PUBLIC |JVM_ACC_PROTECTED | JVM_ACC_PRIVATE)
+	    if ((accessFlags & JVM_PPP_MASK) == JVM_ACC_PUBLIC) {
+		/* Is public. */
+		newAccessFlags |= CVM_FIELD_ACC_PUBLIC;
+	    } else if ((accessFlags & JVM_PPP_MASK) == JVM_ACC_PROTECTED) {
+		/* Is protected. */
+		newAccessFlags |= CVM_FIELD_ACC_PROTECTED;
+	    } else if ((accessFlags & JVM_PPP_MASK) == 0) {
+		/* Default access.  Don't set any bits. */
+	    } else {
+		/* Is private or illegal.  Either way, treat as private. */
+		newAccessFlags |= CVM_FIELD_ACC_PRIVATE;
+	    }
+
+	    if (accessFlags & JVM_ACC_SYNTHETIC) {
+		newAccessFlags |= CVM_FIELD_ACC_SYNTHETIC;
+	    }
+	    if (accessFlags & JVM_ACC_ENUM) {
+		newAccessFlags |= CVM_FIELD_ACC_ENUM;
+	    }
+	    CVMassert(newAccessFlags <= 255); /* must fit in one byte */
+	    CVMfbAccessFlags(fb) = newAccessFlags;
 
 	    cpIdx = get2bytes(context);
 	    fieldname = CVMcpGetUtf8(utf8Cp, cpIdx);
@@ -1137,7 +1352,7 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 	i = 0;
 	while (i < CVMcbMethodCount(cb)) {
 	    CVMMethodBlock* mb = CVMcbMethodSlot(cb, i);
-	    CVMUint16 accessFlags; 
+	    CVMUint16 accessFlags, newAccessFlags;
 	    CVMUtf8* methodName;
 	    CVMUtf8* methodSig;
 	    CVMBool  isStrict = CVM_FALSE;
@@ -1146,27 +1361,48 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 	     * Our internal flags do not map one-to-one with class file flags.
 	     * We need to remap flags that have values greater than 0x80.
 	     */
-	    CVMassert(JVM_ACC_PUBLIC        == CVM_METHOD_ACC_PUBLIC);
-	    CVMassert(JVM_ACC_PRIVATE       == CVM_METHOD_ACC_PRIVATE);
-	    CVMassert(JVM_ACC_PROTECTED     == CVM_METHOD_ACC_PROTECTED);
 	    CVMassert(JVM_ACC_STATIC        == CVM_METHOD_ACC_STATIC);
 	    CVMassert(JVM_ACC_FINAL         == CVM_METHOD_ACC_FINAL);
 	    CVMassert(JVM_ACC_SYNCHRONIZED  == CVM_METHOD_ACC_SYNCHRONIZED);
+	    CVMassert(JVM_ACC_BRIDGE        == CVM_METHOD_ACC_BRIDGE);
+	    CVMassert(JVM_ACC_VARARGS       == CVM_METHOD_ACC_VARARGS);
+	    CVMassert(JVM_ACC_NATIVE        == CVM_METHOD_ACC_NATIVE);
+	    CVMassert(JVM_ACC_ABSTRACT      == CVM_METHOD_ACC_ABSTRACT);
+
 	    accessFlags = get2bytes(context) & JVM_RECOGNIZED_METHOD_MODIFIERS;
-	    if (accessFlags & JVM_ACC_NATIVE) {
-		accessFlags &= ~JVM_ACC_NATIVE;
-		accessFlags |= CVM_METHOD_ACC_NATIVE;
+
+	    newAccessFlags = accessFlags & 
+		~(JVM_ACC_PUBLIC | JVM_ACC_PRIVATE | JVM_ACC_PROTECTED |
+		  JVM_ACC_SYNTHETIC | JVM_ACC_STRICT);
+
+	    /* In the event that more than one of the private, protected, and
+	       public flags are set (which is not allowed by the VM spec), we
+	       always set it to private to be conservative.  This can only
+	       occur with unverified code that isn't conforming to the spec.
+	    */
+#undef JVM_PPP_MASK
+#define JVM_PPP_MASK  (JVM_ACC_PUBLIC |JVM_ACC_PROTECTED | JVM_ACC_PRIVATE)
+	    if ((accessFlags & JVM_PPP_MASK) == JVM_ACC_PUBLIC) {
+		/* Is public. */
+		newAccessFlags |= CVM_FIELD_ACC_PUBLIC;
+	    } else if ((accessFlags & JVM_PPP_MASK) == JVM_ACC_PROTECTED) {
+		/* Is protected. */
+		newAccessFlags |= CVM_FIELD_ACC_PROTECTED;
+	    } else if ((accessFlags & JVM_PPP_MASK) == 0) {
+		/* Default access.  Don't set any bits. */
+	    } else {
+		/* Is private or illegal.  Either way, treat as private. */
+		newAccessFlags |= CVM_FIELD_ACC_PRIVATE;
 	    }
-	    if (accessFlags & JVM_ACC_ABSTRACT) {
-		accessFlags &= ~JVM_ACC_ABSTRACT;
-		accessFlags |= CVM_METHOD_ACC_ABSTRACT;
-	    }		
+
+	    if (accessFlags & JVM_ACC_SYNTHETIC) {
+		newAccessFlags |= CVM_METHOD_ACC_SYNTHETIC;
+	    }
 	    if (accessFlags & JVM_ACC_STRICT) {
-		accessFlags &= ~JVM_ACC_STRICT;
+		newAccessFlags |= CVM_METHOD_ACC_STRICT;
 		isStrict = CVM_TRUE;
-	    }		
-	    CVMassert(accessFlags <= 255); /* must fit in one byte */
-	    CVMmbAccessFlags(mb) = accessFlags;
+	    }
+	    CVMmbSetAccessFlags(mb, newAccessFlags);
 
 	    CVMmbMethodIndex(mb) = i % 256;/* must be done before setting cb */
 	    CVMmbClassBlock(mb) = cb;
@@ -1195,7 +1431,7 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 	    if (CVMtypeidIsStaticInitializer(CVMmbNameAndTypeID(mb))) {
 		/* The VM ignores the access flags of <clinit>. We reset the
 		 * access flags to avoid future errors in the VM */
-		CVMmbAccessFlags(mb) = JVM_ACC_STATIC;
+		CVMmbSetAccessFlags(mb, CVM_METHOD_ACC_STATIC);
 		context->in_clinit = CVM_TRUE;
 
 		/* Here we just set the HAS_STATICS_OR_CLINIT flag 
@@ -1268,7 +1504,7 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 		    (JVM_RECOGNIZED_CLASS_MODIFIERS | 
 		     JVM_ACC_PRIVATE | JVM_ACC_PROTECTED | JVM_ACC_STATIC);
 #ifdef CVM_DUAL_STACK
-                if (!isCLDCClass) {
+                if (!isMidletClass) {
 #endif
                     /* This is a workaround for a javac bug. Interfaces are
                      * not always marked as ABSTRACT.
@@ -1301,24 +1537,33 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
 	}
     }
 
+#ifdef CVM_JVMTI
     /*
-     * Add the class to our class database and let the class loader know 
-     * about the class.
+     * In JVMTI case, we check to see if we are redefining a class.
+     * If so, we don't add it to the class lists.  Caller of
+     * this function will do the housekeeping instead.
      */
-    if (!CVMclassAddToLoadedClasses(ee, cb, context->oldClassRoot)) {
-	CVMID_freeGlobalRoot(ee, context->oldClassRoot);
-	context->oldClassRoot = NULL;
+    if (!isRedefine)
+#endif
+    {
 	/*
-	 * If the new Class global root was never setup then we are
-	 * responsible for freeing the class.
+	 * Add the class to our class database and let the class loader know 
+	 * about the class.
 	 */
-	if (CVMcbJavaInstance(cb) == NULL) {
-	    CVMexceptionHandler(ee, context);
-	} else {
-            goto doCleanup; /* exception already thrown */
+	if (!CVMclassAddToLoadedClasses(ee, cb, context->oldClassRoot)) {
+	    CVMID_freeGlobalRoot(ee, context->oldClassRoot);
+	    context->oldClassRoot = NULL;
+	    /*
+	     * If the new Class global root was never setup then we are
+	     * responsible for freeing the class.
+	     */
+	    if (CVMcbJavaInstance(cb) == NULL) {
+		CVMexceptionHandler(ee, context);
+	    } else {
+		goto doCleanup; /* exception already thrown */
+	    }
 	}
     }
-
     /* 
      * The class is loaded and verified to be structually correct.
      * From this point on the responsibility of freeing malloc'ed
@@ -1336,6 +1581,11 @@ CVMclassCreateInternalClass(CVMExecEnv* ee,
         free(buffer);
     }
 #endif
+#ifdef CVM_JVMTI
+    if (jvmtiBufferWasReplaced) {
+	CVMjvmtiDeallocate(newBuffer);
+    }
+#endif
     return context->oldClassRoot;
 
     /* This is where the above code jumps to clean-up before exiting: */
@@ -1343,6 +1593,11 @@ doCleanup:
 #ifdef CVM_JVMPI
     if (bufferWasReplaced) {
         free(buffer);
+    }
+#endif
+#ifdef CVM_JVMTI
+    if (jvmtiBufferWasReplaced) {
+	CVMjvmtiDeallocate(newBuffer);
     }
 #endif
     return NULL;
@@ -1432,13 +1687,17 @@ CVMoutOfMemoryHandler(CVMExecEnv* ee, CICcontext *context)
 static void
 CVMlimitHandler(CVMExecEnv* ee, CICcontext *context, char* comment)
 {
+#ifdef JAVASE
+    context->exceptionCb = CVMsystemClass(java_lang_OutOfMemoryError);
+#else
     context->exceptionCb = CVMsystemClass(java_lang_InternalError);
+#endif
     context->exceptionMsg = comment;
     longjmp(context->jump_buffer, 1);
 }
 
 static CVMClassBlock*
-CVMallocClassSpace(CVMExecEnv* ee, CICcontext *context)
+CVMallocClassSpace(CVMExecEnv* ee, CICcontext *context, CVMBool isRedefine)
 {
     unsigned int offset = 0;
     int numberOfJmd;
@@ -1541,14 +1800,15 @@ CVMallocClassSpace(CVMExecEnv* ee, CICcontext *context)
     offset += sizeof(CVMClassBlock*) * ((255 + context->size.fields) / 256) +
 	      sizeof(CVMFieldBlock) * context->size.fields;
     
-    /* CVMClassBlock.statics */
-    context->offset.staticFields = offset;
-    /*
-     * Just use the same type as multiplier here that is used
-     * for 'statics' in the union 'staticsX' in CVMClassBlock.
-     */
-    offset += sizeof(CVMJavaVal32) * context->size.staticFields;
-
+    if (!isRedefine) {
+	/* CVMClassBlock.statics */
+	context->offset.staticFields = offset;
+	/*
+	 * Just use the same type as multiplier here that is used
+	 * for 'statics' in the union 'staticsX' in CVMClassBlock.
+	 */
+	offset += sizeof(CVMJavaVal32) * context->size.staticFields;
+    }
     /* CVMClassBlock.checkedExceptions */
     context->offset.main.excs = offset;
     offset += (sizeof(CVMUint16) * 
@@ -1711,9 +1971,10 @@ CVMreadConstantPool(CVMExecEnv* ee, CICcontext *context)
 	}
 	    
 	case CVM_CONSTANT_Long: {
-	    CVMJavaVal64 value; /* The space for the 2 word constant */
+	    volatile CVMJavaVal64 value;/* The space for the 2 word constant */
 #ifdef CVM_64
-	    value.v[0] = (((CVMAddr)(get4bytes(context))<<32) | ((CVMAddr)(get4bytes(context))&0x0ffffffff));
+	    value.v[0] = (((CVMAddr)(get4bytes(context))<<32) | 
+                          ((CVMAddr)(get4bytes(context))&0x0ffffffff));
 	    value.v[1] = 0;
 #else
 #ifndef CVM_ENDIANNESS
@@ -1737,9 +1998,10 @@ CVMreadConstantPool(CVMExecEnv* ee, CICcontext *context)
 	    break;
 	}
 	case CVM_CONSTANT_Double: {
-	    CVMJavaVal64 value; /* The space for the 2 word constant */
+	    volatile CVMJavaVal64 value;/* The space for the 2 word constant */
 #ifdef CVM_64
-	    value.v[0] = (((CVMAddr)(get4bytes(context))<<32) | ((CVMAddr)(get4bytes(context))&0x0ffffffff));
+	    value.v[0] = (((CVMAddr)(get4bytes(context))<<32) |
+                          ((CVMAddr)(get4bytes(context))&0x0ffffffff));
 	    value.v[1] = 0;
 #else
 #ifndef CVM_DOUBLE_ENDIANNESS
@@ -1980,15 +2242,32 @@ CVMreadCode(CVMExecEnv* ee, CICcontext* context, CVMMethodBlock* mb,
 	    CVMUtf8*  attrName = CVMcpGetUtf8(utf8Cp, cpIdx);
 	    CVMUint32 attrLength = get4bytes(context);
 #ifdef CVM_SPLIT_VERIFY
-	    if (context->needsVerify && !strcmp(attrName, "StackMap")){
-		CVMBool ok;
-		ok = CVMsplitVerifyAddMaps(ee, context->cb, mb,
-		    CVMreadStackMaps(ee, context, attrLength, codeLength,
-			maxLocals, maxStack));
-		if (!ok){
-		    CVMexceptionHandler(ee, context);
+	    if (CVMglobals.splitVerify && context->needsVerify) {
+		if (!strcmp(attrName, "StackMapTable")) {
+		    CVMBool ok;
+                    CVMtraceVerifier(("SV add StackMapTable: %C.%M\n",
+                                      context->cb, mb));
+		    ok = CVMsplitVerifyAddMaps(ee, context->cb, mb,
+			CVMreadStackMapTable(ee, context,
+			    mb, attrLength, codeLength,
+			    maxLocals, maxStack));
+		    if (!ok){
+			CVMexceptionHandler(ee, context);
+		    }
+		    continue;
 		}
-		continue;
+		if (!strcmp(attrName, "StackMap")) {
+		    CVMBool ok;
+                    CVMtraceVerifier(("SV add StackMap: %C.%M\n",
+                                      context->cb, mb));
+		    ok = CVMsplitVerifyAddMaps(ee, context->cb, mb,
+			CVMreadStackMaps(ee, context, attrLength, codeLength,
+			    maxLocals, maxStack));
+		    if (!ok){
+			CVMexceptionHandler(ee, context);
+		    }
+		    continue;
+		}
 	    }
 #endif
 #ifdef CVM_DEBUG_CLASSINFO
@@ -2035,10 +2314,9 @@ CVMreadCode(CVMExecEnv* ee, CICcontext* context, CVMMethodBlock* mb,
 	    /* none of the above */
 	    getNbytes(context, attrLength, NULL);
 	}
+#ifdef CVM_DEBUG_CLASSINFO
 	CVMassert((void*)ln <= (void*)CVMjmdLocalVariableTable(jmd));
 
-
-#ifdef CVM_DEBUG_CLASSINFO
 	/* The VM Spec doesn't seem to require line number tables are 
 	 * ordered. The CVMpc2lineno function in interpreter.c relies
 	 * on the entries being ordered.
@@ -2164,6 +2442,15 @@ CVMfreeCommon(CVMExecEnv*ee, CVMClassBlock* cb)
     int i;
 
     CVMassert(!CVMisArrayClass(cb));
+
+#if CVM_SPLIT_VERIFY
+    /*
+     * Free up any stackmaps associated with the class.
+     */
+    if (CVMsplitVerifyClassHasMaps(ee, cb)) {
+        CVMsplitVerifyClassDeleteMaps(cb);
+    }
+#endif
     
     /*
      * Free CVMcbClassName().
@@ -2642,7 +2929,9 @@ static const fullinfo_type tagMap[] = {
     (fullinfo_type)(-1), /* OBJECT is not translated by this table */
     (fullinfo_type)(-1)  /* UNINIT_OBJECT is not translated by this table */
 };
-#ifdef CVM_DEBUG
+
+/* These are no longer used, but may be useful for debugging */
+#if 0
 static const char* tagNames[] = {
     "ITEM_Bogus",
     "ITEM_Integer",
@@ -2708,6 +2997,207 @@ CVMreadMapElements(
     return elementp;
 }
 
+/* Read in JVMSv3-style StackMapTable attribute */
+/*
+ * The code in verifyformat has already ensured that the offsets and
+ * constant pool references we're reading in make sense.
+ */
+static CVMsplitVerifyStackMaps*
+CVMreadStackMapTable(CVMExecEnv* ee, CICcontext* context,
+    CVMMethodBlock *mb, CVMUint32 length, CVMUint32 codeLength,
+    CVMUint32 maxLocals, CVMUint32 maxStack)
+{
+    CVMsplitVerifyStackMaps*	maps = NULL;
+    CVMsplitVerifyMap*		entry;
+    CVMUint32		  	nEntries;
+    CVMUint32		  	bytesPerMap;
+    int				lastPC = -1;
+    int				nLocalSlots = 0;
+    int				nStackSlots = 0;
+    CVMsplitVerifyMapElement	*locals;
+    CVMsplitVerifyMapElement	*stack;
+#ifdef CVM_DEBUG_ASSERTS
+    const CVMUint8*	  	startOffset = context->ptr;
+#endif
+    /*
+     * These asserts are here to remind us that the format of these
+     * things changes for big methods.
+     */
+    CVMassert(codeLength <= 65535);
+    CVMassert(maxLocals  <= 65535);
+    CVMassert(maxStack   <= 65535);
+
+    nEntries = get2bytes(context);
+    bytesPerMap = sizeof(CVMsplitVerifyMap) + 
+	      (sizeof(CVMsplitVerifyMapElement) * 
+	      (maxLocals + maxStack - 1));
+    /* Note: the below is slightly overgenerous, since it doesn't account
+     * for the trivial CVMsplitVerifyMap built into the 
+     * CVMsplitVerifyStackMaps
+     */
+    maps = (CVMsplitVerifyStackMaps*)calloc(1, 
+	    sizeof(struct CVMsplitVerifyStackMaps) + 
+	    bytesPerMap * nEntries);
+    if (maps == NULL){
+	CVMoutOfMemoryHandler(ee, context);
+    }
+    locals = (CVMsplitVerifyMapElement *)calloc(maxLocals, sizeof locals[0]);
+    if (locals == NULL){
+	free(maps);
+	CVMoutOfMemoryHandler(ee, context);
+    }
+    stack = (CVMsplitVerifyMapElement *)calloc(maxStack, sizeof stack[0]);
+    if (stack == NULL){
+	free(locals);
+	free(maps);
+	CVMoutOfMemoryHandler(ee, context);
+    }
+
+    /* Initialize locals from args */
+{
+    CVMSigIterator sig;
+    CVMClassTypeID cid;
+    CVMtypeidGetSignatureIterator(CVMmbNameAndTypeID(mb), &sig);
+
+    if (!CVMmbIs(mb, STATIC)) {
+	nLocalSlots = 1;
+	locals[0] = VERIFY_MAKE_OBJECT(CVMcbClassName(context->cb));
+    }
+    while ((cid = CVM_SIGNATURE_ITER_NEXT(sig))
+	!= CVM_TYPEID_ENDFUNC)
+    {
+	CVMClassTypeID t = cid;
+	if (!CVMtypeidIsPrimitive(cid)) {
+	    t = CVM_TYPEID_OBJ;
+	}
+	switch (t) {
+	case CVM_TYPEID_OBJ:
+	    locals[nLocalSlots++] =
+		VERIFY_MAKE_OBJECT(cid);
+	    break;
+	case CVM_TYPEID_BOOLEAN:
+	case CVM_TYPEID_BYTE:
+	case CVM_TYPEID_SHORT:
+	case CVM_TYPEID_CHAR:
+	case CVM_TYPEID_INT:
+	    locals[nLocalSlots++] = ITEM_Integer;
+	    break;
+	case CVM_TYPEID_FLOAT:
+	    locals[nLocalSlots++] = ITEM_Float;
+	    break;
+	case CVM_TYPEID_LONG:
+	    locals[nLocalSlots++] = ITEM_Long;
+	    locals[nLocalSlots++] = ITEM_Long_2;
+	    break;
+	case CVM_TYPEID_DOUBLE:
+	    locals[nLocalSlots++] = ITEM_Double;
+	    locals[nLocalSlots++] = ITEM_Double_2;
+	    break;
+	default:
+	    CVMassert(CVM_FALSE);
+	}
+    }
+}
+
+    CVMassert(nLocalSlots <= maxLocals);
+    CVMassert(nStackSlots <= maxStack);
+
+    maps->nEntries = nEntries;
+    maps->entrySize = bytesPerMap;
+    entry = &(maps->maps[0]);
+    while (nEntries-- > 0){
+	int tag, frame_type;
+	int offset_delta;
+	int pc;
+
+	tag = frame_type = get1byte(context);
+	if (tag < 64) {
+	    /* 0 .. 63 SAME */
+	    nStackSlots = 0;
+	    offset_delta = frame_type;
+	    pc = lastPC + offset_delta + 1;
+	} else if (tag < 128) {
+	    /* 64 .. 127 SAME_LOCALS_1_STACK_ITEM */
+	    offset_delta = frame_type - 64;
+	    pc = lastPC + offset_delta + 1;
+	    {
+		CVMsplitVerifyMapElement *e =
+		    CVMreadMapElements(ee, context, 1, codeLength, stack);
+		nStackSlots = e - stack;
+	    }
+	} else if (tag == 255) {
+	    /* 255 FULL_FRAME */
+	    int l, s;
+	    CVMsplitVerifyMapElement *e;
+
+	    offset_delta = get2bytes(context);
+	    pc = lastPC + offset_delta + 1;
+	    l = get2bytes(context);
+	    e = CVMreadMapElements(ee, context, l, codeLength, locals);
+	    nLocalSlots = e - locals;
+	    s = get2bytes(context);
+	    e = CVMreadMapElements(ee, context, s, codeLength, stack);
+	    nStackSlots = e - stack;
+	} else if (tag >= 252) {
+	    /* 252 .. 254 APPEND */
+	    CVMsplitVerifyMapElement *e;
+	    int k = frame_type - 251;
+	    offset_delta = get2bytes(context);
+	    nStackSlots = 0;
+	    pc = lastPC + offset_delta + 1;
+	    e = CVMreadMapElements(ee, context, k,
+		codeLength, locals + nLocalSlots);
+	    nLocalSlots = e - locals;
+	} else if (tag == 251) {
+	    /* 251 SAME_FRAME_EXTENDED */
+	    offset_delta = get2bytes(context);
+	    nStackSlots = 0;
+	    pc = lastPC + offset_delta + 1;
+	} else if (tag >= 248) {
+	    /* 248 .. 250 CHOP */
+	    int k = 251 - frame_type;
+	    while (k-- > 0) {
+		int t = locals[nLocalSlots - 1];
+		if (t == ITEM_Double_2 || t == ITEM_Long_2) {
+		    nLocalSlots -= 2;
+		} else {
+		    nLocalSlots -= 1;
+		}
+	    }
+	    offset_delta = get2bytes(context);
+	    nStackSlots = 0;
+	    pc = lastPC + offset_delta + 1;
+	} else if (tag == 247) {
+	    /* 247 SAME_LOCALS_1_STACK_ITEM_EXTENDED */
+	    CVMsplitVerifyMapElement *e;
+	    offset_delta = get2bytes(context);
+	    pc = lastPC + offset_delta + 1;
+	    e = CVMreadMapElements(ee, context, 1, codeLength, stack);
+	    nStackSlots = e - stack;
+	} else {
+	    pc = -1;
+	    CVMassert(CVM_FALSE);
+	}
+
+	entry->pc = pc;
+	CVMassert(nLocalSlots <= maxLocals);
+	memcpy(entry->mapElements, locals, nLocalSlots * sizeof locals[0]);
+	entry->nLocals = nLocalSlots;
+	CVMassert(entry->nLocals <= maxLocals);
+	entry->sp = nStackSlots;
+	CVMassert(nStackSlots <= maxStack);
+	memcpy(entry->mapElements + nLocalSlots, stack,
+	    nStackSlots * sizeof stack[0]);
+	entry = (CVMsplitVerifyMap*)((char*)entry + bytesPerMap);
+	CVMassert(context->ptr <= startOffset + length);
+	lastPC = pc;
+    }
+    CVMassert(context->ptr == startOffset + length);
+    free(locals);
+    free(stack);
+    return maps;
+}
+
 /* Read in CLDC-style StackMap attribute */
 /*
  * The code in verifyformat has already ensured that the offsets and
@@ -2760,7 +3250,7 @@ CVMreadStackMaps(CVMExecEnv* ee, CICcontext* context, CVMUint32 length,
 			    &(entry->mapElements[0]));
 	entry->nLocals = t1 - &(entry->mapElements[0]);
 	CVMassert(entry->nLocals <= maxLocals);
-	entry->sp = nStackElements = get2bytes(context);
+	nStackElements = get2bytes(context);
 	CVMassert(nStackElements <= maxStack);
 	t2 = CVMreadMapElements(ee, context, nStackElements, codeLength, 
 			    t1);
@@ -2773,7 +3263,7 @@ CVMreadStackMaps(CVMExecEnv* ee, CICcontext* context, CVMUint32 length,
     return maps;
 }
 
-#endif
+#endif /* CVM_SPLIT_VERIFY */
 #endif /* CVM_CLASSLOADING */
 
 /*
@@ -2857,6 +3347,7 @@ void
 CVMclassFreeCompiledMethods(CVMExecEnv* ee, CVMClassBlock* cb)
 {
     int i;
+    CVMJITGlobalState* jgs = &CVMglobals.jit;
     for (i = 0; i < CVMcbMethodCount(cb); i++) {
 	CVMMethodBlock* mb = CVMcbMethodSlot(cb, i);
 	if (CVMmbIsJava(mb)) {
@@ -2872,7 +3363,11 @@ CVMclassFreeCompiledMethods(CVMExecEnv* ee, CVMClassBlock* cb)
 		/* Now check for IsCompiled again just in case someone
 		   beat us to it */
 		if (CVMmbIsCompiled(mb)) {
-		    CVMJITdecompileMethod(ee, mb);
+                    CVMUint8* pc = CVMmbStartPC(mb);
+                    /* don't decompile if it is an AOT method */
+                    if (pc >= jgs->codeCacheStart && pc < jgs->codeCacheEnd) {
+                        CVMJITdecompileMethod(ee, mb);
+                    }
 		}
 		if (ee != NULL) {
 		    CVMsysMutexUnlock(ee, &CVMglobals.jitLock);

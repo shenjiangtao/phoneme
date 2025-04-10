@@ -1,7 +1,7 @@
 /*
  * @(#)socket_md.c	1.16 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -90,7 +90,10 @@ static struct {
     { WSATYPE_NOT_FOUND,	"Class type not found" },
     { WSAEWOULDBLOCK,		"Resource temporarily unavailable" },
     { WSAHOST_NOT_FOUND,	"Host not found" },
+#ifndef WINCE
     { WSA_NOT_ENOUGH_MEMORY,	"Insufficient memory available" },
+    { WSA_OPERATION_ABORTED,	"Overlapped operation aborted" },
+#endif
     { WSANOTINITIALISED,	"Successful WSAStartup not yet performed" },
     { WSANO_DATA,		"Valid name, no data record of requested type" },
     { WSANO_RECOVERY,		"This is a nonrecoverable error" },
@@ -98,7 +101,6 @@ static struct {
     { WSATRY_AGAIN,		"Nonauthoritative host not found" },
     { WSAVERNOTSUPPORTED,	"Winsock.dll version out of range" },
     { WSAEDISCON,		"Graceful shutdown in progress" },
-    { WSA_OPERATION_ABORTED,	"Overlapped operation aborted" },
 };
 
 
@@ -313,7 +315,7 @@ initSockFnTable() {
     sysAssert(sockfnptrs[FN_SETSOCKETOPTION] != NULL);
 #ifdef WINCE
     if (sockfnptrs[FN_GETPROTOBYNAME] == NULL) {
-	sockfnptrs[FN_GETPROTOBYNAME] = getprotobyname;
+	sockfnptrs[FN_GETPROTOBYNAME] = (int (PASCAL FAR *)())getprotobyname;
     }
 #else
     sysAssert(sockfnptrs[FN_GETPROTOBYNAME] != NULL);
@@ -400,7 +402,9 @@ dbgsysAccept(int fd, struct sockaddr *name, int *namelen) {
     {
 	int r = (*acceptfn)(fd, name, namelen);
 	if (r == SOCKET_ERROR) {
+#ifndef WINCE
 	    errno = WSAGetLastError();
+#endif
 	}
 	return r;
     }
@@ -780,7 +784,7 @@ dbgsysTlsGet(int index) {
 }
 
 #define FT2INT64(ft) \
-        ((long)(ft).dwHighDateTime << 32 | (long)(ft).dwLowDateTime)
+        ((CVMInt64)(ft).dwHighDateTime << 32 | (CVMInt64)(ft).dwLowDateTime)
 
 long
 dbgsysCurrentTimeMillis() {
@@ -804,3 +808,8 @@ dbgsysCurrentTimeMillis() {
     return (FT2INT64(ft0) - fileTime_1_1_70) / 10000;
 }
 
+int
+dbgsysInit(JavaVM *jvm)
+{
+    return JNI_OK;
+}

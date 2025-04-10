@@ -1,7 +1,7 @@
 /*
  * @(#)linker_md.cpp	1.6 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -102,4 +102,16 @@ CVMdynlinkClose(void *dsoHandle)
 	CVMfree(l->h);
     }
     CVMfree(l);
+}
+
+CVMBool
+CVMdynlinkExists(const char *name)
+{
+    void *handle;
+
+    handle = CVMdynlinkOpen((const char *) name);
+    if (handle != NULL) {
+        CVMdynlinkClose(handle);
+    }
+    return (handle != NULL);
 }

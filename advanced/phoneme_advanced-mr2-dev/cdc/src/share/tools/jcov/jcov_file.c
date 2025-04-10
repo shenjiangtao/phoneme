@@ -1,7 +1,7 @@
 /*
  * @(#)jcov_file.c	1.40 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -326,14 +326,14 @@ static void read_and_merge_data(void) {
                 found_class->unloaded = 1;
                 break;
             case TAKE_FROM_MEM:
-                write_class(found_class, NULL);
+                write_class(&found_class, NULL);
                 found_class->unloaded = 1;
                 break;
             case TAKE_FROM_DISK:
                 write_class_header(&last_class, last_modifiers);
                 break;
             case TAKE_BOTH:
-                write_class(found_class, NULL);
+                write_class(&found_class, NULL);
                 found_class->unloaded = 1;
                 write_class_header(&last_class, last_modifiers);
                 break;
@@ -463,7 +463,7 @@ void save_jcov_data(char *filename) {
         jcov_info(buf);
     }
 
-    if ((temp_file = fopen(temp_file_name, "wb+")) == NULL ) {
+    if ((temp_file = fopen(temp_file_name, "w+")) == NULL ) {
         sprintf(buf, "cannot create file : %s\n", temp_file_name);
         jcov_error_stop(buf);
     }

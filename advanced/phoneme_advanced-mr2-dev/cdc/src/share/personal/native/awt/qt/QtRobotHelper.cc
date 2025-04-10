@@ -1,7 +1,7 @@
 /*
  * @(#)QtRobotHelper.cc	1.12 06/10/16
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -54,7 +54,7 @@ extern "C" {
 // On x86 platforms with qt-3.3.3, QKeyEvent has a key value of Key_BackTab
 // for Shift+Tab.  We will map this to Java's VK_TAB with Shift modifier set.
 
-const static keyMapType myKeymapTable[SIZEOF_KEYMAP] =
+static const keyMapType myKeymapTable[SIZEOF_KEYMAP] =
 {
   { java_awt_event_KeyEvent_VK_ENTER,		        Qt::Key_Return },
   { java_awt_event_KeyEvent_VK_ENTER,		        Qt::Key_Enter },

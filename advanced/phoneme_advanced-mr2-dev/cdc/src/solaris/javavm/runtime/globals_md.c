@@ -1,7 +1,7 @@
 /*
  * @(#)globals_md.c	1.28 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,6 +29,7 @@
 #include "javavm/include/porting/sync.h"
 #include "portlibs/posix/threads.h"
 #include "generated/javavm/include/build_defs.h"
+#include "javavm/include/path_md.h"
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,16 @@
 #include "javavm/include/globals.h"
 #endif
 
+#if !defined(CVM_MP_SAFE)
+#include <sys/types.h>
+#include <sys/processor.h>
+#include <sys/procset.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <procfs.h>
+#endif /* !CVM_MP_SAFE */
 
 CVMBool CVMinitVMTargetGlobalState()
 {
@@ -94,7 +105,7 @@ void CVMdestroyVMTargetGlobalState()
 
 static CVMProperties props;
 
-CVMBool CVMinitStaticState()
+CVMBool CVMinitStaticState(CVMpathInfo *pathInfo)
 {
     /*
      * Initialize the static state for this address space
@@ -108,24 +119,99 @@ CVMBool CVMinitStaticState()
 
     sigignore(SIGPIPE);
 
-    {
-        char buf[MAXPATHLEN], *p;
-	Dl_info dlinfo;
-
-	dladdr((void *)CVMinitStaticState, &dlinfo);
-	realpath((char *)dlinfo.dli_fname, buf);
-	/* get rid of .../bin/cvm */
-	p = strrchr(buf, '/');
-	if (p == NULL) {
+#if !defined(CVM_MP_SAFE)
+    { /* pin this process and all its LWPs to the same processor. */
+	int rc;
+	id_t pid;
+	processorid_t cpu;
+	
+	pid = getpid();
+	if (pid < 0) {
+	    perror("getpid()");
 	    return CVM_FALSE;
+	}
+
+	rc = processor_bind(P_PID, pid, PBIND_QUERY, &cpu);
+	if (rc < 0) {
+	     perror("processor_bind(PBIND_QUERY)");
+	     cpu = PBIND_NONE;
+	}
+	if (cpu == PBIND_NONE)  /* not already bound  */
+	{ 
+	    /* get psinfo from /proc filesyeste */
+	    psinfo_t psinfo;
+	    int fd = open("/proc/self/psinfo", O_RDONLY);
+	    if (fd < 0) {
+		perror("/proc/self/psinfo");
+	    } else {
+		if (read(fd, &psinfo, sizeof(psinfo)) == sizeof(psinfo)) {
+		    cpu = psinfo.pr_lwp.pr_onpro;
+		} else {
+		    printf("WARNING: failed to read psinfo");
+		}
+		close(fd);
+	    }
+	}
+	rc = 0;
+	if (cpu != PBIND_NONE) {
+	    rc = processor_bind(P_PID, pid, cpu, NULL);
+	}
+	if (cpu == PBIND_NONE || rc < 0) {
+	    printf("WARNING: Unable to bind to a cpu\n");
+	}
+    }
+#endif
+
+    {
+	char buf[MAXPATHLEN + 1], *p0, *p, *pEnd;
+
+	Dl_info dlinfo;
+	if (dladdr((void *)CVMinitStaticState, &dlinfo)) {
+	    realpath((char *)dlinfo.dli_fname, buf);
+	    p0 = buf;
+	} else {
+	    fprintf(stderr, "Could not determine cvm path\n");
+	    return CVM_FALSE;
+	}
+
+	/* get rid of .../bin/cvm */
+	p = strrchr(p0, '/');
+	if (p == NULL) {
+	    goto badpath;
 	}
 	p = p - 4;
-	if (p > buf && strncmp(p, "/bin/", 5) == 0) {
-	    *p = '\0';
+	if (p >= p0 && strncmp(p, "/bin/", 5) == 0) {
+	    if (p == p0) {
+		p[1] = '\0'; /* this is the root directory */
+	    } else {
+		p[0] = '\0';
+	    }
 	} else {
-	    return CVM_FALSE;
+	    goto badpath;
 	}
-        return(CVMinitPathValues( &props, buf, "lib", "lib" ));
+        pathInfo->basePath = strdup(p0);
+        if (pathInfo->basePath == NULL) {
+            return CVM_FALSE;
+        }
+        p = (char *)malloc(strlen(p0) + 1 + strlen("lib") + 1);
+        if (p == NULL) {
+            return CVM_FALSE;
+        }
+        strcpy(p, p0);
+        pEnd = p + strlen(p);
+        *pEnd++ = CVM_PATH_LOCAL_DIR_SEPARATOR;
+        strcpy(pEnd, "lib");
+        pathInfo->libPath = p;
+        /* lib and dll are the same so this shortcut */
+        pathInfo->dllPath = strdup(p);
+        if (pathInfo->dllPath == NULL) {
+            return CVM_FALSE;
+        }
+        return CVM_TRUE;
+    badpath:
+	fprintf(stderr, "Invalid path %s\n", p0);
+	fprintf(stderr, "Executable must be in a directory named \"bin\".\n");
+	return CVM_FALSE;
     }
 }
 

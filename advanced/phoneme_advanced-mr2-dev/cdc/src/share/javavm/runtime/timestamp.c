@@ -1,7 +1,7 @@
 /*
  * @(#)timestamp.c	1.11 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -71,7 +71,7 @@ List* timeStampList = NULL;
 static void 
 listInit(List* list) 
 {  
-    assert(list != NULL);
+    CVMassert(list != NULL);
     list->headNodePtr = NULL;
     list->tailNodePtr = NULL;
     list->numberOfElements = 0;
@@ -90,8 +90,8 @@ listAndNodesDestroy(List* list)
 {
     ListNode* temp;
     while (list->headNodePtr != NULL) {
-        assert(list->numberOfElements > 0);
-        assert((list->numberOfElements != 1) ||
+        CVMassert(list->numberOfElements > 0);
+        CVMassert((list->numberOfElements != 1) ||
                   (list->headNodePtr == list->tailNodePtr));
         temp = list->headNodePtr;
         list->headNodePtr = temp->nextNodePtr;
@@ -101,7 +101,7 @@ listAndNodesDestroy(List* list)
         free(temp);
         list->numberOfElements--;
     }
-    assert(list->numberOfElements == 0);
+    CVMassert(list->numberOfElements == 0);
     listInit(list);
 }
 
@@ -121,13 +121,13 @@ listAddLast(CVMExecEnv* ee, List* list, void* newDataPtr)
     newNodePtr->nextNodePtr = NULL;
 
     if (list->headNodePtr == NULL) {
-        assert(list->tailNodePtr == NULL);
-        assert(list->numberOfElements == 0);
+        CVMassert(list->tailNodePtr == NULL);
+        CVMassert(list->numberOfElements == 0);
         list->headNodePtr = newNodePtr;
     }
     else {
-        assert(list->tailNodePtr != NULL);
-        assert(list->numberOfElements > 0);
+        CVMassert(list->tailNodePtr != NULL);
+        CVMassert(list->numberOfElements > 0);
         list->tailNodePtr->nextNodePtr = newNodePtr;
     }
     list->tailNodePtr = newNodePtr;
@@ -145,7 +145,7 @@ listGetIterator(CVMExecEnv* ee, List* list) {
 	CVMthrowOutOfMemoryError(ee, NULL);
         return NULL;
     }
-    assert(list != NULL);
+    CVMassert(list != NULL);
     iterator->currentNodePtr = list->headNodePtr;
     return iterator;
 }
@@ -159,7 +159,7 @@ static void*
 listNext(ListIterator* iterator) 
 {
     void* retValPtr;
-    assert(iterator != NULL);
+    CVMassert(iterator != NULL);
     if (iterator->currentNodePtr == NULL) {
         return NULL;
     }
@@ -222,7 +222,7 @@ timeStampRecord(CVMExecEnv* ee,
     
     CVMsysMutexLock(ee, &CVMglobals.timestampListLock);
     /* insert the timeStamp record in the list */
-    assert(timeStampList != NULL);
+    CVMassert(timeStampList != NULL);
     if (!listAddLast(ee, timeStampList, valPtr)) {
 	CVMsysMutexUnlock(ee, &CVMglobals.timestampListLock);
         /* insertion in the list failed... */
@@ -240,7 +240,7 @@ timeStampRecord(CVMExecEnv* ee,
 static CVMBool
 timeStampStart(CVMExecEnv* ee, long wallClockTime)
 {
-    assert(timeStampList == NULL);
+    CVMassert(timeStampList == NULL);
     timeStampList = (List*) malloc(sizeof(List));
     if (timeStampList == NULL) {
 	CVMthrowOutOfMemoryError(ee, NULL);
@@ -330,6 +330,27 @@ timeStampFinishup(CVMExecEnv* ee, long wallClockTime)
 	    return CVM_FALSE;
 	}
     }
+
+    /* Free up location records before feeing up list */
+    {
+        ListIterator* fowardIterator;
+        timeStampRecords* value;
+        CVMsysMutexLock(ee, &CVMglobals.timestampListLock);
+        fowardIterator = listGetIterator(ee, timeStampList);
+        if (fowardIterator != NULL) {
+            while ((value = (timeStampRecords*)listNext(fowardIterator))
+                   != NULL)
+            {
+                if (value->loc != NULL) {
+                    free(value->loc);
+                    value->loc = NULL;
+                }
+            }
+            free(fowardIterator);
+        }
+        CVMsysMutexUnlock(ee, &CVMglobals.timestampListLock);
+    }
+
     listAndNodesDestroy(timeStampList);
     free(timeStampList);
     timeStampList = NULL;

@@ -1,7 +1,7 @@
 /*
  * @(#)preloader.h	1.75 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -122,11 +122,17 @@ CVMpreloaderInitInvokeCost();
 /*
  * Iterate over all preloaded classes, and call 'callback' on each class.
  */
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMTI) || defined(CVM_JVMPI)
 extern void
 CVMpreloaderIterateAllClasses(CVMExecEnv* ee, 
 			      CVMClassCallbackFunc callback,
 			      void* data);
+
+#ifdef CVM_JAVASE_CLASS_HAS_REF_FIELD
+extern void
+CVMpreloaderScanPreloadedClassObjects(CVMExecEnv* ee,
+                                      CVMGCOptions* gcOpts,
+                                      CVMRefCallbackFunc callback,
+                                      void* data);
 #endif
 
 #if defined(CVM_INSPECTOR) || defined(CVM_DEBUG_ASSERTS) || defined(CVM_JVMPI)
@@ -137,7 +143,7 @@ CVMpreloaderIterateAllClasses(CVMExecEnv* ee,
 CVMBool CVMpreloaderIsPreloadedObject(CVMObject *obj);
 #endif
 
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
 /* Purpose: Iterate over all preloaded objects and calls Call callback() on
             each preloaded object. */
 /* Returns: CVM_FALSE if exiting due to an abortion (i.e. the callback
@@ -197,6 +203,7 @@ CVM_CLASSBLOCK_DECL(java_lang_Cloneable);
 CVM_CLASSBLOCK_DECL(java_lang_System);
 CVM_CLASSBLOCK_DECL(java_io_File);
 CVM_CLASSBLOCK_DECL(java_io_Serializable);
+CVM_CLASSBLOCK_DECL(java_net_URLConnection);
 CVM_CLASSBLOCK_DECL(java_lang_reflect_Field);
 CVM_CLASSBLOCK_DECL(java_lang_reflect_Method);
 CVM_CLASSBLOCK_DECL(java_lang_reflect_Constructor);
@@ -296,7 +303,7 @@ CVM_CLASSBLOCK_DECL(sun_io_UnknownCharacterException);
 CVM_CLASSBLOCK_DECL(sun_io_MalformedInputException);
 
 #ifdef CVM_AOT
-CVM_CLASSBLOCK_DECL(sun_mtask_Warmup);
+CVM_CLASSBLOCK_DECL(sun_misc_Warmup);
 #endif
 
 /*

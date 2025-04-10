@@ -1,7 +1,7 @@
 /*
  * @(#)hprof_md.c	1.8 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -36,6 +36,11 @@
 #include "jlong.h"
 #include "hprof.h"
 
+void hprof_close(int fd)
+{
+    close(fd);
+}
+
 int hprof_send(int s, const char *msg, int len, int flags)
 {
     int res;
@@ -46,13 +51,10 @@ int hprof_send(int s, const char *msg, int len, int flags)
     return res;
 }
 
-int hprof_write(int filedes, const void *buf, size_t nbyte)
+int hprof_write(FILE *filedes, const void *buf, size_t nbyte)
 {
     int res;
-    do {
-        res = write(filedes, (char *) buf, nbyte);
-    } while ((res < 0) && (errno == EINTR));
-
+    res = fwrite((char *)buf, 1, nbyte, filedes);
     return res;
 }
 

@@ -1,7 +1,7 @@
 /*
  * @(#)ByteToCharISO8859_1.c	1.11 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -48,7 +48,7 @@
         CVMoffsetOfsun_io_ByteToCharConverter_byteOff, \
         value)
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_io_ByteToCharISO8859_11_convert(CVMExecEnv* ee,
 				       CVMStackVal32 *arguments,
                                        CVMMethodBlock **p_mb)

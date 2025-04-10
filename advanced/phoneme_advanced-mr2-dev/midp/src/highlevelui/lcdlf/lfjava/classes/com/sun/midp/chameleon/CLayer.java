@@ -1,27 +1,27 @@
 /*
  *  
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 package com.sun.midp.chameleon;
@@ -39,10 +39,16 @@ public class CLayer {
     
     /** Flag indicating this layer is in need of repainting. */
     private boolean dirty;
-    
+
     /** Array holding a bounding rectangle of an area needing repainting. */
     protected int[] dirtyBounds;
-    
+
+    /** Copy of the layer bounds needed to unlock the layers for painting */
+    protected int[] boundsCopy;
+
+    /** Copy of the dirty bounds needed to unlock the layers for painting */
+    protected int[] dirtyBoundsCopy;
+
     /** Flag indicating if this layer has a transparent background or not. */
     protected boolean transparent;
     
@@ -52,7 +58,7 @@ public class CLayer {
     /** Flag indicating the ability of this layer to support key/pen input. */
     protected boolean supportsInput;
 
-    /** 
+    /**
      * Flag indicating this layer is either completely opaque, or not.
      * By default, a layer is not opaque, and thus requires the background
      * and any layers below it to be painted in addition to itself. However,
@@ -196,10 +202,12 @@ public class CLayer {
         bounds = new int[4];
         bounds[X] = 0;
         bounds[Y] = 0;
-        bounds[W] = ScreenSkin.WIDTH;
-        bounds[H] = ScreenSkin.HEIGHT;
+        bounds[W] = 0;
+        bounds[H] = 0;
         
         dirtyBounds = new int[4];
+        dirtyBoundsCopy = new int[4];
+        boundsCopy = new int[4];
         cleanDirtyRegions();
         
         // IMPL_NOTE : center the background image by default
@@ -496,7 +504,22 @@ public class CLayer {
         cleanDirtyRegions();
         setDirty();
     }
-    
+
+    /**
+     * Check whether the layer is intersected with another one.
+     * @param l the layer to check intersection with
+     * @return true when the layers are intersected, false otherwise
+     */
+    public boolean intersects(CLayer l) {
+        int x = bounds[X];
+        int y = bounds[Y];
+        int lx = l.bounds[X];
+        int ly = l.bounds[Y];
+
+        return !(lx >= x + bounds[W] || lx + l.bounds[W] <= x ||
+            ly >= y + bounds[H] || ly + l.bounds[H] <= y);
+    }
+
     /**
      * Add an area to be marked for repaint to this layer. This could
      * be needed for a variety of reasons, such as this layer being
@@ -700,6 +723,28 @@ public class CLayer {
         return res;
     }
 
+    /**
+     * Copy bounds of the layer to use them on dirty layers painting
+     * when the layers are not locked for changes from other threads.
+     * Method should be called on dirty layers only.
+     */
+    void copyAndCleanDirtyState() {
+        if (dirtyBounds[X] == -1) {
+            // Whole layer is dirty
+            dirtyBoundsCopy[X] = 0;
+            dirtyBoundsCopy[Y] = 0;
+            dirtyBoundsCopy[W] = bounds[W];
+            dirtyBoundsCopy[H] = bounds[H];
+        } else {
+            System.arraycopy(
+                dirtyBounds, 0, dirtyBoundsCopy, 0, 4);
+        }
+        System.arraycopy(
+            bounds, 0, boundsCopy, 0, 4);
+
+        // Reset dirty layer state
+        cleanDirty();
+    }
 
     /**
      * Request a repaint for the entire contents of this layer.
@@ -743,9 +788,6 @@ public class CLayer {
      */
     public void paint(Graphics g) {
         try {            
-            // We first reset our dirty flag
-            this.dirty = false;
-            
             graphicsColor = g.getColor();
             graphicsFont = g.getFont();
             
@@ -766,9 +808,6 @@ public class CLayer {
             // return them to standard
             g.setColor(graphicsColor);
             g.setFont(graphicsFont);
-            
-            // We reset our dirty bounds region
-            cleanDirtyRegions();
             
         } catch (Throwable t) {
             t.printStackTrace();
@@ -842,6 +881,32 @@ public class CLayer {
     }
 
     /**
+     * Called by CWindow to notify the layer that is has been  
+     * added to the active stack. By default this method do nothing.  
+     * This method could be re-implemented by particular layer  to  
+     * do some specific action as soon as it's added to the stack  
+     */ 
+    public void addNotify() {}; 
+    
+    /** 
+     * Called by CWindow to notify the layer that is has been  
+     * removed from the active stack. By default this method do nothing.  
+     * This method could be re-implemented by particular layer  to  
+     * do some specific action as soon as it's removed from the stack  
+     * @param owner an instance of CWindow this layer has been removed from  
+     */ 
+    public void removeNotify(CWindow owner) {}; 
+    
+    /**
+     * Called by CWindow to notify the layer that is has been  
+     * moved to another location. By default this method do nothing.  
+     * This method could be re-implemented by particular layer  to  
+     * do some specific action as soon as it's moved
+     * @param oldBounds original bounds of this layer before it has been moved
+     */ 
+    public void relocateNotify(int[] oldBounds) {}; 
+    
+    /** 
      * Get the layer details including
      * its bound and dirty region information
      *
@@ -864,6 +929,5 @@ public class CLayer {
         res += ", visible: " + (visible ? 1 : 0);
         res += ", transparent: " + (transparent ? 1 : 0);
         return res;
-    }
-
+    }    
 }

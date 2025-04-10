@@ -1,7 +1,7 @@
 /*
  * @(#)jitemitter_cpu.c	1.73 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -958,6 +958,22 @@ CVMCPUemitUnaryALU(CVMJITCompilationContext *con, int opcode,
             CVMSPARCalurhsEncodeRegisterToken(srcRegID);
         CVMCPUemitBinaryALU(con, CVMCPU_SUB_OPCODE,
 			    destRegID, CVMSPARC_g0, rhsToken, setcc);
+        break;
+    }
+    case CVMCPU_NOT_OPCODE: {
+        /* reg32 = (reg32 == 0)?1:0. */
+        CVMCPUemitCompareRegister(con, CVMCPU_CMP_OPCODE, CVMCPU_COND_AL,
+				  CVMSPARC_g0, srcRegID);
+        CVMCPUemitBinaryALUConstant(con, SPARC_SUBX_OPCODE,
+                                    destRegID, CVMSPARC_g0, -1, setcc);        
+        break;
+    }
+    case CVMCPU_INT2BIT_OPCODE: {
+        /* reg32 = (reg32 != 0)?1:0. */
+        CVMCPUemitCompareRegister(con, CVMCPU_CMP_OPCODE, CVMCPU_COND_AL,
+				  CVMSPARC_g0, srcRegID);
+        CVMCPUemitBinaryALUConstant(con, SPARC_ADDX_OPCODE,
+                                    destRegID, CVMSPARC_g0, 0, setcc);        
         break;
     }
     default:

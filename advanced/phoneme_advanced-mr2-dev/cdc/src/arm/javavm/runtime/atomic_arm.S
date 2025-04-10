@@ -1,7 +1,7 @@
 /*
  * @(#)atomic_arm.S	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -45,7 +45,14 @@ ENTRY ( CVMatomicSwapImpl )
         swp     r0, r0, [r1]    /* Swap the contents of r1 with the *addr. */
         BR_REG(lr)              /* Return to the caller. */
 
+SET_SIZE(CVMatomicSwapImpl)
 #endif
 
-SET_SIZE(atomicSwap)
 
+
+#ifdef CVM_MP_SAFE
+ENTRY(CVMmemoryBarrier)
+	mov	r0, #0
+	mcr	p15, 0, r0, c7, c10, 4 /* data synchronization barrier */
+	mov	pc, lr
+#endif

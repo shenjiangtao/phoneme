@@ -1,7 +1,7 @@
 /*
  * @(#)threads.h	1.31 06/10/27
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -125,6 +125,10 @@ extern CVMBool CVMthreadStackCheck(CVMThreadID *self, CVMUint32 redZone);
 
 #if CVM_THREAD_MIN_C_STACK_SIZE < CVM_REDZONE_ILOOP
 #error CVM_THREAD_MIN_C_STACK_SIZE < CVM_REDZONE_ILOOP
+#endif
+
+#ifndef CVMthreadSchedHook
+#define CVMthreadSchedHook(tid) ((void)0)
 #endif
 
 #endif /* _INCLUDED_PORTING_THREADS_H */

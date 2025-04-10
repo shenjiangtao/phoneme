@@ -1,7 +1,7 @@
 #
 # @(#)rules_personal_peer_based.mk	1.9 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -30,11 +30,11 @@ printconfig::
 #
 # Include any peerset-specific, target-specific rules file.
 #
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/rules_$(J2ME_CLASSLIB)_$(AWT_PEERSET).mk
--include ../$(TARGET_OS)/rules_personal_$(AWT_PEERSET).mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/rules_$(J2ME_CLASSLIB)_$(AWT_PEERSET).mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/rules_personal_$(AWT_PEERSET).mk
 
 #
 # Include shared awt peerset specific makefile
 #
--include ../share/rules_personal_$(AWT_PEERSET).mk
+-include $(CDC_DIR)/build/share/rules_personal_$(AWT_PEERSET).mk
 

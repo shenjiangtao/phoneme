@@ -1,7 +1,7 @@
 /*
  * @(#)PPCComponentPeer.java	1.11 02/12/16
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -35,8 +35,10 @@ import java.awt.image.ImageProducer;
 import java.awt.image.ImageObserver;
 import java.awt.image.ColorModel;
 import java.awt.image.DirectColorModel;
+import java.awt.image.VolatileImage;
 import java.awt.event.PaintEvent;
 import sun.awt.PeerBasedToolkit;
+
 
 abstract class PPCComponentPeer extends PPCObjectPeer implements ComponentPeer, 
     UpdateClient {
@@ -90,6 +92,21 @@ abstract class PPCComponentPeer extends PPCObjectPeer implements ComponentPeer,
 	g.setFont(((Component)target).getFont());
         ((Component)target).paint(g);
     }
+
+    /* Dummy method */
+    public VolatileImage createVolatileImage(int width, int height) {	
+        return null;
+    }
+
+    /* Dummy method */
+    public void setFocusable(boolean focusable) {
+    }
+
+    /* Dummy method */
+    public boolean requestFocus(Component child, Window parent, boolean temporary, boolean focusedWindowChangeAllowed, long time) {
+        return false;
+    }
+
     public void repaint(long tm, int x, int y, int width, int height)
     {
 	addRepaintArea(x, y, width, height);

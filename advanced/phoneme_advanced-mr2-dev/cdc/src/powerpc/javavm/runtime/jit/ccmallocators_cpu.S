@@ -1,7 +1,7 @@
 /*
  * @(#)ccmallocators_cpu.S	1.22 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -86,7 +86,7 @@ ENTRY ( CVMCCMruntimeNewGlue )
 	CALL_HELPER_AND_PASS_CCEE(CVMCCMruntimeNew)
 #endif
 
-	lbz	r0, OFFSET_CVMClassBlock_accessFlagsX(CB)
+	lhz	r0, OFFSET_CVMClassBlock_accessFlagsX(CB)
 	la	FHL, OFFSET_CVMGlobalState_fastHeapLock(CVMGLOBALS)
 	andi.	r0, r0, CONSTANT_CLASS_ACC_FINALIZABLE  /* finalizable? */
 	li      r0, 1	       /* 1 == locked flag for fastHeapLock */

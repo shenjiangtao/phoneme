@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -23,7 +23,7 @@
 #
 # @(#)ppc03_defs.mk	1.2 06/10/10
 #
-# defs for PocketPC 2002 target
+# defs for PocketPC 2003 target
 #
 
 # Must use DOS path for SDK_DIR with no quotes.

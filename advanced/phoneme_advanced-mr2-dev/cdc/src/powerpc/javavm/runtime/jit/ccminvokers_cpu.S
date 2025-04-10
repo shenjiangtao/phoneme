@@ -1,7 +1,7 @@
 /*
  * @(#)ccminvokers_cpu.S	1.37 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -379,6 +379,7 @@ _fastlockSuccess:
 #endif
 
 ENTRY( CVMPPCgcPatchPointAtInvoke ) 
+CVMPPCgcPatchPointAtInvokeLocal:
 	# GC check - gc will patch at this location when a rendezvous is
 	# needed. See ccmGcPatchPoints in jitinit_cpu.c. The patch will
 	# be a "b CVMPPChandleGCAtInvoke"
@@ -404,7 +405,7 @@ ENTRY( CVMPPChandleGCAtInvoke)
 	# newly pushed frame into a safe location. The new frame is not
 	# yet "committed" to the stack, and as such, cannot be located
 	# by GC.
-        lbz	r0, OFFSET_CVMMethodBlock_accessFlagsX(r4)
+        lhz	r0, OFFSET_CVMMethodBlock_invokerAndAccessFlagsX(r4)
         andi.	r0, r0, CONSTANT_METHOD_ACC_SYNCHRONIZED
 	
 	# Synchronized method if result of 'tst' is 'ne'. Stash
@@ -436,9 +437,9 @@ notSync:
 	 * again to see if we should restore 'receiverObjX'
 	 * from miscICell.
 	 */
-        lbz	r0, OFFSET_CVMMethodBlock_accessFlagsX(r4)
+        lhz	r0, OFFSET_CVMMethodBlock_invokerAndAccessFlagsX(r4)
         andi.	r0, r0, CONSTANT_METHOD_ACC_SYNCHRONIZED
-        beq	SYM_NAME(CVMPPCgcPatchPointAtInvoke)
+        beq	CVMPPCgcPatchPointAtInvokeLocal
 
 	# Restore receiverObjX in new frame
 	lwz	r5, OFFSET_CVMExecEnv_miscICell(EE)	/* r5 = &miscICell */
@@ -449,7 +450,7 @@ notSync:
 	li	r4, 0
 	stw	r4, 0(r5)
 
-	b	SYM_NAME(CVMPPCgcPatchPointAtInvoke)
+	b	CVMPPCgcPatchPointAtInvokeLocal
 
 
 #undef MB

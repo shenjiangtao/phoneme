@@ -1,27 +1,28 @@
 /*
  * %W% %E%
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -51,7 +52,7 @@
  * is in a2 rather than a1. This is so we don't need to move it to a1
  * when it gets passed to CVMgcAllocNewInstance.
  */
-	ENTRY ( CVMCCMruntimeNewGlue )
+	ENTRY(CVMCCMruntimeNewGlue)
 ENTRY1 ( CVMCCMruntimeNewGlue )
 
 	/* Arguments:	  */
@@ -90,7 +91,7 @@ ENTRY1 ( CVMCCMruntimeNewGlue )
         textrmuw a2, W_CVMGLOBALS, #0
 #else
 	IMPORT(CVMglobals)
-	ldr	a2, =CVMglobals
+	ldr	a2, SYMBOL(CVMglobals)
 #endif
         add	LOCK, a2, #OFFSET_CVMGlobalState_fastHeapLock
         mov     a1, #1	       /* locked	 */
@@ -98,14 +99,26 @@ ENTRY1 ( CVMCCMruntimeNewGlue )
 /* IAI-03 */
 #ifndef IAI_NEW_GLUE_CALLING_CONVENTION_IMPROVEMENT
 	/* Get access flags from class */
-	ldrb	a4, [v2, #OFFSET_CVMClassBlock_accessFlagsX]  /* flags */
+	ldrh	a4, [v2, #OFFSET_CVMClassBlock_accessFlagsX]  /* flags */
 #endif
 	ands	v1, a4, #CONSTANT_CLASS_ACC_FINALIZABLE     /* finalizable? */
 	bne	GOSLOW         /* bail if yes. Otherwise v1 == 0 */
+	
+#ifndef CVM_MP_SAFE
 	/* lock using swp */
         swp	a1, a1, [LOCK]   /* try locking */
 	cmp	a1, #1         /* already locked. Bail. */
 	beq	GOSLOW
+#else
+LABEL(_newAcquireLockMPSafe)
+	ldrex	a4, [LOCK]
+	cmp	a4, #1     /* already locked? */
+	beq	GOSLOW     /* go slow if already locked */
+	strex	a4, a1, [LOCK] /* try acquire the lock */
+	cmp	a4, #0	       /* strex succeed? */
+	bne	_newAcquireLockMPSafe  /* No. Try again */
+	mcr	p15, 0, a4, c7, c10, 5 /* memory barrier. a4 has 0. */
+#endif
 
 	/* Allocate inline
 	 * a2 = &CVMglobals
@@ -172,8 +185,12 @@ LABEL(LOOPTEST)
 	bcc	INITLOOP
 LABEL(ENDINIT)
 	/* Unlock fast lock */
+#ifdef CVM_MP_SAFE
+	mcr	p15, 0, a1, c7, c10, 5       /* memory barrier. a1 has 0*/
+#endif
 	/* a1 is already 0 here. Store it into fastHeapLock */
 	str	a1, [a2, #OFFSET_CVMGlobalState_fastHeapLock]
+	
 	mov	a1, v1         /* Return object */
 	ldr	a2,  [sp,  #OFFSET_CVMCCExecEnv_ee]   /* a2 -- ee */
         ldr     JFP, [a2,  #OFFSET_CVMExecEnv_interpreterStack+OFFSET_CVMStack_currentFrame]
@@ -187,6 +204,9 @@ LABEL(ENDINIT)
 LABEL(GOUNLOCKANDSLOW)
 	/* Unlock by stuffing a zero in the lock */
 	mov	a1, #0
+#ifdef CVM_MP_SAFE
+	mcr	p15, 0, a1, c7, c10, 5       /* memory barrier. */
+#endif	
 	str	a1, [a2, #OFFSET_CVMGlobalState_fastHeapLock]
 LABEL(GOSLOW)
 	/* Start taking stuff out of the ccee */
@@ -207,12 +227,12 @@ LABEL(GOSLOW)
 	cmp	a1, #0
 	bne	RETURNOBJ
 	mov	a1, v1          /* ee */
-	ldr	a2, =cbString   /* "%C" */
+	adr	a2, cbString    /* "%C" */
 	mov	a3, v2          /* cb */
 	CALL_VM_FUNCTION(CVMthrowOutOfMemoryError)
 	mov	a1, sp
 	IMPORT(CVMJITexitNative)
-	ldr     pc, =CVMJITexitNative
+	ldr     pc, SYMBOL(CVMJITexitNative)
 LABEL(RETURNOBJ)
 	/* Restore JSP/JFP and return to compiled code */
 	ldr	a2,  [sp,  #OFFSET_CVMCCExecEnv_ee]   /* a2 -- ee */
@@ -227,7 +247,7 @@ LABEL(RETURNOBJ)
 /*
  * Entry point for allocating an array of a basic type.
  */
-	ENTRY ( CVMCCMruntimeNewArrayGlue )
+	ENTRY(CVMCCMruntimeNewArrayGlue)
 ENTRY1 ( CVMCCMruntimeNewArrayGlue )
 
 	/* Arguments:	 
@@ -271,7 +291,7 @@ ENTRY1 ( CVMCCMruntimeNewArrayGlue )
 #ifdef IAI_CACHE_GLOBAL_VARIABLES_IN_WMMX
 	textrmuw a2, W_CVMGLOBALS, #0
 #else
-	ldr	a2, =CVMglobals
+	ldr	a2, SYMBOL(CVMglobals)
 #endif
 	cmp	v3, #(1 << 28)
 	add	a4, a2, #OFFSET_CVMGlobalState_fastHeapLock
@@ -292,11 +312,22 @@ ENTRY1 ( CVMCCMruntimeNewArrayGlue )
 	add	a3, a3, #15
 	bic	a3, a3, #3
 	/* a4 = instance size */
-	/* lock using swp */
+	/* lock using atomic operation */
 	mov     a1, #1	       /* locked	 */
+#ifndef CVM_MP_SAFE
 	swp	a1, a1, [a4]   /* try locking */
 	cmp	a1, #1         /* already locked. Bail. */
 	beq	ARR_GOSLOW
+#else
+LABEL(_arrAcquireLockMPSafe)
+	ldrex	v1, [a4]
+	cmp	v1, #1       /* already locked? */
+	beq	ARR_GOSLOW   /* already locked. Bail. */
+	strex	v1, a1, [a4] /* try lock */
+	cmp	v1, #0       /* strex succeed? */
+	bne	_arrAcquireLockMPSafe
+	mcr	p15, 0, v1, c7, c10, 5 /* memory barrier. v1 has 0 */
+#endif
 
 	/* Allocate inline */
 	/* a2 = &CVMglobals */
@@ -307,10 +338,10 @@ ENTRY1 ( CVMCCMruntimeNewArrayGlue )
 	ldr	v1, [a1, #0]   /* v1 <- allocPtr   */
 	ldr	a4, [a4, #0]   /* a1 <- allocTop */
 	/* instance size is in a3 */
-	adds	ip, v1, a3     /* lr <- allocNext (allocPtr v1 + size a3) */
+	adds	ip, v1, a3     /* ip <- allocNext (allocPtr v1 + size a3) */
 	/* Check for overflow */
 	bvs	ARR_GOUNLOCKANDSLOW
-	cmp	ip, a4         /* Is lr <= a4 (within range?) */
+	cmp	ip, a4         /* Is ip <= a4 (within range?) */
 	bhi	ARR_GOUNLOCKANDSLOW
 	str  	ip, [a1]    /* and the new allocPtr is committed */
 
@@ -343,11 +374,29 @@ LABEL(SMALL_ARRAY_PLD)
 	pld  [ip, #128]	
  	pld  [ip, #160]	
 
+#if 0
+	/* TODO: The code above appears to have the wrong logic. I believe
+	 * the code below is correct, but I was not able to test it
+	 * on a platform with pld. Note that the two pld's before the
+	 * SMALL_ARRAY_PLD label should also be removed. This same change
+	 * should also be applied in CVMCCMruntimeANewArrayGlue. What
+         * would probably be better than the above logic would be to just
+         * do a good job of scheduling all 6 pld instructions in delay
+         * slots between other instructions.
+	 */
+	pld  [ip]	
+	pld  [ip, #32]
+	pld  [ip, #64]
+	pld  [ip, #96]	
+LABEL(SMALL_ARRAY_PLD)       
+	pld  [ip, #128]	
+	pld  [ip, #160]
+#endif
 #endif	/* IAI_PRELOAD_NEW_OBJECT */
 
 #ifdef CVM_FASTALLOC_STATS
 	/* Count fast locks */
-	ldr	a1, =fastLockCount
+	ldr	a1, SYMBOL(fastLockCount)
 	ldr	a4, [a1]
 	add	a4, a4, #1
 	str	a4, [a1]
@@ -373,6 +422,9 @@ LABEL(ARR_LOOPTEST)
 	bcc	ARR_INITLOOP
 LABEL(ARR_ENDINIT)
 	/* Unlock fast lock */
+#ifdef CVM_MP_SAFE
+	mcr	p15, 0, a1, c7, c10, 5       /* memory barrier. a1 has 0 */
+#endif
 	/* a1 is already 0 here. Store it into fastHeapLock */
 	str	a1, [a2, #OFFSET_CVMGlobalState_fastHeapLock]
 	mov	a1, v1         /* Return object */
@@ -389,6 +441,9 @@ LABEL(ARR_ENDINIT)
 LABEL(ARR_GOUNLOCKANDSLOW)
 	/* Unlock by stuffing a zero in the lock */
 	mov	a1, #0
+#ifdef CVM_MP_SAFE
+	mcr	p15, 0, a1, c7, c10, 5       /* memory barrier. */
+#endif
 	str	a1, [a2, #OFFSET_CVMGlobalState_fastHeapLock]
 LABEL(ARR_GOSLOW)
 	/* At this point, a3 holds the instance length */
@@ -406,11 +461,11 @@ LABEL(ARR_GOSLOW)
 LABEL(ARR_OUT_OF_MEMORY)
 	ldr	a1, [sp, #OFFSET_CVMCCExecEnv_ee]	/* a1 -- ee */
 LABEL(ARR_OUT_OF_MEMORY1)
-	ldr	a2, =cbString   /* "%C" */
+	adr	a2, cbString    /* "%C" */
 	mov	a3, v2          /* cb */
 	CALL_VM_FUNCTION(CVMthrowOutOfMemoryError)
 	mov	a1, sp
-	ldr     pc, =CVMJITexitNative
+	ldr     pc, SYMBOL(CVMJITexitNative)
 LABEL(ARR_BADINDEX)
 	ldr	a1,  [sp,  #OFFSET_CVMCCExecEnv_ee]   /* a1 -- ee */
         ldr     lr, [a1, #OFFSET_CVMExecEnv_interpreterStack+OFFSET_CVMStack_currentFrame] 
@@ -426,7 +481,7 @@ LABEL(ARR_NEGATIVEINDEX)
 	mov	a2, #0
 	CALL_VM_FUNCTION(CVMthrowNegativeArraySizeException)
 	mov	a1, sp
-	ldr	pc, =CVMJITexitNative
+	ldr	pc, SYMBOL(CVMJITexitNative)
 LABEL(ARR_RETURNOBJ)
 	/* Restore JSP/JFP and return to compiled code */
 	ldr	a2,  [sp,  #OFFSET_CVMCCExecEnv_ee]   /* a2 -- ee */
@@ -441,7 +496,7 @@ LABEL(ARR_RETURNOBJ)
 /*
  * Entry point for allocating an array of the specified arrayCb.
  */
-	ENTRY ( CVMCCMruntimeANewArrayGlue )
+	ENTRY(CVMCCMruntimeANewArrayGlue)
 ENTRY1 ( CVMCCMruntimeANewArrayGlue )
 
 	/* Arguments:
@@ -479,7 +534,7 @@ ENTRY1 ( CVMCCMruntimeANewArrayGlue )
 #ifdef IAI_CACHE_GLOBAL_VARIABLES_IN_WMMX
 	textrmuw a2, W_CVMGLOBALS, #0
 #else
-	ldr	a2, =CVMglobals
+	ldr	a2, SYMBOL(CVMglobals)
 #endif
 
 	/* Check if length is negative or too big. If it is, bail out */
@@ -504,11 +559,22 @@ ENTRY1 ( CVMCCMruntimeANewArrayGlue )
 	mov	a1, #12
 	add	a3, a1, v3, LSL #2
 	/* a3 = instance size */
-	/* lock using swp */
+	/* lock using atomic operation */
 	mov     a1, #1	       /* locked	 */
+#ifndef CVM_MP_SAFE	
 	swp	a1, a1, [a4]   /* try locking */
 	cmp	a1, #1         /* already locked. Bail. */
 	beq	OBJARR_GOSLOW
+#else
+LABEL(_objarrAcquireLockMPSafe)
+	ldrex	v1, [a4]
+	cmp	v1, #1        /* already locked? */
+	beq	OBJARR_GOSLOW /* already locked. Bail. */
+	strex	v1, a1, [a4]  /* try lock */
+	cmp	v1, #0        /* strex succeed? */
+	bne	_objarrAcquireLockMPSafe
+	mcr	p15, 0, v1, c7, c10, 5 /* memory barrier */
+#endif
 
 	/* Allocate inline */
 	/* a2 = &CVMglobals */
@@ -560,7 +626,7 @@ LABEL(SMALL_AARRAY_PLD)
 
 #ifdef CVM_FASTALLOC_STATS
 	/* Count fast locks */
-	ldr	a1, =fastLockCount
+	ldr	a1, SYMBOL(fastLockCount)
 	ldr	a2, [a1]
 	add	a2, a2, #1
 	str	a2, [a1]
@@ -586,6 +652,9 @@ LABEL(OBJARR_LOOPTEST)
 	bcc	OBJARR_INITLOOP
 LABEL(OBJARR_ENDINIT)
 	/* Unlock fast lock */
+#ifdef CVM_MP_SAFE
+	mcr	p15, 0, a1, c7, c10, 5       /* memory barrier. a1 has 0 */
+#endif
 	/* a1 is already 0 here. Store it into fastHeapLock */
 	str	a1, [a2, #OFFSET_CVMGlobalState_fastHeapLock]
 	mov	a1, v1         /* Return object */
@@ -602,6 +671,9 @@ LABEL(OBJARR_ENDINIT)
 LABEL(OBJARR_GOUNLOCKANDSLOW)
 	/* Unlock by stuffing a zero in the lock */
 	mov	a1, #0
+#ifdef CVM_MP_SAFE
+	mcr	p15, 0, a1, c7, c10, 5       /* memory barrier. */
+#endif
 	str	a1, [a2, #OFFSET_CVMGlobalState_fastHeapLock]
 LABEL(OBJARR_GOSLOW)
 	/* At this point, a3 holds the instance length */
@@ -616,13 +688,13 @@ LABEL(OBJARR_GOSLOW)
 	CALL_VM_FUNCTION(CVMgcAllocNewArrayWithInstanceSize)
 	cmp	a1, #0
 	bne	OBJARR_RETURNOBJ
-	ldr	a2, =cbString   /* "%C" */
+	adr	a2, cbString    /* "%C" */
 	mov	a3, v2          /* cb */
 LABEL(OBJARR_OUT_OF_MEMORY)
 	ldr	a1, [sp, #OFFSET_CVMCCExecEnv_ee]	/* a1 -- ee */
 	CALL_VM_FUNCTION(CVMthrowOutOfMemoryError)
 	mov	a1, sp
-	ldr     pc, =CVMJITexitNative
+	ldr     pc, SYMBOL(CVMJITexitNative)
 LABEL(OBJARR_BADINDEX)
 	ldr	a1,  [sp,  #OFFSET_CVMCCExecEnv_ee]   /* a1 -- ee */
         ldr     lr, [a1, #OFFSET_CVMExecEnv_interpreterStack+OFFSET_CVMStack_currentFrame] 
@@ -633,7 +705,7 @@ LABEL(OBJARR_BADINDEX)
 	blt	OBJARR_NEGATIVEINDEX
 	/* If we are here, the array was too big to even try to allocate */
 	/* Throw out of memory error here */
-	ldr	a2, =cbStringArr /* "[%C" */
+	adr	a2, cbStringArr /* "[%C" */
 	/* a3 already has the element cb here. */
 	b	OBJARR_OUT_OF_MEMORY
 LABEL(OBJARR_NEGATIVEINDEX)
@@ -641,7 +713,7 @@ LABEL(OBJARR_NEGATIVEINDEX)
 	mov	a2, #0
 	CALL_VM_FUNCTION(CVMthrowNegativeArraySizeException)
 	mov	a1, sp
-	ldr	pc, =CVMJITexitNative
+	ldr	pc, SYMBOL(CVMJITexitNative)
 LABEL(OBJARR_RETURNOBJ)
 	/* Restore JSP/JFP and return to compiled code */
 	ldr	a2,  [sp,  #OFFSET_CVMCCExecEnv_ee]   /* a2 -- ee */
@@ -657,7 +729,7 @@ LABEL(OBJARR_RETURNOBJ)
  * Allocate a multidimensional array. This is rare, so we just call 
  * the C helper.
  */
-	ENTRY ( CVMCCMruntimeMultiANewArrayGlue )
+	ENTRY(CVMCCMruntimeMultiANewArrayGlue)
 ENTRY1 ( CVMCCMruntimeMultiANewArrayGlue )
 
 	/* Arguments:	 

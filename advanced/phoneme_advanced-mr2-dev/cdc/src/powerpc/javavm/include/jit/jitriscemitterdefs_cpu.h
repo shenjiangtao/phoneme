@@ -1,7 +1,7 @@
 /*
  * @(#)jitriscemitterdefs_cpu.h	1.24 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -115,6 +115,8 @@ enum {
 
 enum {
     /* 32 bit binary ALU opcodes */
+    /* NOTE: the binary ALU opcodes are used to index ppcBinaryALUOpcodes[],
+       so they must start at 0 and be contiguous. */
     CVMCPU_ADD_OPCODE = 0, /* reg32 = reg32 + aluRhs32 */
     CVMPPC_ADDIS_OPCODE,   /* reg32 = reg32 + uint16 << 16 */
     CVMPPC_ADDE_OPCODE,    /* reg32 = reg32 + aluRhs32 + C */
@@ -127,6 +129,14 @@ enum {
     CVMPPC_ORIS_OPCODE,    /* reg32 = reg32 OR uint16 << 16 */
     CVMCPU_XOR_OPCODE,     /* reg32 = reg32 XOR aluRhs32 */
     CVMPPC_XORIS_OPCODE,   /* reg32 = reg32 XOR uint16 << 16 */
+#ifdef CVM_PPC_E500V1
+    /* e500 floating point opcodes.  These operate on GPRs and are
+       handled as 32 bit binary ALU opcodes. */
+    CVME500_FADD_OPCODE, /* reg32 = reg32 + reg32 */
+    CVME500_FSUB_OPCODE, /* reg32 = reg32 - reg32 */
+    CVME500_FMUL_OPCODE, /* reg32 = reg32 * reg32 */
+    CVME500_FDIV_OPCODE, /* reg32 = reg32 / reg32 */
+#endif
     CVMPPC_RLWINM_OPCODE,  /* used for BIC like operations */
     CVMCPU_BIC_OPCODE,     /* reg32 = reg32 AND ~aluRhs32 */
     CVMPPC_DIV_OPCODE,     /* reg32 = reg32 % reg32. */
@@ -141,6 +151,14 @@ enum {
 
     /* 32 bit unary ALU opcodes */
     CVMCPU_NEG_OPCODE,    /* reg32 = -reg32. */
+    CVMCPU_NOT_OPCODE,     /* reg32 = (reg32 == 0)?1:0. */
+    CVMCPU_INT2BIT_OPCODE, /* reg32 = (reg32 != 0)?1:0. */
+
+#ifdef CVM_PPC_E500V1
+    CVME500_FNEG_OPCODE,  /* reg32 = -reg32. */
+    CVME500_I2F_OPCODE,   /* reg32 = (float) reg32. */
+    CVME500_F2I_OPCODE,   /* reg32 = (int) reg32. */
+#endif
     
     /* 32 bit shift opcodes */
     CVMCPU_SLL_OPCODE, /* Shift Left Logical */
@@ -154,7 +172,7 @@ enum {
     
     /* 32 bit compare opcodes */
     CVMCPU_CMP_OPCODE, /* cmp reg32, aluRhs32 */
-    CVMCPU_CMN_OPCODE, /* cmp reg32, ~aluRhs32 */
+    CVMCPU_CMN_OPCODE, /* cmp reg32, -aluRhs32 */
     
     /* 64 bit unary ALU opcodes */
     CVMCPU_NEG64_OPCODE,

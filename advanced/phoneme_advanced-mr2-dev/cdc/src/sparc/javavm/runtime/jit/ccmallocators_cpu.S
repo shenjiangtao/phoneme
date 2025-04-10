@@ -1,7 +1,7 @@
 /*
  * @(#)ccmallocators_cpu.S	1.14 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -75,7 +75,7 @@ ENTRY ( CVMCCMruntimeNewGlue )
 	sethi	%hi(SYM_NAME(CVMglobals)), CVMGLOBALS
 	or	CVMGLOBALS, %lo(SYM_NAME(CVMglobals)), CVMGLOBALS
 
-	ldub	[CB + OFFSET_CVMClassBlock_accessFlagsX], %g1
+	lduh	[CB + OFFSET_CVMClassBlock_accessFlagsX], %g1
 	andcc	%g1, CONSTANT_CLASS_ACC_FINALIZABLE, %g0  /* finalizable? */
 	bne	GOSLOW         /* go slow route if finalizable */
 	mov	1, %g1		/* 1 == locked flag for fastHeapLock */

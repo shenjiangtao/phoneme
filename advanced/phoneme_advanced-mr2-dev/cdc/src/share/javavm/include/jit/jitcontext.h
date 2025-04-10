@@ -1,7 +1,7 @@
 /*
  * @(#)jitcontext.h	1.195 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -109,6 +109,8 @@ struct CVMJITMethodContext {
      * compiled pc equivalents.
      */
     CVMJITSet		     mapPcSet;
+
+    CVMJITSet		     notSeq;
 
     /* 
      * If this boolean is true, it is safe to remove all null checks
@@ -444,9 +446,14 @@ struct CVMJITCompilationContext {
     /* Error handler context to longjmp to */
     jmp_buf errorHandlerContext;
 
+    CVMUint16                  constantPoolSize;
     CVMJITConstantEntry*       constantPool;
     CVMUint32                  numEntriesToEmit; /* Pending unemitted */
     CVMInt32                   earliestConstantRefPC; /* "Urgency" of dump */
+
+#ifdef CVM_JIT_USE_FP_HARDWARE
+    CVMInt32                   earliestFPConstantRefPC; /* "Urgency" of dump */
+#endif
 
     CVMCompiledPcMapTable *pcMapTable;
 

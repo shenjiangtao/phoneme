@@ -1,27 +1,27 @@
 /*
  *   
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 package com.sun.midp.chameleon.layers;
@@ -29,7 +29,11 @@ package com.sun.midp.chameleon.layers;
 import com.sun.midp.chameleon.*;
 import javax.microedition.lcdui.*;
 import com.sun.midp.chameleon.skins.ScrollIndSkin;
+import com.sun.midp.chameleon.skins.ScreenSkin;
 import com.sun.midp.lcdui.EventConstants;
+import com.sun.midp.log.Logging;
+import com.sun.midp.log.LogChannels;
+
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -156,7 +160,12 @@ public class ScrollBarLayer extends ScrollIndLayer {
                 bounds[W] -= 3;
                 shift =  1; 
             }
-            bounds[X] = scrollableBounds[X] + scrollableBounds[W] - bounds[W] - shift;
+            if (ScreenSkin.RL_DIRECTION){
+                bounds[X] = scrollableBounds[X] - bounds[W] + shift;
+            } else {
+                bounds[X] = scrollableBounds[X] + scrollableBounds[W] - shift;
+            }
+
             // the scrollbar move left one pixel as the docking layer draws its bound one pixel less                
 
                 
@@ -175,8 +184,11 @@ public class ScrollBarLayer extends ScrollIndLayer {
      * @param scrollProportion vertical scroll proportion.
      */
     public void setVerticalScroll(int scrollPosition, int scrollProportion) {
-        log("ScrollBar.setVertical: pos = " + scrollPosition +
-            " prop = " + scrollProportion);
+        if (Logging.REPORT_LEVEL <= Logging.INFORMATION) {
+            Logging.report(Logging.INFORMATION, LogChannels.LC_HIGHUI,
+                "ScrollBar.setVertical: pos = " + scrollPosition +
+                    " prop = " + scrollProportion);
+        }
         setVisible(scrollProportion < 100);
         if (position != scrollPosition || proportion != scrollProportion) {
             proportion = scrollProportion;
@@ -308,88 +320,78 @@ public class ScrollBarLayer extends ScrollIndLayer {
      * @param x the x coordinate of the event
      * @param y the y coordinate of the event
      */
-    public boolean pointerInput(int type, int x, int y) {               
-        log("Scroll.pointer type =" + type + ", x =" + x + ", y = " + y);
-        log("bounds[X] = " + bounds[X] + " bounds[Y] = " + bounds[Y] + " bounds[W] = " +
-            bounds[W] + " bounds[H] = " + bounds[H]);
-        
-        switch(type) {
-        case EventConstants.PRESSED:
-            //        case EventConstants.HOLD:
-            // no action for tap-and-hold in scrollbar
-            // cancel timer for any press.
-            cancelTimer();
-            
-            scrollType = getScrollType(x, y);
-            log("Pressed, scrollType=" + scrollType);
-            switch (scrollType) {
-                 
-            case SCROLL_LINEDOWN:
-            case SCROLL_LINEUP:
-                listener.scrollContent(scrollType, 0);
-                setTimer();
-                break;
-            case SCROLL_PAGEUP: 
-            case SCROLL_PAGEDOWN:
-                listener.scrollContent(scrollType, 0);
-                break;
-            case SCROLL_THUMBTRACK:
-                gap = y - thumbY;
-                lastx = x; 
-                lasty = y;
-                break;
-            case SCROLL_NONE:
-                break;
-            }
-            break;
-        case EventConstants.RELEASED:
-            scrollType = SCROLL_NONE;
-            lastx = -1;
-            lasty = -1;
-            gap = 0;
-            break;
-        case EventConstants.DRAGGED:
-            if (scrollType == SCROLL_THUMBTRACK)  {
-                if (y < lasty - DRAG_MIN || y > lasty + DRAG_MIN ||
-                    /* accumulate drag events till reaching DRAG_MIN
-                       or till reaching drag boundaries */
-                    y <= (ARROW_HEIGHT + gap) || 
-                    y >= (bounds[H] - ARROW_HEIGHT - thumbHeight + gap)) {
-                    
-                    lasty = y;
-                    y = y - gap - ARROW_HEIGHT;
-                    int pos = 100 * y / (barHeight - thumbHeight);
-                    pos = (pos < 0) ? 0 : pos;
-                    pos = (pos > 100) ? 100 : pos;
-                    listener.scrollContent(SCROLL_THUMBTRACK, pos);
-                }
-            }
-            break;
-        default:
-            break;
+    public boolean pointerInput(int type, int x, int y) {
+        if (Logging.REPORT_LEVEL <= Logging.INFORMATION) {
+            Logging.report(Logging.INFORMATION, LogChannels.LC_HIGHUI,
+                "Scroll.pointer type =" + type + ", x =" + x + ", y = " + y + "\n" +
+                    "bounds[X] = " + bounds[X] + " bounds[Y] = " + bounds[Y] + " bonds[W] = " +
+                    bounds[W] + " bounds[H] = " + bounds[H]);
         }
-        
+
+        switch (type) {
+            case EventConstants.PRESSED:
+                //        case EventConstants.HOLD:
+                // no action for tap-and-hold in scrollbar
+                // cancel timer for any press.
+                cancelTimer();
+
+                scrollType = getScrollType(x, y);
+                if (Logging.REPORT_LEVEL <= Logging.INFORMATION) {
+                    Logging.report(Logging.INFORMATION, LogChannels.LC_HIGHUI,
+                        "Pressed, scrollType=" + scrollType);
+                }
+                switch (scrollType) {
+
+                    case SCROLL_LINEDOWN:
+                    case SCROLL_LINEUP:
+                        listener.scrollContent(scrollType, 0);
+                        setTimer();
+                        break;
+                    case SCROLL_PAGEUP:
+                    case SCROLL_PAGEDOWN:
+                        listener.scrollContent(scrollType, 0);
+                        break;
+                    case SCROLL_THUMBTRACK:
+                        gap = y - thumbY;
+                        lastx = x;
+                        lasty = y;
+                        break;
+                    case SCROLL_NONE:
+                        break;
+                }
+                break;
+            case EventConstants.RELEASED:
+                scrollType = SCROLL_NONE;
+                lastx = -1;
+                lasty = -1;
+                gap = 0;
+                break;
+            case EventConstants.DRAGGED:
+                if (scrollType == SCROLL_THUMBTRACK) {
+                    if (y < lasty - DRAG_MIN || y > lasty + DRAG_MIN ||
+                        /* accumulate drag events till reaching DRAG_MIN
+                   or till reaching drag boundaries */
+                        y <= (ARROW_HEIGHT + gap) ||
+                        y >= (bounds[H] - ARROW_HEIGHT - thumbHeight + gap)) {
+
+                        lasty = y;
+                        y = y - gap - ARROW_HEIGHT;
+                        int pos = 100 * y / (barHeight - thumbHeight);
+                        pos = (pos < 0) ? 0 : pos;
+                        pos = (pos > 100) ? 100 : pos;
+                        listener.scrollContent(SCROLL_THUMBTRACK, pos);
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+
         /* we should process all of the pointer event inside scroll layer
-           and don't pass it to underlying layer */
+ and don't pass it to underlying layer */
         return true;
     }
 
-    protected void log(String s) {
-        //System.out.println(s);
-    }
-
-    /**
-     * Toggle the visibility state of this layer within its containing
-     * window.
-     *
-     * @param visible If true, this layer will be painted as part of its
-     *                containing window, as well as receive events if it
-     *                supports input.
-     */
-    public void setVisible(boolean visible) {
-        super.setVisible(visible);
-    }
-    
     /**
      * Set new scrollable 
      * @param layer new scrollable controlling the scrolling layer

@@ -1,7 +1,7 @@
 /*
  * @(#)jitir.c	1.316 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -35,7 +35,7 @@
 #include "javavm/include/interpreter.h"
 #include "javavm/include/indirectmem.h"
 #include "javavm/include/clib.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #include "javavm/include/porting/doubleword.h"
 #include "javavm/include/porting/int.h"
 #include "javavm/include/porting/jit/jit.h"
@@ -54,6 +54,7 @@
 #include "javavm/include/jit/jitmemory.h"
 #include "javavm/include/jit/jitstats.h"
 #include "javavm/include/jit/jitdebug.h"
+#include "javavm/include/jit/jitasmconstants.h"
 
 #ifdef CVM_HW
 #include "include/hw.h"
@@ -441,16 +442,12 @@ getLocal(CVMJITCompilationContext* con,
 	loc->decorationData.successorBlocksIdx =
 	    mc->currBlock->successorBlocksCount;
 #endif
-    }
 #ifdef CVM_DEBUG_ASSERTS
-    {
-	CVMJITIRNode* value = CVMJITirnodeValueOf(loc);
-	if (CVMJITirnodeIsLocalNode(value) && typeTag == CVM_TYPEID_OBJ) {
-	    CVMInt32 l = CVMJITirnodeGetLocal(value)->localNo;
-	    CVMassert(CVMJITlocalrefsIsRef(&con->curRefLocals, l));
+	if (typeTag == CVM_TYPEID_OBJ) {
+	    CVMassert(CVMJITlocalrefsIsRef(&con->curRefLocals, mappedLocalNo));
 	}
-    }
 #endif
+    }
 
     return loc;
 }
@@ -1603,6 +1600,41 @@ storePCValueToLocal(CVMJITCompilationContext* con, CVMJITIRBlock* curbk,
 }
 
 static void
+checkInitialLocal(CVMJITCompilationContext *con,
+    CVMJITIRBlock *curbk, int mappedLocalNo)
+{
+    if (mappedLocalNo < curbk->numInitialLocals) {
+	CVMJITIRNode *initialLocalNode =
+	    curbk->initialLocals[mappedLocalNo];
+	if (initialLocalNode != NULL) {
+	    /* Maybe there is a more effective way to tell that this initial
+	       local value is useless, but now we just go ahead and evaluate
+	       it first to be conservative: */
+	    CVMJITirForceEvaluation(con, curbk, initialLocalNode);
+
+	    /* The initial local has been evaluated */
+	    curbk->initialLocals[mappedLocalNo] = NULL;
+	}
+	/* 2nd word of double-word local? */
+	if (mappedLocalNo > 0) {
+	    CVMJITIRNode *initialLocalNode =
+		curbk->initialLocals[mappedLocalNo - 1];
+	    if (initialLocalNode != NULL &&
+		CVMJITirnodeIsDoubleWordType(initialLocalNode))
+	    {
+		/* Maybe there is a more effective way to tell that this initial
+		   local value is useless, but now we just go ahead and evaluate
+		   it first to be conservative: */
+		CVMJITirForceEvaluation(con, curbk, initialLocalNode);
+
+		/* The initial local has been evaluated */
+		curbk->initialLocals[mappedLocalNo - 1] = NULL;
+	    }
+	}
+    }
+}
+
+static void
 mcStoreValueToLocal(CVMJITCompilationContext* con, CVMJITIRBlock* curbk,
                     CVMUint16 localNo,
                     CVMUint16 typeTag, CVMJITMethodContext* mc,
@@ -1644,19 +1676,10 @@ mcStoreValueToLocal(CVMJITCompilationContext* con, CVMJITIRBlock* curbk,
            because those are all computed.  Only the initial local value must
            be fetched from the local storage location first: */
 
-	if (mappedLocalNo < curbk->numInitialLocals) {
-	    CVMJITIRNode *initialLocalNode =
-		curbk->initialLocals[mappedLocalNo];
-	    if (initialLocalNode != NULL) {
-		/* Maybe there is a more effective way to tell that this initial
-		   local value is useless, but now we just go ahead an evaluate
-		   it first to be conservative: */
-		CVMJITirForceEvaluation(con, curbk, initialLocalNode);
-
-		/* The initial local has been evaluated */
-		curbk->initialLocals[mappedLocalNo] = NULL;
-	    }
-        }
+	checkInitialLocal(con, curbk, mappedLocalNo);
+	if (CVMJITirIsDoubleWordTypeTag(typeTag)) {
+	    checkInitialLocal(con, curbk, mappedLocalNo + 1);
+	}
 
         localNode = CVMJITirnodeNewLocal(con, CVMJIT_ENCODE_LOCAL(typeTag),
                                          mappedLocalNo);
@@ -1713,6 +1736,9 @@ mcStoreValueToLocal(CVMJITCompilationContext* con, CVMJITIRBlock* curbk,
 
     /* Now cache the new local value: */
     CVMassert(mc->locals != NULL);
+    if (CVMJITirIsDoubleWordTypeTag(typeTag)) {
+	mc->locals[localNo + 1] = NULL;
+    }
     mc->locals[localNo] = valueNode;
 
     /* Now invalidate the null check and other checks: */
@@ -1786,6 +1812,11 @@ CVMJITirFlushOutBoundLocals(CVMJITCompilationContext* con,
 	    /* Flush the local if not already flushed: */
 	    if ((value != NULL) && (value != mc->physLocals[localNo])) {
 		count++;
+#ifdef CVM_DEBUG_ASSERTS
+		if (CVMJITirnodeIsDoubleWordType(value)) { 
+		    CVMassert(mc->locals[localNo + 1] == NULL);
+		}
+#endif
 	    }
 	}
     }
@@ -1803,12 +1834,15 @@ CVMJITirFlushOutBoundLocals(CVMJITCompilationContext* con,
 		    mcStoreValueToLocal(con, curbk, localNo,
 					CVMJITgetTypeTag(value), mc, CVM_TRUE);
 		} else {
+#ifndef CVM_DEBUG_ASSERTS
 		    /* leave a couple of assigns for later */
 		    return;
+#endif
 		}
 	    }
 	}
     }
+    CVMassert(count == 0);
 }
 
 /* 
@@ -2777,7 +2811,7 @@ doStaticFieldRef(CVMJITCompilationContext* con,
     CVMJITIRNode*   staticRefNode;
     CVMJITIRNode*   fieldAddressNode;
     CVMUint8        typeTag;
-    CVMFieldTypeID  fid;
+    CVMFieldTypeID  fid = CVM_TYPEID_ERROR;
     CVMJITIRNode*   valueNode = NULL;
     CVMBool         isVolatile;
 
@@ -2929,6 +2963,68 @@ doStaticFieldRef(CVMJITCompilationContext* con,
     }
 }
 
+/*
+ * Load the Class object from the CB.  Resolve the constant pool
+ * entry first if necessary.
+ */
+static void
+doJavaInstanceRead(CVMJITCompilationContext* con, 
+		   CVMJITIRBlock*   curbk,
+		   CVMConstantPool* cp,
+		   CVMUint16        cpIndex,
+		   CVMClassBlock*   currCb)
+{
+    CVMExecEnv *ee = con->ee;
+    CVMJITIRNode *javaInstanceRefNode;
+
+    if (CVMcpCheckResolvedAndGetTID(ee, currCb, cp, cpIndex, NULL)) {
+	/*
+	   CB is resolved.  Load the value of CVMcbJavaInstance(cb),
+	   which is at a fixed address.
+        */
+	CVMClassBlock *cpCb = CVMcpGetCb(cp, cpIndex);
+	/* FETCHADDR(STATICADDR(CVMcbJavaInstance(cb))) */
+	javaInstanceRefNode =
+	    CVMJITirnodeNewConstantStaticFieldAddress(con,
+		(CVMAddr)CVMcbJavaInstance(cpCb));
+    } else {
+	/*
+	   CB is not resolved.  Resolve it, then fetch
+	   CVMcbJavaInstance(cb) using a FIELD_REF expression.
+        */
+	CVMJITIRNode *cbNode = CVMJITirnodeNewResolveNode(
+	    con, cpIndex, curbk, 0, CVMJIT_CONST_CB_UNRESOLVED);
+	CVMJITIRNode *fieldOffsetNode =
+	    CVMJITirnodeNewConstantJavaNumeric32(con,
+		OFFSET_CVMClassBlock_javaInstanceX,
+		CVM_TYPEID_INT);
+	/* FETCHADDR(FIELDADDR(cb, javaInstanceX)) */
+	javaInstanceRefNode = CVMJITirnodeNewUnaryOp(con,
+	    CVMJIT_ENCODE_FETCH(CVMJIT_TYPEID_ADDRESS),
+	    CVMJITirnodeNewBinaryOp(con,
+		CVMJIT_ENCODE_FIELD_REF(CVMJIT_TYPEID_ADDRESS), 
+		cbNode, fieldOffsetNode));
+    }
+    {
+	/*
+	   We have the cb->javaInstanceX value now, which
+	   points to an ICell.  Fetch the object from the
+	   ICell.
+	 */
+
+	/* fetchNode: FETCHOBJ(STATICOBJ(javaInstanceRefNode)) */
+	CVMJITIRNode *fetchNode = CVMJITirnodeNewUnaryOp(con,
+	    CVMJIT_ENCODE_FETCH(CVM_TYPEID_OBJ),
+	    CVMJITirnodeNewUnaryOp(con,
+		CVMJIT_ENCODE_STATIC_FIELD_REF(CVM_TYPEID_OBJ),
+		javaInstanceRefNode));
+
+	/* We could even treat this like a getfield and cache it. */
+
+	CVMJITirnodeStackPush(con, fetchNode);
+    }
+}
+
 static CVMBool
 crossesProtectionDomains(CVMJITCompilationContext* con,
                          CVMMethodBlock* callerMb,
@@ -2987,6 +3083,13 @@ isInlinable(CVMJITCompilationContext* con, CVMMethodBlock* targetMb)
     CVMBool iamserver = (CVMglobals.isServer && CVMglobals.clientId <= 0);
 #endif
 
+#ifdef CVM_JVMTI
+    /* reject obsolete methods to make life easier */
+    if (CVMjvmtiMbIsObsolete(targetMb)) {
+	return InlineNotInlinable; 
+    }
+#endif
+
     /*
      * If the caller of this method has the CVMJIT_NEEDS_TO_INLINE flag set,
      * then don't let any of the imposed limits, like
@@ -3006,7 +3109,7 @@ isInlinable(CVMJITCompilationContext* con, CVMMethodBlock* targetMb)
 		(float)jgs->maxAllowedInliningDepth;
 	}
 	maxInliningCodeLength = jgs->maxInliningCodeLength -
-	    jgs->maxInliningCodeLength * inlineDepthRatio;
+	    (int)(jgs->maxInliningCodeLength * inlineDepthRatio);
 	/* always allow at least jgs->minInliningCodeLength */
 	if (maxInliningCodeLength < jgs->minInliningCodeLength) {
 	    maxInliningCodeLength = jgs->minInliningCodeLength;
@@ -3170,7 +3273,19 @@ always_inline_short_methods:
     }
 
     cb = CVMmbClassBlock(targetMb);
-    cp = CVMcbConstantPool(cb);
+#ifdef CVM_JVMTI
+    if (CVMjvmtiMbIsObsolete(targetMb)) {
+	cp = CVMjvmtiMbConstantPool(targetMb);
+	if (cp == NULL) {
+	    cp = CVMcbConstantPool(cb);
+	}	
+    } else {
+#else
+    {
+#endif
+
+	cp = CVMcbConstantPool(cb);
+    }
 
     /* Reject exception methods. They are mostly a waste of time */
     if (CVMisSubclassOf(con->ee, cb, CVMsystemClass(java_lang_Throwable))) {
@@ -3787,11 +3902,13 @@ doInvokeKnownMB(CVMJITCompilationContext* con,
         }
 
 #ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
-	con->numCallees++;
-	CVMtraceJITPatchedInvokes((
-            "PMI: callee(%d) allocated 0x%x %C.%M\n",
-	    con->numCallees,
-	    targetMb, CVMmbClassBlock(targetMb), targetMb));
+        if (CVMglobals.jit.pmiEnabled) {
+            con->numCallees++;
+            CVMtraceJITPatchedInvokes((
+                "PMI: callee(%d) allocated 0x%x %C.%M\n",
+                con->numCallees,
+                targetMb, CVMmbClassBlock(targetMb), targetMb));
+        }
 #endif
 	invokeMethod(con, curbk, rtnType, plist, argSize, isVirtual, mbNode);
 	return CVM_FALSE; /* Invoked */
@@ -3821,6 +3938,7 @@ doInvokeVirtualOrInterface(CVMJITCompilationContext* con,
     CVMMethodBlock* newCandidateMb = candidateMb;
     CVMJITIRNode* mbNode;
     CVMJITIRNode* methodSpecNode;
+
     CVMBool inlinable = CVM_FALSE;
     Inlinability  canInline = InlineNotInlinable; /* init to please compiler */
 #ifdef CVMJIT_INTRINSICS
@@ -3907,27 +4025,29 @@ doInvokeVirtualOrInterface(CVMJITCompilationContext* con,
 	CVMJITMethodContext* mc = con->mc;
 
 #ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
-	/* if the method is virtual... */
-        if (isInvokeVirtual &&
-	    /* ...and it has not been overridden */
-	    (CVMmbCompileFlags(prototypeMb) & CVMJIT_IS_OVERRIDDEN) == 0 &&
-	    /* ...and it is not abstract */
-            !CVMmbIs(prototypeMb, ABSTRACT) &&
-	    /* ...and it is not inlinable */
-	    (!CVMJITinlines(NONVIRTUAL) ||
-	     (CVMmbIs(prototypeMb, SYNCHRONIZED) &&
-	      !CVMJITinlines(NONVIRTUAL_SYNC)) ||
-	     isInlinable(con, prototypeMb) == InlineNotInlinable))
-	{
-	    /* ...then this translates to a known MB invocation in the back
-	       end. There we will add this method to the patch table in
-	       case it later gets overridden and we need patch the invoke to
-	       do a true virtual invocation. */
-	    CVMBool invokeResult = doInvokeKnownMB(
-		 con, curbk, prototypeMb, CVM_TRUE, CVM_TRUE, CVM_FALSE); 
-	    CVMassert(!invokeResult); /* Shouldn't be inlined! */
-	    return invokeResult;
-	}
+        if (CVMglobals.jit.pmiEnabled) {
+            /* if the method is virtual... */
+            if (isInvokeVirtual &&
+                /* ...and it has not been overridden */
+                (CVMmbCompileFlags(prototypeMb) & CVMJIT_IS_OVERRIDDEN) == 0 &&
+                /* ...and it is not abstract */
+                !CVMmbIs(prototypeMb, ABSTRACT) &&
+                /* ...and it is not inlinable */
+                (!CVMJITinlines(NONVIRTUAL) ||
+                 (CVMmbIs(prototypeMb, SYNCHRONIZED) &&
+                  !CVMJITinlines(NONVIRTUAL_SYNC)) ||
+                 isInlinable(con, prototypeMb) == InlineNotInlinable))
+            {
+                /* ...then this translates to a known MB invocation in the back
+                   end. There we will add this method to the patch table in
+                   case it later gets overridden and we need patch the invoke
+                   to do a true virtual invocation. */
+                CVMBool invokeResult = doInvokeKnownMB(
+                     con, curbk, prototypeMb, CVM_TRUE, CVM_TRUE, CVM_FALSE); 
+                CVMassert(!invokeResult); /* Shouldn't be inlined! */
+                return invokeResult;
+            }
+        }
 #endif
 
         /* Connect flow and flush all locals before possibly throwing an
@@ -4211,7 +4331,7 @@ doRet(CVMJITCompilationContext* con, CVMJITIRBlock* curbk, CVMUint16 localNo)
     /* We marked all Jsr return targets in the first pass. Now
        connect the flow and merge the local states into the successors.*/
     for (entry = (CVMJITJsrRetEntry*)con->jsrRetTargetList.head; 
-         entry != NULL; entry = entry->next) {
+         entry != NULL; entry = CVMJITjsrRetEntryGetNext(entry)) {
       if (entry->jsrTargetPC == targetPC) {
           CVMJITirblockConnectFlow(con, curbk, entry->jsrRetBk);
       }
@@ -4804,7 +4924,7 @@ translateRange(CVMJITCompilationContext* con,
 
     if (con->mc->compilationDepth == 0) {
 	if (CVMJITirblockIsExcHandler(curbk)) {
-	    if (pc == curbk->blockPC) {
+	    if (pc == CVMJITirblockGetBlockPC(curbk)) {
 		/* Force a MAP_PC node before the EXCEPTION_OBJECT node that
 		 * CVMJITirblockIsExcHandler will create. */
 		createMapPcNodeIfNeeded(con, curbk,
@@ -5412,7 +5532,27 @@ translateRange(CVMJITCompilationContext* con,
 	}
 
 	/* Branch if integer comparison with zero succeeds */
-	case opc_ifeq:
+	case opc_ifeq: {
+	    CVMBool contains;
+
+	    CVMJITsetContains(&mc->notSeq, pc, contains);
+            if (contains) {
+                /* If we get here, then we have found a NOT sequence: */
+                unaryStackOp(con, CVMJIT_NOT, CVM_TYPEID_INT,
+                             CVMJITUNOP_ARITHMETIC);
+                {
+                    CVMJITIRNode *node = CVMJITirnodeStackPop(con);
+                    node = CVMJIToptimizeUnaryIntExpression(con, node);
+                    CVMJITirnodeStackPush(con, node);
+                }
+
+                /* Treat the whole sequence as one big opcode: */
+                instrLength = CVMJITOPT_SIZE_OF_NOT_SEQUENCE;
+                break;
+            }
+            /* Else, fall thru to the case below: */
+	}
+
 	case opc_ifne:
 	case opc_iflt:
 	case opc_ifle:
@@ -6042,7 +6182,7 @@ translateRange(CVMJITCompilationContext* con,
 	   is resolved or not */
 	case opc_invokestatic: {
             CVMUint16 cpIndex = CVMgetUint16(absPc+1);
-	    CVMMethodTypeID mid;
+	    CVMMethodTypeID mid = CVM_TYPEID_ERROR;
 	    CVMJITIRNode* plist;
 	    CVMJITIRNode* targetNode;
 	    CVMUint16     argSize;
@@ -6104,7 +6244,7 @@ translateRange(CVMJITCompilationContext* con,
 
         case opc_invokespecial: {
             CVMUint16 cpIndex;
-	    CVMMethodTypeID mid;
+	    CVMMethodTypeID mid = CVM_TYPEID_ERROR;
 	    
 	    FETCH_CPINDEX_ATOMIC(cpIndex);
 
@@ -6124,8 +6264,9 @@ translateRange(CVMJITCompilationContext* con,
                 }
 #endif
                 if (CVMisSpecialSuperCall(currClass, targetMb)) {
-                    new_mb = CVMcbMethodTableSlot(CVMcbSuperclass(currClass),
-                                CVMmbMethodTableIndex(targetMb));
+		    CVMMethodTypeID methodID = CVMmbNameAndTypeID(targetMb);
+		    /* Find matching declared method in a super class. */
+		    new_mb = CVMlookupSpecialSuperMethod(ee, currClass, methodID);
                 }
 		CVMassert(fallThru);
 		mc->startPC = absPc;
@@ -6139,7 +6280,7 @@ translateRange(CVMJITCompilationContext* con,
 		    }
                 } else {
                     if (doInvokeSuper(con, curbk,
-                                      CVMmbMethodTableIndex(targetMb)))
+                                      CVMmbMethodTableIndex(new_mb)))
 		    {
 			/* Did inlining. Time to execute out of new context */
 			mc->startPC += instrLength;
@@ -6214,7 +6355,11 @@ translateRange(CVMJITCompilationContext* con,
 
 
  	/* invoke a virtual method */
-#ifndef CVM_NO_LOSSY_OPCODES
+	/* Used to be #ifndef CVM_NO_LOSSY_OPCODES which means we have
+	 * lossy opcodes.  However, quicken.c will not generate these if
+	 * a JVMTI agent is connected (CVMjvmtiEnabled() == true)
+	 * OR if CVM_JIT is defined
+	 */
 #ifndef CVM_JIT
         /* These quickened bytecodes are unused for JIT builds because they
            prevent virtual inlining.  This code is left here for reference
@@ -6263,7 +6408,6 @@ translateRange(CVMJITCompilationContext* con,
             break;
 	}
 #endif /* CVM_JIT */
-#endif /* CVM_NO_LOSSY_OPCODES */
 
 	/*
 	 * Constant pool entry is resolved or resolvable at compile-time.
@@ -6289,7 +6433,7 @@ translateRange(CVMJITCompilationContext* con,
         doInvokeVirtualOrInterfaceIR:
 	{
             CVMUint16 cpIndex;
-	    CVMMethodTypeID mid;
+	    CVMMethodTypeID mid = CVM_TYPEID_ERROR;
 	    CVMUint16 argSize;
 	    CVMUint8 rtnType;
 	    CVMJITIRNode* targetNode;
@@ -6633,20 +6777,40 @@ translateRange(CVMJITCompilationContext* con,
 
         case opc_ldc: {
             CVMUint8 cpIndex = absPc[1];
-	    if (CVMcpTypeIs(cp, cpIndex, StringICell)) {
+	    switch (CVMcpEntryType(cp, cpIndex)) {
+	    case CVM_CONSTANT_StringICell:
 		pushConstantStringICell(con, CVMcpGetStringICell(cp, cpIndex));
-	    } else {
+		break;
+	    case CVM_CONSTANT_Integer:
+	    case CVM_CONSTANT_Float:
 		pushConstant32(con, CVMcpGetVal32(cp, cpIndex).i);
+		break;
+	    case CVM_CONSTANT_ClassTypeID:
+	    case CVM_CONSTANT_ClassBlock:
+		doJavaInstanceRead(con, curbk, cp, cpIndex, cb);
+		break;
+	    default:
+		CVMJITerror(con, CANNOT_COMPILE, "unknown ldc operand");
 	    }
 	    break;
 	}
 
         case opc_ldc_w: {
             CVMUint16 cpIndex = CVMgetUint16(absPc+1);
-	    if (CVMcpTypeIs(cp, cpIndex, StringICell)) {
+	    switch (CVMcpEntryType(cp, cpIndex)) {
+	    case CVM_CONSTANT_StringICell:
 		pushConstantStringICell(con, CVMcpGetStringICell(cp, cpIndex));
-	    } else {
+		break;
+	    case CVM_CONSTANT_Integer:
+	    case CVM_CONSTANT_Float:
 		pushConstant32(con, CVMcpGetVal32(cp, cpIndex).i);
+		break;
+	    case CVM_CONSTANT_ClassTypeID:
+	    case CVM_CONSTANT_ClassBlock:
+		doJavaInstanceRead(con, curbk, cp, cpIndex, cb);
+		break;
+	    default:
+		CVMJITerror(con, CANNOT_COMPILE, "unknown ldc operand");
 	    }
 	    break;
 	}
@@ -6703,15 +6867,22 @@ translateRange(CVMJITCompilationContext* con,
 	 * all lossy and are not needed when in losslessmode.
 	 */
 
-#ifndef CVM_NO_LOSSY_OPCODES
 
-	/* Lossy mode: 
+	/* Used to be Lossy mode: We now rely on quicken.c to 
+         * do the right thing based on runtime decisions.
+         * Romized code has quickened opcode hence the check for 
+         * !CVMcbIsInROM().
 	 * Quickened opcodes from opc_getfield and opc_getfield.
 	 * field index is embedded in the instruction.
 	 */
 
 	case opc_agetfield_quick: {
 	    CVMUint32 fieldOffset = absPc[1];
+#ifdef CVM_JVMTI
+            if (CVMjvmtiIsEnabled() && !CVMcbIsInROM(cb)) {
+                goto unimplemented_opcode;
+            }
+#endif
             doInstanceFieldRead(con, curbk, pc, NULL, fieldOffset,
 				CVM_TYPEID_OBJ, CVM_FALSE);
 	    break;
@@ -6719,6 +6890,11 @@ translateRange(CVMJITCompilationContext* con,
 
         case opc_getfield_quick: {
 	    CVMUint32 fieldOffset = absPc[1];
+#ifdef CVM_JVMTI
+            if (CVMjvmtiIsEnabled() && !CVMcbIsInROM(cb)) {
+                goto unimplemented_opcode;
+            }
+#endif
             doInstanceFieldRead(con, curbk, pc, NULL, fieldOffset,
 				CVMJIT_TYPEID_32BITS, CVM_FALSE);
 	    break;
@@ -6727,6 +6903,11 @@ translateRange(CVMJITCompilationContext* con,
 	/* Quickened from getfield if CVMfbIsDoubleWord(fb) */ 
         case opc_getfield2_quick: {
 	    CVMUint32 fieldOffset = absPc[1];
+#ifdef CVM_JVMTI
+            if (CVMjvmtiIsEnabled() && !CVMcbIsInROM(cb)) {
+                goto unimplemented_opcode;
+            }
+#endif
 	    doInstanceFieldRead(con, curbk, pc, NULL, fieldOffset,
 				CVMJIT_TYPEID_64BITS, CVM_FALSE);
 	    break;
@@ -6735,6 +6916,11 @@ translateRange(CVMJITCompilationContext* con,
 	/* Quickened from putfield if CVMfbIsRef(fb) */ 
 	case opc_aputfield_quick: {
 	    CVMUint32 fieldOffset = absPc[1];
+#ifdef CVM_JVMTI
+            if (CVMjvmtiIsEnabled() && !CVMcbIsInROM(cb)) {
+                goto unimplemented_opcode;
+            }
+#endif
             doInstanceFieldWrite(con, curbk, pc, NULL, fieldOffset,
 				 CVM_TYPEID_OBJ, CVM_FALSE);
 	    break;
@@ -6744,6 +6930,11 @@ translateRange(CVMJITCompilationContext* con,
 	   !CVMfbIsRef(fb) resolved 32-bit field reference */
         case opc_putfield_quick: {
 	    CVMUint32 fieldOffset = absPc[1];
+#ifdef CVM_JVMTI
+            if (CVMjvmtiIsEnabled() && !CVMcbIsInROM(cb)) {
+                goto unimplemented_opcode;
+            }
+#endif
             doInstanceFieldWrite(con, curbk, pc, NULL, fieldOffset,
 				 CVMJIT_TYPEID_32BITS, CVM_FALSE);
 	    break;
@@ -6752,12 +6943,16 @@ translateRange(CVMJITCompilationContext* con,
 	/* Quickened from getfield if CVMfbIsDoubleWord(fb) */ 
         case opc_putfield2_quick: {
 	    CVMUint32 fieldOffset = absPc[1];
+#ifdef CVM_JVMTI
+            if (CVMjvmtiIsEnabled() && !CVMcbIsInROM(cb)) {
+                goto unimplemented_opcode;
+            }
+#endif
             doInstanceFieldWrite(con, curbk, pc, NULL, fieldOffset,
 				 CVMJIT_TYPEID_64BITS, CVM_FALSE);
 	    break;
         }
 
-#endif /* !CVM_NO_LOSSY_OPCODES */
 
         case opc_putfield_quick_w:
         case opc_getfield_quick_w: {
@@ -6782,7 +6977,7 @@ translateRange(CVMJITCompilationContext* con,
 	    CVMJITIRNode*  constNode;
 	    CVMUint16      fieldOffset;
 	    CVMUint16      cpIndex;
-	    CVMFieldTypeID fid;
+	    CVMFieldTypeID fid = CVM_TYPEID_ERROR;
 	    CVMBool        isVolatile;
             CVMUint8       typeTag;
 
@@ -6955,21 +7150,16 @@ translateRange(CVMJITCompilationContext* con,
 	}
 #endif
 
-#ifdef CVM_NO_LOSSY_OPCODES
-        case opc_getfield_quick:
-        case opc_putfield_quick:
-        case opc_getfield2_quick:
-        case opc_putfield2_quick:
-	case opc_agetfield_quick:
-	case opc_aputfield_quick:
-#endif
 #ifndef CVM_INLINING
 	case opc_invokeignored_quick:
 #endif
         case opc_xxxunusedxxx:
 	case opc_exittransition: 
+#ifdef CVM_JVMTI
+ unimplemented_opcode:
+#endif
         default:
-	    CVMdebugPrintf(("\t*** Unimplemented opcode: %d = %s\n",
+	    CVMdebugPrintf(("\t*** jitir: Unimplemented opcode: %d = %s\n",
 		   opcode, CVMopnames[opcode]));
 	    CVMassert(CVM_FALSE);
 	    break;
@@ -7171,7 +7361,7 @@ dumpIncomingLocals(CVMJITIRBlock* bk, const char * prefix)
     if (bk->incomingLocalsCount > 0) {
 	int i;
 	CVMconsolePrintf("%s bkID(%d) Incoming Locals(%d 0x%x): ", prefix,
-			 bk->blockID,
+                         CVMJITirblockGetBlockID(bk),
 			 bk->incomingLocalsCount,
 			 bk->orderedIncomingLocals);
 	for (i = 0; i < bk->incomingLocalsCount; i++) {
@@ -7222,7 +7412,7 @@ mergeIncomingLocalsFromSuccessorBlocks(CVMJITCompilationContext* con,
 
 	/* If no successor blocks, then nothing to merge */
 	if (bk->successorBlocksCount == 0) {
-	    bk = bk->prev;
+	    bk = CVMJITirblockGetPrev(bk);
 	    continue;
 	}
 
@@ -7236,7 +7426,7 @@ mergeIncomingLocalsFromSuccessorBlocks(CVMJITCompilationContext* con,
 
 	/* Don't merge anything if we have incoming phis. */
 	if (bk->phiCount > 0) {
-	    bk = bk->prev;
+	    bk = CVMJITirblockGetPrev(bk);
 	    continue;
 	}
 
@@ -7340,7 +7530,7 @@ mergeIncomingLocalsFromSuccessorBlocks(CVMJITCompilationContext* con,
 	}
 
 	CVMtraceJITRegLocalsExec(dumpIncomingLocals(bk, "o1  "));
-	bk = bk->prev;
+	bk = CVMJITirblockGetPrev(bk);
     }
 
     return;
@@ -7392,7 +7582,7 @@ orderLocal(CVMJITIRBlock* srcBk, CVMJITIRBlock* dstBk, int srcIdx)
 	return; /* not found */
     }
     CVMtraceJITRegLocals(("dstBk(%d) local(%d %d) found in slot(%d)\n",
-			  dstBk->blockID, srcIdx,
+                          CVMJITirblockGetBlockID(dstBk), srcIdx,
 			  getLocalNo(localNode), dstIdx));
 
     /* if local is in same slot in both blocks, then we are done */
@@ -7475,7 +7665,7 @@ orderIncomingLocalsForBlocks(CVMJITCompilationContext* con,
 	    }
 	    bkLocalNo = getLocalNo(bk->incomingLocals[bkLocalIdx]);
 	    CVMtraceJITRegLocals(("bkID(%d) local(%d #%d) ",
-				  bk->blockID, bkLocalIdx, bkLocalNo));
+                CVMJITirblockGetBlockID(bk), bkLocalIdx, bkLocalNo));
 
 	    /* if local not in current goalBk, then skip */
 	    goalBkLocalIdx = CVMJITirblockFindIncomingLocal(goalBk, bkLocalNo);
@@ -7487,7 +7677,7 @@ orderIncomingLocalsForBlocks(CVMJITCompilationContext* con,
 	    if (localAlreadyOrdered(goalBk, goalBkLocalIdx)) {
 		/* Already ordered in goalBk, so force that order on bk. */
 		CVMtraceJITRegLocals((" ordered in goalBk(%d)\n",
-				      goalBk->blockID));
+                                      CVMJITirblockGetBlockID(goalBk)));
 		CVMtraceJITRegLocalsExec(dumpIncomingLocals(bk, "-bk "));
 		orderLocal(goalBk, bk, goalBkLocalIdx);
 		CVMtraceJITRegLocalsExec(dumpIncomingLocals(bk, "+bk "));
@@ -7676,7 +7866,8 @@ orderIncomingLocals(CVMJITCompilationContext* con, CVMJITIRBlock* lastBlock)
 	/* Pop current block if backward branch target in goalBks */
 	if (goalBksCount > 0 && goalBks[goalBksCount-1] == bk) {
 	    goalBksCount--;
-	    CVMtraceJITRegLocals(("Popping blockID(%d)\n", bk->blockID));
+            CVMtraceJITRegLocals(("Popping blockID(%d)\n",
+                                  CVMJITirblockGetBlockID(bk)));
 	}
 
 	/* Add any successor blocks that are backward branch targets */
@@ -7688,11 +7879,12 @@ orderIncomingLocals(CVMJITCompilationContext* con, CVMJITIRBlock* lastBlock)
 		    goalBksCount--;
 		}
 		goalBks[goalBksCount++] = sbk;
-		CVMtraceJITRegLocals(("Pushing blockID(%d)\n", sbk->blockID));
+                CVMtraceJITRegLocals(("Pushing blockID(%d)\n",
+                                      CVMJITirblockGetBlockID(sbk)));
 	    }
 	}
 	
-	bk = bk->prev;
+	bk = CVMJITirblockGetPrev(bk);
     }
 
     /*
@@ -7826,7 +8018,7 @@ orderIncomingLocals(CVMJITCompilationContext* con, CVMJITIRBlock* lastBlock)
 	    /* Retry the current index since we just swapped it */
 	    i--;
 	}
-	bk = bk->next;
+	bk = CVMJITirblockGetNext(bk);
     }
 }
 
@@ -7991,8 +8183,8 @@ secondPass(CVMJITCompilationContext* con)
     if (CVMglobals.jit.registerLocals) {
 	CVMJITIRBlock *lastBlock =
 	    (CVMJITIRBlock*)CVMJITirlistGetHead(&con->bkList);
-	while (lastBlock->next != NULL) {
-	    lastBlock = lastBlock->next;
+	while (CVMJITirblockGetNext(lastBlock) != NULL) {
+	    lastBlock = CVMJITirblockGetNext(lastBlock);
 	}
 	/*
 	 * Merge incoming locals from each block's successor block. Doing this
@@ -8151,7 +8343,7 @@ blockCodeChangesLocalInfo(CVMJITCompilationContext* con,
 	     */
 	    nFound = 0;
 	    for (entry = (CVMJITJsrRetEntry*)con->jsrRetTargetList.head; 
-		 entry != NULL; entry = entry->next) {
+		 entry != NULL; entry = CVMJITjsrRetEntryGetNext(entry)) {
 		if (entry->jsrTargetPC == targetPC) {
 		    nFound += 1;
 		    if (CVMJITirblockMergeLocalRefs(con, entry->jsrRetBk)) {
@@ -8261,7 +8453,17 @@ pushMethodContext(CVMJITCompilationContext* con,
     mc->mb   = mb;
     mc->jmd  = CVMmbJmd(mb);
     mc->cb   = CVMmbClassBlock(mb);
-    mc->cp   = CVMcbConstantPool(mc->cb);
+#ifdef CVM_JVMTI
+    if (CVMjvmtiMbIsObsolete(mb)) {
+	mc->cp = CVMjvmtiMbConstantPool(mb);
+	if (mc->cp == NULL) {
+	    mc->cp = CVMcbConstantPool(mc->cb);
+	}	
+    } else
+#endif
+    {
+	mc->cp   = CVMcbConstantPool(mc->cb);
+    }
     mc->code = CVMjmdCode(mc->jmd);
     mc->codeEnd = mc->code + CVMjmdCodeLength(mc->jmd);
     mc->retBlock = NULL;
@@ -8364,6 +8566,7 @@ pushMethodContext(CVMJITCompilationContext* con,
     CVMJITsetInit(con, &mc->labelsSet); /* create label set */
     CVMJITsetInit(con, &mc->gcPointsSet); /* create GC points set */
     CVMJITsetInit(con, &mc->mapPcSet); /* create map pc set */
+    CVMJITsetInit(con, &mc->notSeq);
     mc->removeNullChecksOfLocal_0 = !CVMmbIs(mb, STATIC);
 
     /* First pass to traverse the bytecodes instructions in method block */

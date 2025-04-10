@@ -1,7 +1,7 @@
 /*
  * @(#)WinCAPISeedGenerator.c	1.6 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -67,9 +67,21 @@ JNIEXPORT jboolean JNICALL Java_sun_security_provider_NativeSeedGenerator_native
 	return result;
     }
 
-    acquireContext = (CryptAcquireContextType)GetProcAddress(lib, "CryptAcquireContextA");
-    genRandom = (CryptGenRandomType)GetProcAddress(lib, "CryptGenRandom");
-    releaseContext = (CryptReleaseContextType)GetProcAddress(lib, "CryptReleaseContext");
+#ifdef UNDER_CE
+    acquireContext = (CryptAcquireContextType)
+	GetProcAddress(lib, TEXT("CryptAcquireContextA"));
+    genRandom = (CryptGenRandomType)
+	GetProcAddress(lib, TEXT("CryptGenRandom"));
+    releaseContext = (CryptReleaseContextType)
+	GetProcAddress(lib, TEXT("CryptReleaseContext"));
+#else
+    acquireContext = (CryptAcquireContextType)
+	GetProcAddress(lib, "CryptAcquireContextA");
+    genRandom = (CryptGenRandomType)
+	GetProcAddress(lib, "CryptGenRandom");
+    releaseContext = (CryptReleaseContextType)
+	GetProcAddress(lib, "CryptReleaseContext");
+#endif
 
     if (acquireContext == NULL || genRandom == NULL || releaseContext == NULL) {
 	FreeLibrary(lib);

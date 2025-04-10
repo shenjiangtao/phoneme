@@ -1,7 +1,7 @@
 /*
  * @(#)jvmdi.c	1.140 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -45,7 +45,7 @@
 #include "javavm/include/bag.h"
 #include "javavm/include/common_exceptions.h"
 #include "javavm/include/named_sys_monitor.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #include "generated/offsets/java_lang_Thread.h"
 #include "generated/jni/java_lang_reflect_Modifier.h"
 #include "javavm/export/jvm.h"
@@ -410,7 +410,7 @@ reportException(CVMExecEnv* ee, CVMUint8 *pc,
 
     /* walk up the stack to see if this exception is caught anywhere. */
 
-    CVMframeIterate(frame, &iter);
+    CVMframeIterateInit(&iter, frame);
 
     while (CVMframeIterateNextSpecial(&iter, CVM_FALSE)) {
 	/* %comment: k004 */

@@ -1,7 +1,7 @@
 /*
  * @(#)PPCFontPeer.cpp	1.13 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -509,7 +509,7 @@ SIZE AwtFont::StringWidth(AwtFont* font, char* str)
 	    len=255;
 	}
 	//ASCII2UNICODE
-	MultiByteToWideChar(CP_ACP, 0, str, -1, wStr, len);
+	MultiByteToWideChar(CP_ACP, 0, str, -1, (LPWSTR)wStr, len);
 
 	VERIFY(::GetTextExtentPoint32(hDC, (LPWSTR)wStr, len, &size));
     }

@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -28,20 +28,14 @@ CVM_TARGETCLASSES_SRCDIR += \
 	$(CVM_TOP)/src/portlibs/unix/classes
 
 CVM_BUILDTIME_CLASSES += \
-   sun.misc.FileURLMapper
+	sun.misc.FileURLMapper
 
-ifeq ($(CVM_MTASK), true)
-CVM_BUILDTIME_CLASSES += \
-   java.io.SymbianFileSystem
-endif
+CVM_BUILDTIME_CLASSES_nullapp += \
+	java.io.SymbianFileSystem
 
 #
 # CDC library platform classes
 #
-ifneq ($(CVM_MTASK), true)
-CLASSLIB_CLASSES += \
-        java.io.SymbianFileSystem
-endif
 
 CLASSLIB_CLASSES += \
         java.lang.SymbianProcess

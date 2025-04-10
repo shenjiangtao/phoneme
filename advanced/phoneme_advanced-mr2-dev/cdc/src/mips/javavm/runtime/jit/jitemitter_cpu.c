@@ -1,7 +1,7 @@
 /*
  * @(#)jitemitter_cpu.c	1.66 06/10/13
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -46,6 +46,7 @@
 #include "portlibs/jit/risc/include/export/jitregman.h"
 #include "javavm/include/jit/jitconstantpool.h"
 #include "javavm/include/jit/jitcodebuffer.h"
+#include "javavm/include/jit/jitintrinsic.h"
 #include "javavm/include/jit/jitpcmap.h"
 #include "javavm/include/jit/jitfixup.h"
 #include "javavm/include/porting/endianness.h"
@@ -1053,6 +1054,14 @@ CVMCPUemitAbsoluteCall(CVMJITCompilationContext* con,
 		       CVMBool okToBranchAroundCpDump)
 {
 #ifdef CVM_JIT_COPY_CCMCODE_TO_CODECACHE
+    /*
+     * Need to use fixed AOT codecache if 
+     * CVM_JIT_COPY_CCMCODE_TO_CODECACHE is enabled,
+     * because the 'jal' instruction is not PC-relative.
+     */
+#if defined(CVM_AOT) && !defined(CVMAOT_USE_FIXED_ADDRESS)
+#error Need to use fixed AOT codecache if CVM_JIT_COPY_CCMCODE_TO_CODECACHE is enabled.
+#endif
     CVMBool useJAL = CVM_TRUE;
     if (!okToDumpCp) {
 	/*
@@ -1342,15 +1351,38 @@ void
 CVMCPUpatchBranchInstruction(int offset, CVMUint8* instrAddr)
 {
     CVMCPUInstruction branch;
-    /* NOTE: This code isn't working yet. Extra work needs to be done
-       to support patched method invocations for MIPS since it is possible
-       that the new target address will not reachable with a jal.
+    CVMUint32 sourcePC = (CVMUint32)instrAddr;
+    CVMUint32 targetPC = sourcePC + offset;
+    const CVMInt32 regionMask = 0xf0000000;
+
+    CVMassert(CVMglobals.jit.pmiEnabled);
+
+    /* We should never run into a case where instrAddr and instrAddr+offset
+       are not located in the same 256mb region, since PMI is disabled
+       if the code cache does not fit entirely in one 256mb region,
+       or if we are not copying ccmglue to the start of the codecache.
     */
-    CVMassert(CVM_FALSE); /* this code is not supported yet */
-    /* There better already be an unconditional jal at this address */
-    CVMassert((*(CVMUint32*)instrAddr & ~0x03ffffff) == MIPS_JAL_OPCODE);
-    branch = CVMPPCgetBranchInstruction(CVMCPU_COND_AL, offset) |
-	PPC_BRANCH_LINK_BIT;
+    CVMassert((sourcePC & regionMask) == (targetPC & regionMask));
+
+    /* There better already be an unconditional jal or bal at this address */
+    CVMassert((*(CVMUint32*)instrAddr & ~0x03ffffff) == MIPS_JAL_OPCODE ||
+              (*(CVMUint32*)instrAddr & ~0x0000ffff) == 
+              ((0x1 << 26) | MIPS_BGEZAL_OPCODE));
+
+    /* Patch with a bal (bgezal r0,r0) if within range. Otherwise jal. */
+    if  (offset <= CVMMIPS_MAX_BRANCH_OFFSET &&
+         offset >= CVMMIPS_MIN_BRANCH_OFFSET)
+    {
+        /* The bal instruction branches based on the offset of PC+4, so we
+           need to adjust it. Note the MIN and MAX values above assume
+           that the adjustment has not been made yet. */
+        offset -= CVMCPU_INSTRUCTION_SIZE;
+        /* patch with bal */
+        branch = (0x1 << 26) | MIPS_BGEZAL_OPCODE | ((offset >> 2) & 0xffff);
+    } else {
+        /* patch with jal */
+        branch = MIPS_JAL_OPCODE | ((targetPC & ~regionMask) >> 2);
+    }
     *((CVMCPUInstruction*)instrAddr) = branch;
 }
 
@@ -1426,7 +1458,8 @@ CVMMIPSemitBranch0(CVMJITCompilationContext* con,
         printPC(con);
 	if (srcRegID == CVMMIPS_zero && rhsRegID == CVMMIPS_zero &&
 	    (opcode == MIPS_BEQ_OPCODE || opcode == MIPS_BGEZAL_OPCODE)) {
-            CVMconsolePrintf("	b	PC=0x%8x",
+            CVMconsolePrintf("	%s	PC=0x%8x",
+                             opcode == MIPS_BEQ_OPCODE ? "b" : "bal",
 			     CVMJITcbufLogicalToPhysical(con, logicalPC));
 	} else if (opcode == MIPS_BEQ_OPCODE || opcode == MIPS_BNE_OPCODE) {
             CVMconsolePrintf("	%s	%s, %s, PC=0x%8x",
@@ -1974,6 +2007,22 @@ CVMCPUemitUnaryALU(CVMJITCompilationContext *con, int opcode,
         CVMCPUemitBinaryALURegister(con, CVMCPU_SUB_OPCODE,
                                     destRegID, CVMMIPS_zero, srcRegID,
                                     setcc);
+        break;
+    }
+    case CVMCPU_NOT_OPCODE: {
+        /* Unsigned Compare: x < 1? 1 : 0. 
+           Since only 0 is less 1, x == 0 yields a 1, and
+           all other values of x yields a 0. */
+        CVMMIPSemitSLT(con, MIPS_SLTIU_OPCODE, 
+                       destRegID, srcRegID, 0x1);
+        break;
+    }
+    case CVMCPU_INT2BIT_OPCODE: {
+        /* Unsigned Compare: 0 < x? 1 : 0. 
+           Since only 0 is less than all non-0 values, x == 0 yields a 0, and
+           all other values of x yields a 1. */
+        CVMMIPSemitSLT(con, MIPS_SLTU_OPCODE, 
+                       destRegID, CVMMIPS_zero, srcRegID);
         break;
     }
     default:
@@ -3652,7 +3701,7 @@ CVMJITfixupAddress(CVMJITCompilationContext* con,
     instruction |= offsetBits;
     *instructionPtr = instruction;
     CVMtraceJITCodegen(("--->Fixed instruction at %d(0x%x) to reference %d\n", 
-			instructionLogicalAddress, instruction,
+			instructionLogicalAddress, instructionPtr,
 			targetLogicalAddress));
 }
 
@@ -4188,3 +4237,129 @@ CVMCPUemitMoveFrom64BitRegister(CVMJITCompilationContext* con,
                                      LOREG(destRegID), CVMMIPS_t7, 0);
 }
 #endif /* CVMCPU_HAS_64BIT_REGISTERS */
+
+/**************************************************************
+ * CPU C Call convention abstraction - The following are prototypes of calling
+ * convention support functions required by the RISC emitter porting layer.
+ **************************************************************/
+
+#if CVMCPU_MAX_ARG_REGS != 8
+
+#ifdef CVMJIT_INTRINSICS
+/* Purpose: Gets the registers required by a C call.  These register could be
+            altered by the call being made. */
+extern CVMJITRegsRequiredType
+CVMMIPSCCALLgetRequired(CVMJITCompilationContext *con,
+                        CVMJITRegsRequiredType argsRequired,
+                        CVMJITIRNode *intrinsicNode,
+                        CVMJITIntrinsic *irec,
+                        CVMBool useRegArgs)
+{
+    CVMJITRegsRequiredType result = CVMCPU_AVOID_C_CALL | argsRequired;
+
+    int numberOfArgs = irec->numberOfArgs;
+
+    CVMassert(useRegArgs);
+    if (numberOfArgs != 0) {
+        int i;
+        CVMJITIRNode *iargNode = CVMJITirnodeGetLeftSubtree(intrinsicNode);
+        for (i = 0; i < numberOfArgs; i++) {
+            int regno;
+	    int	argType = CVMJITgetTypeTag(iargNode);
+	    int argWordIndex = CVMJIT_IARG_WORD_INDEX(iargNode);
+	    int argSize = CVMMIPSCCALLargSize(argType);
+
+	    if (argWordIndex + argSize <= CVMCPU_MAX_ARG_REGS) {
+	        regno = CVMCPU_ARG1_REG + argWordIndex;
+	    } else {
+	        /* IAI-22 */
+	        regno = (CVMMIPS_t0 + argWordIndex - CVMCPU_MAX_ARG_REGS);
+		/* Make sure that we are not allocating more than 8 words
+                   of args. Although we could choose to support more
+                   are registers if we wanted, it is not needed. */
+		CVMassert(regno + argSize - 1 < CVMMIPS_t4);
+	    }
+	    result |= (1U << regno);
+	    iargNode = CVMJITirnodeGetRightSubtree(iargNode);
+	}
+	CVMassert(iargNode->tag == CVMJIT_ENCODE_NULL_IARG);
+    }
+    return result;
+}
+#endif /* CVMJIT_INTRINSICS */
+
+/* Purpose: Pins an arguments to the appropriate register or store it into the
+            appropriate stack location. */
+CVMRMResource *
+CVMCPUCCALLpinArg(CVMJITCompilationContext *con,
+                  CVMCPUCallContext *callContext, CVMRMResource *arg,
+                  int argType, int argNo, int argWordIndex,
+                  CVMRMregset *outgoingRegs, CVMBool useRegArgs)
+{
+    int argSize = CVMMIPSCCALLargSize(argType);
+
+    if (useRegArgs || argWordIndex + argSize <= CVMCPU_MAX_ARG_REGS) {
+        int regno;
+        if (argWordIndex + argSize <= CVMCPU_MAX_ARG_REGS) {
+            regno = CVMCPU_ARG1_REG + argWordIndex;
+	} else {
+	    /* IAI-22 */
+	    CVMassert(useRegArgs == CVM_TRUE);
+	    regno = (CVMMIPS_t0 + argWordIndex - CVMCPU_MAX_ARG_REGS);
+            /* Make sure that we are not allocating more than 8 words
+               of args. Although we could choose to support more
+               registers if we wanted, it is not needed. */
+	    CVMassert(regno + argSize - 1 < CVMMIPS_t4);
+	}
+        arg = CVMRMpinResourceSpecific(CVMRM_INT_REGS(con), arg, regno);
+        CVMassert(regno - CVMCPU_ARG1_REG + arg->size <= CVMCPU_MAX_ARG_REGS
+                  || useRegArgs);
+        *outgoingRegs |= arg->rmask;
+    } else {
+        /* Save arguments to the C stack */
+        int stackIndex = argWordIndex * 4;
+        /* no more than 8 words of args allowed */
+        CVMassert(argWordIndex < 8);
+        CVMRMpinResource(CVMRM_INT_REGS(con), arg,
+			 CVMRM_ANY_SET, CVMRM_EMPTY_SET);
+        if (argSize == 1) {
+            CVMCPUemitMemoryReferenceImmediate(con, CVMCPU_STR32_OPCODE,
+                CVMRMgetRegisterNumber(arg), CVMCPU_SP_REG, stackIndex);
+        } else {
+	    /* Assert argument is 64-bit aligned. If this ever fails then
+	     * we need to actually do the alignment. */
+	    CVMassert(argWordIndex % 2 == 0);
+            if (argWordIndex < CVMCPU_MAX_ARG_REGS) {
+                /* Reserve the last arg because we're using it for the low
+                   word of this argument.  Since we can't pin the arg which
+                   is 64 bit to it, we have to create an artificial resource
+                   just to keep that register protected until we're done with
+                   it.  Tracking the reservedRes in the callContext will
+                   allow us to relinquish it later when we're done with it. */
+                callContext->reservedRes =
+                    CVMRMgetResourceSpecific(CVMRM_INT_REGS(con),
+					     CVMCPU_ARG4_REG, 1);
+                
+                /* We have a 64 bit arg and only one arg register left.
+                   Hence, we put the high word on the stack: */
+                CVMCPUemitMemoryReferenceImmediate(con, CVMCPU_STR32_OPCODE,
+                    CVMRMgetRegisterNumber(arg)+1, CVMCPU_SP_REG, 0);
+                
+                /* And the low word in the last arg register: */
+                CVMCPUemitMoveRegister(con, CVMCPU_MOV_OPCODE,
+                    CVMCPU_ARG4_REG, CVMRMgetRegisterNumber(arg),
+                    CVMJIT_NOSETCC);
+                
+                *outgoingRegs |= callContext->reservedRes->rmask;
+            } else {
+                CVMCPUemitMemoryReferenceImmediate(con, CVMCPU_STR64_OPCODE,
+                    CVMRMgetRegisterNumber(arg), CVMCPU_SP_REG, stackIndex);
+            }
+        }
+        CVMRMrelinquishResource(CVMRM_INT_REGS(con), arg);
+    }
+    
+    return arg;
+}
+
+#endif /* CVMCPU_MAX_ARG_REGS != 8 */

@@ -1,7 +1,7 @@
 /*
  * @(#)jdkio2cvm.h	1.9 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -25,9 +25,17 @@
  *
  */
 
+/*
+ * Don't remap when building for JAVASE, because not all SE JNI .c
+ * files will pull in this header.
+ */
+#ifndef JAVASE
+
 #define readSingle   CVMioutilReadSingle
 #define readBytes    CVMioutilReadBytes
 #define writeSingle  CVMioutilWriteSingle
 #define writeBytes   CVMioutilWriteBytes
 #define fileOpen     CVMioutilFileOpen
 #define deleteOnExit CVMioutilDeleteOnExit
+
+#endif

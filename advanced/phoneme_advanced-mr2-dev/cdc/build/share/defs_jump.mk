@@ -1,5 +1,5 @@
-#
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -23,10 +23,9 @@
 #
 
 # Is there a better, centralized location to put the ant tool location?
-CVM_ANT 	        ?= ant
 CVM_JUMP_BUILDDIR	= $(CDC_DIST_DIR)/jump
 
-ifeq ($(CVM_INCLUDE_JUMP),true)
+ifeq ($(USE_JUMP),true)
 #
 # JUMP defs
 #
@@ -35,9 +34,22 @@ export JAVA_HOME	= $(JDK_HOME)
 
 #JUMP's binary bundle pattern file name
 BINARYBUNDLE_PATTERN_FILENAME=.binary-pattern
-JUMP_ANT_OPTIONS += -Ddist.dir=$(call POSIX2HOST,$(CVM_JUMP_BUILDDIR)) 	\
+# .jar and .zip files to compile jump classes against
+JUMP_BOOTCLASSES0 = $(patsubst $(CVM_BUILD_TOP)/%,%,$(CVM_BUILDTIME_CLASSESZIP) $(LIB_CLASSESJAR) $(JSROP_JARS))
+JUMP_BOOTCLASSES = $(patsubst $(CVM_BUILD_TOP_ABS)/%,%,$(JUMP_BOOTCLASSES0))
+JUMP_ANT_OPTIONS += -Djump.boot.cp=$(subst $(space),$(comma),$(JUMP_BOOTCLASSES)) \
+		    -Ddist.dir=$(call POSIX2HOST,$(CVM_JUMP_BUILDDIR)) 	\
 		    -Dcdc.dir=$(call POSIX2HOST,$(CDC_DIST_DIR)) \
-		    -Dbinary.pattern.file=$(BINARYBUNDLE_PATTERN_FILENAME)  
+		    -Dbinary.pattern.file=$(BINARYBUNDLE_PATTERN_FILENAME)   
+
+ifeq ($(USE_MIDP), true)
+JUMP_ANT_OPTIONS         += -Dmidp_output_dir=$(subst $(CDC_DIST_DIR)/,,$(MIDP_OUTPUT_DIR))
+endif
+
+ifneq ($(JUMP_BUILD_PROPS_FILE),)
+JUMP_ANT_OPTIONS += -Duser.build.properties=$(JUMP_BUILD_PROPS_FILE) 
+endif
+
 # The default JUMP component location
 JUMP_DIR		?= $(COMPONENTS_DIR)/jump
 ifeq ($(wildcard $(JUMP_DIR)/build/build.xml),)
@@ -45,15 +57,9 @@ $(error JUMP_DIR must point to the JUMP directory: $(JUMP_DIR))
 endif
 JUMP_OUTPUT_DIR         = $(CVM_JUMP_BUILDDIR)/lib
 JUMP_SRCDIR             = $(JUMP_DIR)/src
+JUMP_SCRIPTS_DIR        = $(JUMP_DIR)/tools/scripts
 
-ifeq ($(USE_VERBOSE_MAKE), true)
-CVM_ANT_OPTIONS         += -v
-else
-CVM_ANT_OPTIONS		+= -q
-endif
-ifneq ($(CVM_DEBUG), true)
-CVM_ANT_OPTIONS         += -Ddebug=false
-endif
+JUMP_JSROP_JARS         = :$(subst $(space),$(PS),$(patsubst $(CVM_BUILD_TOP)%,\$$PHONEME_DIST%,$(JSROP_JARS)))
 
 #
 # JUMP_DEPENDENCIES defines what needs to be built for jump
@@ -125,10 +131,10 @@ BINARY_BUNDLE_PATTERNS += \
 #
 # Get any platform specific dependencies of any kind.
 #
--include ../$(TARGET_CPU_FAMILY)/defs_jump.mk
--include ../$(TARGET_OS)/defs_jump.mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)/defs_jump.mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_jump.mk
+-include $(CDC_CPU_COMPONENT_DIR)/build/$(TARGET_CPU_FAMILY)/defs_jump.mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs_jump.mk
+-include $(CDC_OSCPU_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)/defs_jump.mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_jump.mk
 
 #
 # Finally modify CVM variables w/ all the JUMP items

@@ -1,7 +1,7 @@
 /*
  * @(#)ExceptionsAttribute.java	1.14 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -88,21 +88,12 @@ class ExceptionsAttribute extends Attribute
 	return 2 + 2*n;
     }
 
-
-    public static Attribute
-    readAttribute( DataInput i, ConstantObject locals[], ConstantObject constants[] ) throws IOException{
-	UnicodeConstant name;
-
-	name = (UnicodeConstant)constants[i.readUnsignedShort()];
-	return finishReadAttribute( i, name, locals );
-    }
-
     //
-    // for those cases where we alread read the name index
+    // for those cases where we already read the name index
     // and know that its not something requiring special handling.
     //
     public static Attribute
-    finishReadAttribute( DataInput in, UnicodeConstant name, ConstantObject t[] ) throws IOException {
+    finishReadAttribute( DataInput in, UnicodeConstant name, ConstantPool cp ) throws IOException {
 	int l;
 	int n;
 	ClassConstant d[];
@@ -110,6 +101,7 @@ class ExceptionsAttribute extends Attribute
 	l  = in.readInt();
 	n  = in.readUnsignedShort();
 	d = new ClassConstant[ n ];
+	ConstantObject[] t = cp.getConstants();
 	for ( int i = 0; i < n; i++ ){
 	    int index = in.readUnsignedShort();
 	    d[i] = (ClassConstant)t[ index ];

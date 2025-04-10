@@ -1,7 +1,7 @@
 /*
  * @(#)ClassInfo.java	1.48 06/10/22
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -40,7 +40,7 @@ import java.util.Hashtable;
 import java.util.Set;
 import java.util.Vector;
 
-/*
+/**
  * ClassInfo is the root of all information about the class
  * which comes out of the .class file, including its methods,
  * fields, interfaces, superclass, and any other attributes we
@@ -54,6 +54,9 @@ import java.util.Vector;
 public
 class ClassInfo
 {
+    public int                  majorVersion;
+    public int                  minorVersion;
+	
     public String		className;
     public int			access;
     public ClassConstant	thisClass;
@@ -63,7 +66,10 @@ class ClassInfo
     // Tables for all fields, methods and constants of this class
     public FieldInfo		fields[];
     public MethodInfo		methods[];
-    public ConstantObject	constants[];
+    private static ConstantPool	nullCP =
+	new ConstantPool(new ConstantObject[0]);
+    private int                 sharedCPIdx = -1;
+    private ConstantPool	cp = nullCP;
     private ConstantObject	oldConstants[];
     public ClassConstant	interfaces[];
 
@@ -89,6 +95,9 @@ class ClassInfo
     // Innerclass attribute accessed.
     public InnerClassAttribute	innerClassAttr;
 
+    // Class generics signature info:
+    public SignatureAttribute   signatureAttr;
+
     public ClassLoader		loader;
 
     public vm.ClassClass	vmClass; // used by in-core output writers
@@ -111,12 +120,17 @@ class ClassInfo
     private final char		SIGC_PACKAGE = util.ClassFileConst.SIGC_PACKAGE;
 
     public ClassInfo( boolean v ) {
+        Assert.assertClassloadingIsAllowed();
 	verbose = v;
 	flags = INCLUDE_ALL; // by default, we want all members.
 	// what else should be here?
     }
 
     private String genericNativeName;
+
+    public void setSharedCPIdx(int i) {
+        sharedCPIdx = i;
+    }
 
     public final String getGenericNativeName() { 
         if (genericNativeName == null) 
@@ -130,12 +144,12 @@ class ClassInfo
     
     // Is this class a subclass of java.lang.ref.Reference?
     public boolean isReference() {
-	ClassInfo c = this;
-	while ( c != null ){
-	    if ( c.className.equals("java/lang/ref/Reference")) {
+	ClassInfo cinfo = this;
+	while (cinfo != null) {
+	    if (cinfo.className.equals("java/lang/ref/Reference")) {
 		return true;
 	    }
-	    c = c.superClassInfo;
+	    cinfo = cinfo.superClassInfo;
 	}
 	return false;
     }
@@ -147,8 +161,8 @@ class ClassInfo
 
     // Is this class the java.lang.Object class?
     public boolean isJavaLangObject() {
-	ClassInfo c = this;
-	if ((c != null) && c.className.equals("java/lang/Object")) {
+	ClassInfo cinfo = this;
+	if ((cinfo != null) && cinfo.className.equals("java/lang/Object")) {
 	    return true;
 	}
 	return false;
@@ -160,33 +174,43 @@ class ClassInfo
     }
 
 
-    // Read in the constants from a classfile
-    void readConstantPool( DataInput in ) throws IOException {
+    /**
+     * Reads in the constant pool from a classfile, and fills in the cp
+     * (i.e. constantpool) field of this classinfo instance.  The filled in
+     * constants are not yet in a resolved state.
+     */
+    private void readConstantPool(DataInput in) throws IOException {
 	int num = in.readUnsignedShort();
 
 	if(verbose){
-	    log.println(Localizer.getString("classinfo.reading_entries_in_constant_pool", Integer.toString(num)));
+	    log.println(Localizer.getString(
+                "classinfo.reading_entries_in_constant_pool",
+                Integer.toString(num)));
 	}
-	constants = new ConstantObject[num];
+	ConstantObject[] constants = new ConstantObject[num];
 	for (int i = 1; i < num; i+=constants[i].nSlots) {
-	    constants[i] = ConstantObject.readObject( in );
+	    constants[i] = ConstantObject.readObject(in);
 	    constants[i].index = i;
 	    constants[i].containingClass = this;
 	}
+	cp = new ConstantPool(constants);
     }
 
-
-    /*
-     * Contrary to expectations, to 'resolve' a constant means
-     * simply to turn index-based references to other entities such as
-     * class constants or UTF8s, into pointers.
+    /**
+     * Flatten all CP entries so that they need not indirect through the
+     * constant pool to get to the symbollic info.  For example, a class
+     * constant is defined by a CP index which point to a UTF8 string.  A
+     * flattened class constant will refer to the UTF8 string directly instead
+     * of needing to index into the constant pool to get to it.
      */
-    private void resolveConstants( ) {
-	if (verbose){
-	    log.println(Localizer.getString("classinfo.>>>resolving_constants"));
+    private void flattenConstants() {
+	if (verbose) {
+            log.println(Localizer.getString(
+                            "classinfo.>>>resolving_constants"));
 	}
+	ConstantObject constants[] = cp.getConstants();
 	for (int i = 1; i < constants.length; i+=constants[i].nSlots) {
-	    constants[i].resolve( constants );
+	    constants[i].flatten(cp);
 	}
     }
 
@@ -196,9 +220,10 @@ class ClassInfo
      * Put those String names in the undefClasses set.
      */
     public void
-    findUndefinedClasses(Set undefClasses){
+    findUndefinedClasses(Set undefClasses) {
+	ConstantObject constants[] = cp.getConstants();
 	for (int i = 1; i < constants.length; i+=constants[i].nSlots) {
-	    if (constants[i].tag == Const.CONSTANT_CLASS){
+	    if (constants[i].tag == Const.CONSTANT_CLASS) {
 		ClassConstant c = (ClassConstant) constants[i];
 		if (c.find() == null){
 		    String stringname = c.name.string;
@@ -236,15 +261,16 @@ class ClassInfo
      * We adjust each constant's index entry accordingly.
      * Naturally, we preserve the null entries.
      */
-    public void smashConstantPool(){
+    public void smashConstantPool() {
+	ConstantObject constants[] = cp.getConstants();
 	int nOld = constants.length;
 	int nNew = 1;
 	ConstantObject o;
 	// first, count and index.
-	for ( int i = 1; i < nOld; i += o.nSlots ){
+	for (int i = 1; i < nOld; i += o.nSlots) {
 	    o = constants[i];
-	    if ( ! o.shared ){
-		if ( o.references == 0 ){
+	    if (!o.shared) {
+		if (o.getReferences() == 0) {
 		    o.index = -1; // trouble.
 		} else {
 		    // we're keeping it.
@@ -256,16 +282,26 @@ class ClassInfo
 	// now reallocate and copy.
 	ConstantObject newConstants[] = new ConstantObject[ nNew ];
 	int j = 1;
-	for ( int i = 1; i < nOld; i += o.nSlots ){
+	for (int i = 1; i < nOld; i += o.nSlots) {
 	    o = constants[i];
-	    if ( (! o.shared ) && ( o.references != 0 ) ){
+	    if (!o.shared && (o.getReferences() != 0)) {
 		// we're keeping it.
 		newConstants[j] = o;
 		j += o.nSlots;
 	    }
 	}
 	oldConstants = constants;
-	constants = newConstants;
+	cp = new ConstantPool(newConstants);
+    }
+
+    public ConstantPool getConstantPool() {
+	return cp;
+    }
+
+    public void setConstantPool(Vector cps) {
+        if (sharedCPIdx != -1) {
+            cp = (ConstantPool)cps.get(sharedCPIdx);
+        }
     }
 
 
@@ -277,6 +313,7 @@ class ClassInfo
 		"classinfo.reading_interfaces_implemented", Integer.toString(count)));
 	}
 	interfaces = new ClassConstant[count];
+	ConstantObject constants[] = cp.getConstants();
 	for (int i = 0; i < count; i++) {
 	    interfaces[i] = (ClassConstant) constants[in.readUnsignedShort()];
 	}
@@ -344,6 +381,7 @@ class ClassInfo
 	    log.println(Localizer.getString("classinfo.reading_attributes", Integer.toString(count)));
 	}
 
+	ConstantObject constants[] = cp.getConstants();
 	for (int i = 0; i < count; i++) {
 	    int nameIndex = in.readUnsignedShort();
 	    int bytes = in.readInt();
@@ -367,6 +405,24 @@ class ClassInfo
 		/* this need not be done if reflection isn't supported */
 		innerClassAttr = (InnerClassAttribute)InnerClassAttribute.readAttribute(in, bytes, name, constants);
 		clssAttr.addElement(innerClassAttr);
+            /* TODO :: BEGIN experimental code for future signature support.
+            } else if (name.string.equals("Signature")) {
+		// Added to support the Signature Attribute defined in the
+		// 1.5 VM spec.
+		// this need not be done if reflection isn't supported.
+		int idx = in.readUnsignedShort();
+
+		UnicodeConstant signature = (UnicodeConstant)constants[idx];
+		//StringConstant sigStr = StringConstant.utfToString(signature);
+		//sigStr = (StringConstant)cp.add(sigStr);
+		//sigStr.resolve(cp);
+		//constants = cp.getConstants();
+
+                signatureAttr =
+		    //new SignatureAttribute(name, bytes, sigStr);
+		    new SignatureAttribute(name, bytes, signature);
+		clssAttr.addElement(signatureAttr);
+            * TODO :: END */
 	    } else {
 		byte[] b = new byte[bytes];
 		in.readFully(b);
@@ -381,21 +437,25 @@ class ClassInfo
 	}
     }
 
-    // Read in the entire class
-    // assume file is open, magic numbers are o.k.
+    // Read in the entire classfile.
+    // Assumes that the file is open, and the magic numbers are o.k.
     //
     public void
     read(DataInput in, boolean readCode)
     throws IOException {
 
-	readConstantPool( in );
-	resolveConstants( );
+	readConstantPool(in);
+        flattenConstants();
+
+        Assert.disallowClassloading();
+	ConstantObject constants[] = cp.getConstants();
 
 	access = in.readUnsignedShort();
 	thisClass = (ClassConstant) constants[in.readUnsignedShort()];
 	int sup = in.readUnsignedShort();
-	if ( sup != 0 )
+	if (sup != 0) {
 	    superClass = (ClassConstant) constants[sup];
+        }
 	className = thisClass.name.string;
 	pkgNameLength = className.lastIndexOf(SIGC_PACKAGE);
 
@@ -405,6 +465,13 @@ class ClassInfo
 	readMethods( in, readCode );
 	readAttributes( in );
 	/* DONT DO THIS HERE enterClass(); */
+        Assert.allowClassloading();
+    }
+
+    // Sets the classfile version numner:
+    public void setVersionInfo(int majorVersion, int minorVersion) {
+	this.majorVersion = majorVersion;
+	this.minorVersion = minorVersion;
     }
 
     // Compute the fieldtable for a class.  This requires laying
@@ -482,7 +549,7 @@ class ClassInfo
     //
     // Jdk 1.4 javac does not insert miranda methods
     // into a class if the class is abstract and does not 
-    // declare all the methods of its direct superinterfaces,
+    // declare all the methods of its superinterfaces,
     // like older versions of javac. So we are doing it.
     public
     void buildMethodtable() {
@@ -598,12 +665,15 @@ class ClassInfo
         // now try to resolve miranda methods.
         MethodInfo thisMethodtable[] = null;
         MethodInfo thisMethods[] = null;
-        if ((this.access&Const.ACC_ABSTRACT) != 0 && 
-            (this.access&Const.ACC_INTERFACE) == 0 ) {
+        if ((this.access&Const.ACC_ABSTRACT) != 0 &&
+            (this.access&Const.ACC_INTERFACE) == 0) {
             int i;
             int methodsnumber = methods.length;
-            for (i = 0; i < interfaces.length; i++) {
-                 ClassInfo superinterface = interfaces[i].find();
+            if (allInterfaces == null) {
+		findAllInterfaces();
+            }
+            for (i = 0; i < allInterfaces.size(); i++) {
+		 ClassInfo superinterface = (ClassInfo)allInterfaces.get(i);
                  superinterface.buildMethodtable();
 
                  MethodInfo interfaceMethodtable[] = superinterface.methodtable;
@@ -700,8 +770,11 @@ class ClassInfo
 	if ( interfaces == null ) return; // all done!
 	for( int i = 0; i < interfaces.length; i++ ){
 	    ClassInfo interf = interfaces[i].find();
-	    if ( ( interf == null ) || ( (interf.access&Const.ACC_INTERFACE) == 0 ) ){
-		System.err.println(Localizer.getString("classinfo.class_which_should_be_an_interface_but_is_not", className, interfaces[i]));
+	    if ((interf == null) ||
+                ((interf.access & Const.ACC_INTERFACE) == 0)) {
+		System.err.println(Localizer.getString(
+                    "classinfo.class_which_should_be_an_interface_but_is_not",
+                    className, interfaces[i]));
 		continue;
 	    }
 	    if ( interf.allInterfaces == null )
@@ -720,27 +793,27 @@ class ClassInfo
     }
 
     public boolean
-    countReferences( boolean isRelocatable ){
-	if (isRelocatable){
+    countReferences(boolean isRelocatable) {
+	if (isRelocatable) {
 	    thisClass.incReference();
-	    if ( superClass != null ) superClass.incReference();
+	    if (superClass != null) superClass.incReference();
 	}
 	// count interface references
-	if ( interfaces!=null ){
-	    for ( int i = 0; i < interfaces.length ; i++ ){
+	if (interfaces != null) {
+	    for (int i = 0; i < interfaces.length ; i++) {
 		interfaces[i].incReference();
 	    }
 	}
 	// then count references from fields.
-	if ( fields != null ){
-	    for ( int i = 0; i < fields.length; i++ ){
-		fields[i].countConstantReferences( isRelocatable );
+	if (fields != null) {
+	    for (int i = 0; i < fields.length; i++) {
+		fields[i].countConstantReferences(isRelocatable);
 	    }
 	}
 	// then count references from code
-	if ( methods != null ){
-	    for ( int i = 0; i < methods.length; i++ ){
-		methods[i].countConstantReferences( constants, isRelocatable );
+	if (methods != null) {
+	    for (int i = 0; i < methods.length; i++) {
+		methods[i].countConstantReferences(cp, isRelocatable);
 	    }
 	}
 	Attribute.countConstantReferences(classAttributes, isRelocatable);
@@ -759,7 +832,7 @@ class ClassInfo
      */
     public void
     validateConstantPool(){
-	ConstantObject constantPool[] = constants;
+	ConstantObject[] constantPool = cp.getConstants();
 	if (constantPool == null)
 	    return; // it can happen!
 	int nConsts = constantPool.length;
@@ -792,7 +865,7 @@ class ClassInfo
 		throw new ValidationException(
 		    "Constant pool contains Unicode constant in "+className, c);
 	    }
-	    if (c.references + c.ldcReferences == 0){
+	    if (c.getReferences() + c.getLdcReferences() == 0) {
 		throw new ValidationException(
 		    "Constant pool contains unreferenced constant in "+className, c);
 	    }
@@ -824,9 +897,12 @@ class ClassInfo
 	    sourceFileAttr.validate();
 	if (innerClassAttr != null)
 	    innerClassAttr.validate();
+	if (signatureAttr != null) {
+	    signatureAttr.validate();
+	}
 	if (sharedPool == null){
 	    // not sharing. Use our own pool.
-	    constantPool = constants;
+	    constantPool = cp.getConstants();
 	    // sweep our pool
 	    validateConstantPool();
 	}else{
@@ -882,14 +958,18 @@ class ClassInfo
     }
 
     private static void
-    dumpConstantTable( PrintStream o, String title, ConstantObject t[] ){
+    dumpConstantTable( PrintStream o, String title, ConstantPool cp ){
+	ConstantObject t[] = cp.getConstants();
 	int n;
 	if ( (t == null) || ((n=t.length) == 0) ) return;
 	o.print( title ); o.println(/*NOI18N*/"["+n+/*NOI18N*/"]:");
 	o.println(/*NOI18N*/"\tPosition Index\tNrefs");
-	for( int i = 0; i < n; i++ ){
-	    if ( t[i] != null )
-		o.println(/*NOI18N*/"\t["+i+/*NOI18N*/"]\t"+t[i].index+/*NOI18N*/"\t"+t[i].references+/*NOI18N*/"\t"+t[i]);
+	for (int i = 0; i < n; i++) {
+	    if (t[i] != null) {
+		o.println(/*NOI18N*/"\t["+i+/*NOI18N*/"]\t"+t[i].index+
+                          /*NOI18N*/"\t"+t[i].getReferences() +
+                          /*NOI18N*/"\t"+t[i]);
+            }
 	}
     }
     private static void
@@ -920,29 +1000,42 @@ class ClassInfo
 	    dumpMemberTable( o, /*NOI18N*/"Fieldtable", fieldtable );
 	if ( methodtable != null )
 	    dumpMemberTable( o, /*NOI18N*/"Methodtable", methodtable );
-	dumpConstantTable( o, /*NOI18N*/"Constants", constants );
+	dumpConstantTable( o, /*NOI18N*/"Constants", cp );
     }
 
     public static boolean resolveSupers(){
 	Enumeration allclasses = ClassTable.elements();
 	boolean ok = true;
 	while( allclasses.hasMoreElements() ){
-	    ClassInfo c = (ClassInfo)allclasses.nextElement();
-	    if ( c.superClass==null ){
+	    ClassInfo cinfo = (ClassInfo)allclasses.nextElement();
+	    if ( cinfo.superClass==null ){
 		// only java.lang.Object can be parentless
-		if ( ! c.className.equals( /*NOI18N*/"java/lang/Object" ) ){
-		    log.println(Localizer.getString("classinfo.class_is_parent-less", c.className));
+		if ( ! cinfo.className.equals( /*NOI18N*/"java/lang/Object" ) ){
+		    log.println(Localizer.getString(
+                        "classinfo.class_is_parent-less", cinfo.className));
 		    ok = false;
 		}
 	    } else {
-		ClassInfo s = c.loader.lookupClass(c.superClass.name.string);
-		if ( s == null ){
-		    log.println(Localizer.getString("classinfo.class_is_missing_parent", c.className, c.superClass.name.string ));
+		ClassInfo superClassInfo =
+                    cinfo.loader.lookupClass(cinfo.superClass.name.string);
+		if ( superClassInfo == null ){
+		    log.println(Localizer.getString(
+                        "classinfo.class_is_missing_parent", cinfo.className,
+                        cinfo.superClass.name.string ));
 		    ok = false;
 		} else {
-		    c.superClassInfo = s;
+		    cinfo.superClassInfo = superClassInfo;
 		}
 	    }
+            if (cinfo.interfaces != null ) {
+                for (int i = 0; i < cinfo.interfaces.length; ++i) {
+                    ClassConstant cc = cinfo.interfaces[i];
+                    if (cc.find() == null) {
+                        log.println(Localizer.getString("classinfo.class_is_missing_parent", cinfo.className, cc.name.string));
+                        ok = false;
+                    }
+                }
+            }
 	}
 	return ok;
     }
@@ -953,6 +1046,7 @@ class ClassInfo
 
     // write constants back out, just like we read them in.
     void writeConstantPool( DataOutput out ) throws IOException {
+	ConstantObject constants[] = cp.getConstants();
 	int num = constants==null ? 0 : constants.length;
 	if(verbose){
 	    log.println(Localizer.getString("classinfo.writing_constant_pool_entries", Integer.toString(num)));
@@ -1043,7 +1137,7 @@ class ClassInfo
     // Convert ldc to ldc2
     public void relocateAndPackCode(boolean noCodeCompaction) {
         for ( int i = 0; i < methods.length; i++ )
-            methods[i].relocateAndPackCode(constants, noCodeCompaction); 
+            methods[i].relocateAndPackCode(cp, noCodeCompaction); 
     }
 
     // Pass lists of excluded methods & fields to the MethodInfo

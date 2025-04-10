@@ -1,7 +1,7 @@
 /*
  * @(#)classlink.c	1.111 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,6 +29,9 @@
 
 #include "javavm/include/interpreter.h"
 #include "javavm/include/directmem.h"
+#ifdef CVM_DUAL_STACK
+#include "javavm/include/dualstack_impl.h"
+#endif
 #include "javavm/include/indirectmem.h"
 #include "javavm/include/common_exceptions.h"
 #include "javavm/include/preloader.h"
@@ -37,7 +40,7 @@
 #include "javavm/include/gc_common.h"
 #include "javavm/include/stackmaps.h"
 #include "javavm/include/limits.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #ifdef CVM_JVMTI
 #include "javavm/include/jvmtiExport.h"
 #endif
@@ -52,10 +55,10 @@
 #endif
 
 static CVMBool
-CVMclassPrepare(CVMExecEnv* ee, CVMClassBlock* cb);
+CVMclassPrepare(CVMExecEnv* ee, CVMClassBlock* cb, CVMBool isRedefine);
 
 static CVMBool
-CVMclassPrepareFields(CVMExecEnv* ee, CVMClassBlock* cb);
+CVMclassPrepareFields(CVMExecEnv* ee, CVMClassBlock* cb, CVMBool isRedefine);
 
 static CVMBool
 CVMclassPrepareMethods(CVMExecEnv* ee, CVMClassBlock* cb);
@@ -74,7 +77,7 @@ CVMinitializeStaticField(CVMExecEnv* ee, CVMFieldBlock* fb,
  * 2nd Edition (2.17.3).
  */
 CVMBool
-CVMclassLink(CVMExecEnv* ee, CVMClassBlock* cb)
+CVMclassLink(CVMExecEnv* ee, CVMClassBlock* cb, CVMBool isRedefine)
 {
     CVMBool success = CVM_TRUE;
 
@@ -123,7 +126,7 @@ CVMclassLink(CVMExecEnv* ee, CVMClassBlock* cb)
 	    }
 	    if (!CVMcbCheckRuntimeFlag(superCb, LINKED)) {
 		/* %comment c */
-		if (!CVMclassLink(ee, superCb)) {
+		if (!CVMclassLink(ee, superCb, isRedefine)) {
 		    return CVM_FALSE; /* exception already thrown */
 		}
 	    }
@@ -168,7 +171,7 @@ CVMclassLink(CVMExecEnv* ee, CVMClassBlock* cb)
 	for (i = 0; i < CVMcbImplementsCount(cb); i++) {
 	    if (!CVMcbCheckRuntimeFlag(CVMcbInterfacecb(cb, i), LINKED)) {
 		/* %comment c */
-		if (!CVMclassLink(ee, CVMcbInterfacecb(cb, i))) {
+		if (!CVMclassLink(ee, CVMcbInterfacecb(cb, i), isRedefine)) {
 		    success = CVM_FALSE; /* exception already thrown */
 		    goto unlock;
 		}
@@ -185,17 +188,54 @@ CVMclassLink(CVMExecEnv* ee, CVMClassBlock* cb)
     }
 
     /* Verify the class if necessary. */
-    if (CVM_NEED_VERIFY(CVMcbClassLoader(cb) != NULL)) {
-#ifdef CVM_SPLIT_VERIFY
-	if (CVMsplitVerifyClassHasMaps(ee, cb)){
-	    success = (CVMsplitVerifyClass(ee, cb) == 0);
-	}else{
-	    success = CVMclassVerify(ee, cb);
-	}
-#else
-	success = CVMclassVerify(ee, cb);
+    if (CVMloaderNeedsVerify(ee, CVMcbClassLoader(cb), CVM_TRUE)) {
+	CVMBool verified = CVM_FALSE;
+        CVMBool isMidletClass = CVM_FALSE;
+#ifdef CVM_DUAL_STACK
+        CVMD_gcUnsafeExec(ee, {
+            isMidletClass = CVMclassloaderIsMIDPClassLoader(
+                ee, CVMcbClassLoader(cb), CVM_FALSE);
+        });
 #endif
-        if (!success) {
+#ifdef CVM_SPLIT_VERIFY
+	/*
+	 * JVM spec 3rd edition says there is an implicit empty
+	 * StackMapTable attribute if none is specified.
+         *
+         * Midlet classes should be verified with the split verifier just
+         * in case there is a missing StackMap resource.
+         * Redefined classes use full verifier since Netbeans doesn't
+         * copy stackmaps to new methods.
+	 */
+	if (CVMglobals.splitVerify && !isRedefine &&
+            (CVMsplitVerifyClassHasMaps(ee, cb) ||
+             isMidletClass ||
+             cb->major_version >= 50))
+        {
+	    verified = (CVMsplitVerifyClass(ee, cb, isRedefine) == 0);
+#ifndef CVM_50_0_FALL_BACK
+	    if (!verified) {
+		success = CVM_FALSE;
+		goto unlock;
+	    }
+#else
+	    /* Falling back to full verifier is allowed for 50.0 */
+	    if (!verified) {
+		if (cb->major_version == 50 && cb->minor_version == 0) {
+		    CVMclearLocalException(ee);
+		} else {
+		    success = CVM_FALSE;
+		    goto unlock;
+		}
+	    }
+#endif
+	}
+#endif
+	if (!verified) {
+	    verified = CVMclassVerify(ee, cb, isRedefine);
+	}
+        if (!verified) {
+	    success = CVM_FALSE;
 	    goto unlock;
 	}
     }
@@ -206,7 +246,7 @@ CVMclassLink(CVMExecEnv* ee, CVMClassBlock* cb)
     }
 
     /* Prepare the classes methods, fields, and interfaces. */
-    if (!CVMclassPrepare(ee, cb)) {
+    if (!CVMclassPrepare(ee, cb, isRedefine)) {
 	success = CVM_FALSE;
 	goto unlock;
     }
@@ -214,8 +254,8 @@ CVMclassLink(CVMExecEnv* ee, CVMClassBlock* cb)
     CVMcbSetRuntimeFlag(cb, ee, LINKED);
 
 #ifdef CVM_JVMTI
-    if (CVMjvmtiEventsEnabled()) {
-	CVMjvmtiNotifyDebuggerOfClassPrepare(ee, CVMcbJavaInstance(cb));
+    if (CVMjvmtiIsEnabled()) {
+	CVMjvmtiPostClassPrepareEvent(ee, CVMcbJavaInstance(cb));
     }
 #endif
 
@@ -235,10 +275,10 @@ CVMclassLink(CVMExecEnv* ee, CVMClassBlock* cb)
 
 
 static CVMBool
-CVMclassPrepare(CVMExecEnv* ee, CVMClassBlock* cb) {
+CVMclassPrepare(CVMExecEnv* ee, CVMClassBlock* cb, CVMBool isRedefine) {
     CVMtraceClassLoading(("CL: Preparing class %C.\n", cb));
 
-    if (!CVMclassPrepareFields(ee, cb)) {
+    if (!CVMclassPrepareFields(ee, cb, isRedefine)) {
 	goto failed;
     }
     /* bug #4940678. make sure FIELDS_PREPARED flag isn't clobbered */
@@ -264,7 +304,7 @@ CVMclassPrepare(CVMExecEnv* ee, CVMClassBlock* cb) {
 
 
 static CVMBool
-CVMclassPrepareFields(CVMExecEnv* ee, CVMClassBlock* cb)
+CVMclassPrepareFields(CVMExecEnv* ee, CVMClassBlock* cb, CVMBool isRedefine)
 {
     CVMUint16      i;
     CVMClassBlock* superCb = CVMcbSuperclass(cb);
@@ -310,8 +350,13 @@ CVMclassPrepareFields(CVMExecEnv* ee, CVMClassBlock* cb)
     numFieldWords += numSuperFieldWords;
 
     if (numFieldWords > CVM_LIMIT_OBJECT_NUMFIELDWORDS) {
+#ifdef JAVASE
+        CVMthrowOutOfMemoryError(
+            ee, "Class %C exceeds the 64K byte object size limit", cb);
+#else
         CVMthrowInternalError(
             ee, "Class %C exceeds the 64K byte object size limit", cb);
+#endif
 	return CVM_FALSE;
     }
 
@@ -437,7 +482,7 @@ CVMclassPrepareFields(CVMExecEnv* ee, CVMClassBlock* cb)
 	     * If the field is a static with a ConstantValue attribute, then 
 	     * initialize it.
 	     */
-	    if (constantValueIdx != 0) {
+	    if (constantValueIdx != 0 && !isRedefine) {
 		CVMinitializeStaticField(ee, fb, cp, constantValueIdx);
 	    }
 	} else { /* Field is not static */	    
@@ -614,13 +659,13 @@ CVMclassPrepareMethods(CVMExecEnv* ee, CVMClassBlock* cb)
 #endif
         /* Set the CVMmbInvokerIdx() for the method. */
 	if (CVMmbIs(mb, ABSTRACT)) {
-	    CVMmbInvokerIdx(mb) = CVM_INVOKE_ABSTRACT_METHOD;
+	    CVMmbSetInvokerIdx(mb, CVM_INVOKE_ABSTRACT_METHOD);
 	} else if (CVMmbIs(mb, NATIVE)) {
-	    CVMmbInvokerIdx(mb) = CVM_INVOKE_LAZY_JNI_METHOD;
+	    CVMmbSetInvokerIdx(mb, CVM_INVOKE_LAZY_JNI_METHOD);
 	} else if (CVMmbIs(mb, SYNCHRONIZED)) {
-	    CVMmbInvokerIdx(mb) = CVM_INVOKE_JAVA_SYNC_METHOD;
+	    CVMmbSetInvokerIdx(mb, CVM_INVOKE_JAVA_SYNC_METHOD);
 	} else {
-	    CVMmbInvokerIdx(mb) = CVM_INVOKE_JAVA_METHOD;
+	    CVMmbSetInvokerIdx(mb, CVM_INVOKE_JAVA_METHOD);
 	}
 
 	/*
@@ -727,6 +772,21 @@ CVMclassPrepareMethods(CVMExecEnv* ee, CVMClassBlock* cb)
 		continue;
 	    }
 
+#ifdef CVM_DUAL_STACK
+            {
+	        /*
+                 * Check against dual-stack filter to see if
+                 * the super MB exists. If the super MB doesn't
+                 * exist, then it's not an override and just
+                 * continue.
+                 */
+	        if (!CVMdualStackFindSuperMB(
+                            ee, cb, superCb, smb)) {
+		    continue;
+	        }
+	    }
+#endif
+
             /* Private methods never go in the method table. */
             CVMassert(!CVMmbIs(smb, PRIVATE));
 
@@ -827,9 +887,13 @@ CVMclassPrepareMethods(CVMExecEnv* ee, CVMClassBlock* cb)
      */
 
     if (nextMethodTableIdx > CVM_LIMIT_NUM_METHODTABLE_ENTRIES) {
+#ifdef JAVASE
+        CVMthrowOutOfMemoryError(ee, 
+	    "Class %C exceeds 64K method table size limit", cb);
+#else
         CVMthrowInternalError(ee, 
-			      "Class %C exceeds 64K method table size limit",
-			      cb);
+	    "Class %C exceeds 64K method table size limit", cb);
+#endif
 	goto fail;
     }
 
@@ -1242,9 +1306,13 @@ CVMclassPrepareInterfaces(CVMExecEnv* ee, CVMClassBlock* cb)
 
     /* Make sure there is room for the miranda methods. */
     if (mcount + n_miranda_methods > CVM_LIMIT_NUM_METHODTABLE_ENTRIES) {
+#ifdef JAVASE
+        CVMthrowOutOfMemoryError(ee, 
+            "Class %C exceeds 64K method table size limit", cb);
+#else
         CVMthrowInternalError(ee, 
-			      "Class %C exceeds 64K method table size limit",
-			      cb);
+            "Class %C exceeds 64K method table size limit", cb);
+#endif
 	return CVM_FALSE;
     }
 
@@ -1306,7 +1374,7 @@ CVMclassPrepareInterfaces(CVMExecEnv* ee, CVMClassBlock* cb)
 		    CVMmbClassBlock(mb) = cb;
 		    CVMmbMethodTableIndex(mb) = mcount;
 		    CVMmbArgsSize(mb)         = CVMmbArgsSize(imb);
-		    CVMmbAccessFlags(mb)      = CVMmbAccessFlags(imb);
+		    CVMmbSetAccessFlags(mb, CVMmbAccessFlags(imb));
 		    CVMmbMethodIndex(mb)      = n_miranda_methods;
 		    CVMmbClassBlock(mb)       = cb;
 		    CVMcbInterfaceMethodTableIndex(cb, i, j) = mcount;
@@ -1318,8 +1386,8 @@ CVMclassPrepareInterfaces(CVMExecEnv* ee, CVMClassBlock* cb)
 		    if (methodIndex != ILLEGAL_ACCESS) {
 			CVMmbNameAndTypeID(mb) = CVMtypeidCloneMethodID(
                             ee, CVMmbNameAndTypeID(imb));
-			CVMmbInvokerIdx(mb) = 
-			    CVM_INVOKE_MISSINGINTERFACE_MIRANDA_METHOD;
+			CVMmbSetInvokerIdx(mb, 
+			    CVM_INVOKE_MISSINGINTERFACE_MIRANDA_METHOD);
 		    } else {
 			/* 
 			 * create a *fake* name that begins with '+', not
@@ -1372,8 +1440,8 @@ CVMclassPrepareInterfaces(CVMExecEnv* ee, CVMClassBlock* cb)
 			    free(miranda_method_range);
 			    return CVM_FALSE;
 			}
-			CVMmbInvokerIdx(mb) = 
-			    CVM_INVOKE_NONPUBLIC_MIRANDA_METHOD;
+			CVMmbSetInvokerIdx(mb,
+			    CVM_INVOKE_NONPUBLIC_MIRANDA_METHOD);
 		    }
 		    /* 
 		     * WARNING: this must be done after setting up 

@@ -26,10 +26,11 @@
 
 package com.sun.jumpimpl.module.windowing;
 
-import com.sun.jump.module.isolatemanager.JUMPIsolateManagerModuleFactory;
 import com.sun.jump.executive.JUMPExecutive;
 import com.sun.jump.common.JUMPIsolate;
 import com.sun.jump.common.JUMPWindow;
+
+import com.sun.jumpimpl.process.JUMPIsolateProxyImpl;
 
 import java.util.TreeMap;
 import java.util.Comparator;
@@ -79,6 +80,11 @@ public class WindowImpl extends JUMPWindow {
     private WindowImpl(int isolateId, int id) {
         this.id         = id;
         this.isolateId  = isolateId;
+
+        JUMPIsolateProxyImpl isolateProxy = (JUMPIsolateProxyImpl)getIsolate();
+        if(isolateProxy != null) {
+            isolateProxy.registerWindow(this);
+        }
     }
 
     static synchronized WindowImpl
@@ -118,7 +124,7 @@ public class WindowImpl extends JUMPWindow {
             return null;
         }
 
-        return JUMPIsolateManagerModuleFactory.getInstance(
-            ).getModule().getIsolate(isolateId);
+        return JUMPExecutive.getInstance(
+            ).getIsolateFactory().getIsolate(isolateId);
     }
 }

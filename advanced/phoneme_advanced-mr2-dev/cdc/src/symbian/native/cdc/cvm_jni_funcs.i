@@ -1,7 +1,7 @@
 /*
  * @(#)cvm_jni_funcs.i	1.4 06/10/04
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  *
  * This program is free software; you can redistribute it and/or
@@ -216,7 +216,6 @@ ENTRY(Java_java_lang_Throwable_getStackTraceDepth) ENTRY_SEP
 ENTRY(Java_java_lang_Throwable_getStackTraceElement) ENTRY_SEP
 ENTRY(Java_java_util_TimeZone_getSystemGMTOffsetID) ENTRY_SEP
 ENTRY(Java_java_util_TimeZone_getSystemTimeZoneID) ENTRY_SEP
-ENTRY(Java_sun_misc_Version_getBuildOptionString) ENTRY_SEP
 ENTRY(Java_java_util_zip_ZipEntry_initFields) ENTRY_SEP
 ENTRY(Java_java_util_zip_ZipEntry_initIDs) ENTRY_SEP
 ENTRY(Java_java_util_jar_JarFile_getMetaInfEntryNames) ENTRY_SEP

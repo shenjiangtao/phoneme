@@ -1,7 +1,7 @@
 /*
  * @(#)jni_impl.c	1.380 06/10/31
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -24,6 +24,8 @@
  * information or have any questions. 
  *
  */
+
+#define _JNI_IMPLEMENTATION_
 
 #include "javavm/include/defs.h"
 #include "javavm/include/objects.h"
@@ -123,6 +125,10 @@
 #define CVMjniNonNullICellPtrFor(jobj) \
     CVMID_NonNullICellPtrFor(jobj)
 
+#ifdef CVM_JVMTI_IOVEC
+static CVMIOVector CVMioFuncs;
+#endif
+
 static CVMUint32
 CVMjniAvailableCapacity(CVMStack* stack, CVMJNIFrame* frame)
 {
@@ -156,7 +162,7 @@ CVMjniAvailableCapacity(CVMStack* stack, CVMJNIFrame* frame)
 
 typedef char
 JNI_PushArguments_t(JNIEnv *env, CVMterseSigIterator  *terse_signature,
-                    CVMFrame *current_frame, void *args);
+                    CVMFrame *current_frame, const void *args);
 
 /* Forward declarations */
 
@@ -164,7 +170,7 @@ static JNI_PushArguments_t CVMjniPushArgumentsVararg;
 static JNI_PushArguments_t CVMjniPushArgumentsArray;
 
 static void CVMjniInvoke(JNIEnv *env, jobject obj, jmethodID methodID,
-    JNI_PushArguments_t pushArguments, void *args,
+    JNI_PushArguments_t pushArguments, const void *args,
     CVMUint16 info, jvalue *retValue);
 
 /* Definitions */
@@ -232,7 +238,7 @@ CVMjniCreateLocalRef(CVMExecEnv *ee)
 jint JNICALL
 CVMjniGetVersion(JNIEnv *env)
 {
-    return JNI_VERSION_1_2;
+    return JNI_VERSION_1_4;
 }
 
 /* 
@@ -259,7 +265,14 @@ CVMjniNewLocalRef(JNIEnv *env, jobject obj)
 	    return NULL;
 	}
 	CVMID_icellAssign(currentEE, resultCell, obj);
-	return resultCell;
+        /* If obj is a weak reference GC could have happened before
+         * unsafe assign action happened so check for null
+         */
+        if (CVMID_icellIsNull(resultCell)) {
+            CVMjniDeleteLocalRef(env, resultCell);
+            resultCell = NULL;
+        }
+        return resultCell;
     }
 }
 
@@ -525,6 +538,13 @@ CVMjniNewGlobalRef(JNIEnv *env, jobject ref)
 	} else {
 	    CVMthrowOutOfMemoryError(currentEE, NULL);
 	}
+        /* If ref is a weak reference, GC could have happened before
+         * unsafe assign action happened so check for null
+         */
+        if (CVMID_icellIsNull(cell)) {
+            CVMjniDeleteGlobalRef(env, cell);
+            cell = NULL;
+        }
 	return cell;
     }
 }
@@ -606,7 +626,8 @@ CVMjniDefineClass(JNIEnv *env, const char *name, jobject loaderRef,
 
     /* define the class */
     classRoot =
-	CVMdefineClass(ee, name, loaderRef, (CVMUint8*)buf, bufLen, NULL);
+	CVMdefineClass(ee, name, loaderRef, (CVMUint8*)buf, bufLen, NULL,
+		       CVM_FALSE);
     if (classRoot == NULL) {
 	return NULL;
     }
@@ -736,7 +757,17 @@ CVMjniRegisterNatives(JNIEnv *env, jclass clazz,
 	    CVMassert(CVMmbJitInvoker(mb) == (void*)CVMCCMinvokeJNIMethod);
 #endif
 	} else {
-	    CVMmbInvokerIdx(mb) = invoker;
+#ifdef CVM_JVMTI
+	    if (CVMjvmtiShouldPostNativeMethodBind()) {
+		CVMUint8* new_nativeCode = NULL;
+		CVMjvmtiPostNativeMethodBind(ee, mb, (CVMUint8*)nativeProc,
+					     &new_nativeCode);
+		if (new_nativeCode != NULL) {
+		    nativeProc = (void *)new_nativeCode;
+		}
+	    }
+#endif
+	    CVMmbSetInvokerIdx(mb, invoker);
 	    CVMmbNativeCode(mb) = (CVMUint8 *)nativeProc;
 #ifdef CVM_JIT
 	    CVMmbJitInvoker(mb) = (void*)CVMCCMinvokeJNIMethod;
@@ -765,7 +796,7 @@ CVMjniUnregisterNatives(JNIEnv *env, jclass clazz)
         CVMMethodBlock* mb = CVMcbMethodSlot(cb, i);
 
 	if (CVMmbIs(mb, NATIVE)) {
-	    CVMmbInvokerIdx(mb) = CVM_INVOKE_LAZY_JNI_METHOD;
+	    CVMmbSetInvokerIdx(mb, CVM_INVOKE_LAZY_JNI_METHOD);
 	    CVMmbNativeCode(mb) = NULL;
 #ifdef CVM_JIT
 	    CVMmbJitInvoker(mb) = (void*)CVMCCMletInterpreterDoInvoke;
@@ -1201,7 +1232,8 @@ CVMjniAllocObject(JNIEnv *env, jclass clazz)
 
     if (CVMcbIs(cb,INTERFACE) || CVMcbIs(cb,ABSTRACT)) {
 	CVMthrowInstantiationException(ee, "%C", cb);
-    } else if (!CVMcbCheckRuntimeFlag(cb, LINKED) && !CVMclassLink(ee,cb)) {
+    } else if (!CVMcbCheckRuntimeFlag(cb, LINKED) &&
+	       !CVMclassLink(ee,cb, CVM_FALSE)) {
 	/* exception already thrown */
     } else {
 	CVMD_gcUnsafeExec(ee, {
@@ -1225,9 +1257,11 @@ CVMjniAllocObject(JNIEnv *env, jclass clazz)
 
 static jobject
 CVMjniConstruct(JNIEnv *env, jclass clazz, jmethodID methodID,
-	        JNI_PushArguments_t pushArguments, void *args)
+	        JNI_PushArguments_t pushArguments, const void *args)
 {
+#ifndef JAVASE
     CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
+#endif
     jobject result;
     CVMMethodBlock *mb = methodID;
 
@@ -1240,9 +1274,11 @@ CVMjniConstruct(JNIEnv *env, jclass clazz, jmethodID methodID,
     if (!CVMtypeidIsConstructor(CVMmbNameAndTypeID(mb))) {
         CVMjniFatalError(env, "a non-constructor passed to NewObject");
     }
+#ifndef JAVASE
     if (CVMmbClassBlock(mb) != CVMjniGcSafeRef2Class(ee, clazz)) {
 	CVMjniFatalError(env, "wrong method ID passed to NewObject");
     }
+#endif
 
 #ifdef JDK12
     CVMjniInvoke(env, result, methodID, pushArguments, args,
@@ -1276,7 +1312,8 @@ CVMjniNewObject(JNIEnv *env, jclass clazz, jmethodID methodID, ...)
 }
 
 jobject JNICALL
-CVMjniNewObjectA(JNIEnv *env, jclass clazz, jmethodID methodID, jvalue *args)
+CVMjniNewObjectA(JNIEnv *env, jclass clazz, jmethodID methodID,
+		 const jvalue *args)
 {
     return CVMjniConstruct(env, clazz, methodID, CVMjniPushArgumentsArray,
 			   args);
@@ -1371,7 +1408,7 @@ CVMjniGet##jelemType##ArrayRegion(JNIEnv *env, arrType array, jsize start, \
 }									   \
 void JNICALL								   \
 CVMjniSet##jelemType##ArrayRegion(JNIEnv *env, arrType array, jsize start, \
-				 jsize len, nativeType *buf)		   \
+				 jsize len, const nativeType *buf)	   \
 {									   \
     CVMExecEnv* ee = CVMjniEnv2ExecEnv(env);				   \
     CVMD_gcUnsafeExec(ee, {						   \
@@ -1860,7 +1897,7 @@ CVMjniNewObjectArray(JNIEnv* env, jsize length,
     CVMClassBlock*  elementClassCb = CVMjniGcSafeRef2Class(ee, elementClass);
     
     if (!CVMcbCheckRuntimeFlag(elementClassCb, LINKED) &&
-	!CVMclassLink(ee,elementClassCb)) {
+	!CVMclassLink(ee,elementClassCb, CVM_FALSE)) {
 	return NULL; /* exception already thrown */
     }
 
@@ -2480,7 +2517,7 @@ CVMjniExceptionDescribe(JNIEnv *env)
 static char
 CVMjniPushArgumentsVararg(JNIEnv *env,
 			  CVMterseSigIterator *terse_signature,
-			  CVMFrame *current_frame, void *a)
+			  CVMFrame *current_frame, const void *a)
 {
     CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
     CVMStackVal32 *topOfStack = current_frame->topOfStack;
@@ -2542,7 +2579,7 @@ CVMjniPushArgumentsVararg(JNIEnv *env,
 static char
 CVMjniPushArgumentsArray(JNIEnv *env,
 			 CVMterseSigIterator *terse_signature,
-			 CVMFrame *current_frame, void *a)
+			 CVMFrame *current_frame, const void *a)
 {
     CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
     CVMStackVal32 *topOfStack = current_frame->topOfStack;
@@ -2609,7 +2646,7 @@ CVMjniPushArgumentsArray(JNIEnv *env,
 
 static void
 CVMjniInvoke(JNIEnv *env, jobject obj, jmethodID methodID,
-    JNI_PushArguments_t pushArguments, void *args,
+    JNI_PushArguments_t pushArguments, const void *args,
     CVMUint16 info, jvalue *retValue)
 {
     CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
@@ -2690,7 +2727,10 @@ CVMjniInvoke(JNIEnv *env, jobject obj, jmethodID methodID,
 	CVMassert(!CVMlocalExceptionOccurred(ee));
 
 	/* Call the java method. */
-	CVMgcUnsafeExecuteJavaMethod(ee, methodID, isStatic, isVirtual);
+	(*CVMglobals.CVMgcUnsafeExecuteJavaMethodProcPtr)(ee,
+							  methodID,
+							  isStatic,
+							  isVirtual);
 
 	/* 
 	 * Copy the result. frame->topOfStack will point after the result.
@@ -2814,7 +2854,7 @@ CVMjniInvoke(JNIEnv *env, jobject obj, jmethodID methodID,
 #undef ARG_DECL_JVALUE_ARRAY
 #define ARG_DECL_DOTDOTDOT	...
 #define ARG_DECL_VA_LIST	va_list args
-#define ARG_DECL_JVALUE_ARRAY	jvalue *args
+#define ARG_DECL_JVALUE_ARRAY	const jvalue *args
 #undef IS_DOTDOTDOT_DOTDOTDOT
 #undef IS_DOTDOTDOT_VA_LIST
 #undef IS_DOTDOTDOT_JVALUE_ARRAY
@@ -2915,11 +2955,245 @@ CVMjniGetJavaVM(JNIEnv *env, JavaVM **p_jvm)
 }
 
 
+/* NOTE: These lookups are done with the NULL (bootstrap) ClassLoader to 
+ *  circumvent any security checks that would be done by jni_FindClass.
+ */
+static jboolean
+CVMjniLookupDirectBufferClasses(JNIEnv* env)
+{
+    CVMJNIJavaVM *vm = &CVMglobals.javaVM;
+    CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
+    CVMClassBlock *cb;
+
+    /* Note: For the class lookups below, use the NULL classloader, and NULL
+       protection domain. 
+
+       Note that the JNI spec does not say that any exceptions will be thrown
+       for NewDirectByteBuffer(), GetDirectBufferAddress(), and
+       GetDirectBufferCapacity(), except for NewDirectByteBuffer() which can
+       throw an OutOfMemoryError.  Hence, we also suppress
+       CVMclassLookupByNameFromClassLoader from throwing exceptions.
+
+       Note: In the following, the class lookup may fail.  When that happens,
+       we may have already allocated some of the global refs.  Normally, we
+       would clean up any allocations due to failed initialization.  But in
+       this case, the global refs will be cleaned up automatically anyway when
+       the VM shuts down.  The only cost is that we can waste up to 2 global
+       refs.  However, the amount of memory wasted for this (2 words) is less
+       than the amount of code it will take to clean it up.  So, we'll live
+       with the potential waste of 2 global refs in the event of an
+       initialization failure.
+    */
+    cb = CVMclassLookupByNameFromClassLoader(ee, "java/nio/Buffer",
+					     CVM_TRUE, NULL, NULL, CVM_FALSE);
+    if (cb == NULL) {
+	return CVM_FALSE;
+    }
+    vm->bufferClass = (jclass) CVMjniNewGlobalRef(env, CVMcbJavaInstance(cb));
+
+    cb = CVMclassLookupByNameFromClassLoader(ee, "sun/nio/ch/DirectBuffer",
+					     CVM_TRUE, NULL, NULL, CVM_FALSE);
+    if (cb == NULL) {
+        CVMjniExceptionClear(env);
+        /* Try again with the JSR-239 implementation class */
+        cb = CVMclassLookupByNameFromClassLoader(ee, "java/nio/DirectBuffer",
+                                                 CVM_TRUE, NULL, NULL, CVM_FALSE);
+    }
+    if (cb == NULL) {
+	return CVM_FALSE;
+    }
+    vm->directBufferClass =
+	(jclass) CVMjniNewGlobalRef(env, CVMcbJavaInstance(cb));
+
+    cb = CVMclassLookupByNameFromClassLoader(ee, "java/nio/DirectByteBuffer",
+					     CVM_TRUE, NULL, NULL, CVM_FALSE);
+    if (cb == NULL) {
+	return CVM_FALSE;
+    }
+    vm->directByteBufferClass =
+	(jclass) CVMjniNewGlobalRef(env, CVMcbJavaInstance(cb));
+
+    return CVM_TRUE;
+}
+
+
+static jboolean 
+CVMjniInitializeDirectBufferSupport(JNIEnv* env)
+{
+    CVMJNIJavaVM *vm = &CVMglobals.javaVM;
+    CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
+
+    CVMassert(CVMD_isgcSafe(ee));
+
+    /* If we've already attempted initialization and failed, there's no need
+       to retry it: */
+    if (vm->directBufferSupportInitializeFailed) {
+	return CVM_FALSE;
+    }
+
+    /* Note that lookupDirectBufferClasses() does lookups on the NULL
+       classloader.  This means that it can lock the nullClassLoaderLock.
+       Hence, we cannot use a sysMutex of higher rank than the
+       nullClassLoaderLock to synchronize this initialization.  Hence,
+       the nullClassLoaderLock is used.
+    */
+    CVMsysMutexLock(ee, &CVMglobals.nullClassLoaderLock);
+
+    /* If another thread beat us to initializing this, then there's nothing
+       to do: */
+    if (vm->directBufferSupportInitialized) {
+	goto done;
+    }
+
+    /* Check for presence of needed classes: */
+    if (!CVMjniLookupDirectBufferClasses(env)) {
+	vm->directBufferSupportInitializeFailed = CVM_TRUE;
+	goto done;
+    }
+
+    /*  Get needed field and method IDs */
+    vm->directByteBufferLongConstructor =
+	CVMjniGetMethodID(env, vm->directByteBufferClass, "<init>", "(JI)V");
+    if (vm->directByteBufferLongConstructor == NULL) {
+        CVMjniExceptionClear(env);
+        /* JSR-239 code path */
+        vm->directByteBufferIntConstructor =
+            CVMjniGetMethodID(env, vm->directByteBufferClass, "<init>", "(I[BI)V");
+    }
+    vm->directBufferAddressLongField =
+	CVMjniGetFieldID(env, vm->bufferClass, "address", "J");
+    if (vm->directBufferAddressLongField == NULL) {
+        CVMjniExceptionClear(env);
+        /* JSR-239 code path */
+        vm->directBufferAddressIntField =
+            CVMjniGetFieldID(env, vm->bufferClass, "arrayOffset", "I");
+    }
+    vm->bufferCapacityField =
+	CVMjniGetFieldID(env, vm->bufferClass, "capacity", "I");
+
+    if (((vm->directByteBufferLongConstructor == NULL) &&
+         (vm->directByteBufferIntConstructor  == NULL))  ||
+	((vm->directBufferAddressLongField  == NULL) &&
+         (vm->directBufferAddressIntField   == NULL))    ||
+	(vm->bufferCapacityField == NULL)) {
+	vm->directBufferSupportInitializeFailed = CVM_TRUE;
+	goto done;
+    }
+
+    vm->directBufferSupportInitialized = CVM_TRUE;
+
+done:
+    CVMsysMutexUnlock(ee, &CVMglobals.nullClassLoaderLock);
+    return !vm->directBufferSupportInitializeFailed;
+}
+
+jobject JNICALL
+CVMjniNewDirectByteBuffer(JNIEnv *env, void* address, jlong capacity)
+{
+    CVMJNIJavaVM *vm = &CVMglobals.javaVM;
+    jlong addr;
+    jint  cap;
+    jobject buffer = NULL;
+
+    /* Initialize the direct buffer support if not inited yet: */
+    if (!vm->directBufferSupportInitialized) {
+	if (!CVMjniInitializeDirectBufferSupport(env)) {
+	    return NULL;
+	}
+    }
+
+    addr = CVMvoidPtr2Long(address);
+
+    /*  
+     * NOTE that package-private DirectByteBuffer constructor currently 
+     *  takes int capacity.
+     */
+    cap  = CVMlong2Int(capacity);
+    if (vm->directByteBufferLongConstructor != NULL) {
+        buffer = CVMjniNewObject(env, vm->directByteBufferClass,
+                                 vm->directByteBufferLongConstructor, addr, cap);
+    } else if (vm->directByteBufferIntConstructor != NULL) {
+        /* JSR-239 variant */
+        buffer = CVMjniNewObject(env, vm->directByteBufferClass,
+                                 vm->directByteBufferIntConstructor, cap, NULL, CVMlong2Int(addr));
+    }
+    return buffer;
+}
+
+
+void* JNICALL
+CVMjniGetDirectBufferAddress(JNIEnv *env, jobject buf)
+{
+    CVMJNIJavaVM *vm = &CVMglobals.javaVM;
+    jlong lresult = 0;
+
+    /* Initialize the direct buffer support if not inited yet: */
+    if (!vm->directBufferSupportInitialized) {
+	if (!CVMjniInitializeDirectBufferSupport(env)) {
+	    return NULL;
+	}
+    }
+
+    if ((buf != NULL) &&
+	(!CVMjniIsInstanceOf(env, buf, vm->directBufferClass))) {
+	return NULL;
+    }
+
+    if (vm->directBufferAddressLongField != NULL) {
+        lresult = CVMjniGetLongField(env, buf, vm->directBufferAddressLongField);
+    } else if (vm->directBufferAddressIntField != NULL) {
+        lresult = CVMint2Long(CVMjniGetIntField(env, buf, vm->directBufferAddressIntField));
+    }
+    return CVMlong2VoidPtr(lresult);
+}
+
+jlong JNICALL
+CVMjniGetDirectBufferCapacity(JNIEnv *env, jobject buf)
+{
+    CVMJNIJavaVM *vm = &CVMglobals.javaVM;
+    jint capacity;
+    jlong failedResult = CVMint2Long(-1);
+
+    /* Initialize the direct buffer support if not inited yet: */
+    if (!vm->directBufferSupportInitialized) {
+	if (!CVMjniInitializeDirectBufferSupport(env)) {
+	    /* NOTE: The JavaSE library implementation is expecting a failure
+	       to initialize condition to return 0 here instead of -1.  Hence,
+	       we return the same value to be consistent. 
+
+	       The ideal solution is probably to return -1 if the failure is
+	       due to needed classes not beig available, and a 0 if due to
+	       a low memory condition.  The low memory condition can allow
+	       a retry to init later.
+	    */
+	    return CVMlongConstZero();
+	}
+    }
+
+    if (buf == NULL) {
+	return failedResult;
+    }
+
+    if (!CVMjniIsInstanceOf(env, buf, vm->directBufferClass)) {
+	return failedResult;
+    }
+
+    /*  NOTE that capacity is currently an int in the implementation */
+    capacity = CVMjniGetIntField(env, buf, vm->bufferCapacityField);
+    return CVMint2Long(capacity);
+}
+
+
 /* NOTE: This can not be made const any more, because the JVMTI
    will instrument it if necessary, and the "checked" version of the
    JNI may do so also if we add that later. */
 
-static struct JNINativeInterface CVMmainJNIfuncs = {
+static
+#ifndef CVM_JVMTI
+const
+#endif
+struct JNINativeInterface CVMmainJNIfuncs =
+{
     NULL,
     NULL,
     NULL,
@@ -3190,7 +3464,13 @@ static struct JNINativeInterface CVMmainJNIfuncs = {
     CVMjniDeleteWeakGlobalRef,
 
     CVMjniExceptionCheck,
+
+    /* JNI_VERSION_1_4 additions: */
+    CVMjniNewDirectByteBuffer,
+    CVMjniGetDirectBufferAddress,
+    CVMjniGetDirectBufferCapacity
 };
+
 
 JNIEXPORT jint JNICALL
 JNI_GetDefaultJavaVMInitArgs(void *args_)
@@ -3244,13 +3524,6 @@ static CVMBool initializeClassList(CVMExecEnv* ee,
 static char*
 initializeSystemClass(JNIEnv* env)
 {
-#ifdef CVM_CLASSLOADING
-    /* init bootclasspath before doing System.initializeSystemClass()*/
-    if (!CVMclassBootClassPathInit(env)) {
-	return "Failed to initialize bootclasspath";
-    }
-#endif
-
     {
 	/* Call System.initializeSystemClass() via the JNI. This sets
 	   up the global properties table which
@@ -3314,6 +3587,12 @@ initializeThreadObjects(JNIEnv* env)
 #define CVM_CLASSLOADING_OPTIONS
 #endif
 
+#ifdef CVM_SPLIT_VERIFY
+#define CVM_SPLIT_VERIFY_OPTIONS "[-XsplitVerify={true|false}] "
+#else
+#define CVM_SPLIT_VERIFY_OPTIONS
+#endif
+
 #ifdef CVM_DEBUG
 #define CVM_DEBUG_OPTIONS "[-Xtrace:<val>] "
 #else
@@ -3365,16 +3644,20 @@ initializeThreadObjects(JNIEnv* env)
         CVM_MTASK_OPTIONS \
 	CVM_JAVA_ASSERTION_OPTIONS \
 	CVM_CLASSLOADING_OPTIONS \
+	CVM_SPLIT_VERIFY_OPTIONS \
 	CVM_JVMTI_OPTIONS \
 	CVM_JVMPI_OPTIONS \
 	CVM_XRUN_OPTIONS \
 	"[-XfullShutdown] " \
+	"[-XhangOnStartup] " \
+	"[-XunlimitedGCRoots] " \
 	"[-XtimeStamping] " \
 	CVM_GC_OPTIONS \
 	"[-Xms<size>] " \
 	"[-Xmn<size>] " \
 	"[-Xmx<size>] " \
 	"[-Xss<size>] " \
+	"[-Xopt:[<option>[,<option>]...]] " \
 	CVM_JIT_OPTIONS \
 	CVM_DEBUG_OPTIONS
 
@@ -3485,8 +3768,8 @@ mtaskJvmtiInit(JNIEnv* env)
 {
 #ifdef CVM_JVMTI
     CVMExecEnv* ee = CVMjniEnv2ExecEnv(env);
-    if (CVMjvmtiEventsEnabled()) {
-	CVMjvmtiNotifyDebuggerOfVmInit(ee);    
+    if (CVMjvmtiIsEnabled()) {
+	CVMjvmtiPostVmInitEvent(ee);    
 
 	/*
 	 * The debugger event hook might have thrown an exception
@@ -3496,10 +3779,12 @@ mtaskJvmtiInit(JNIEnv* env)
 	    fprintf(stderr, "Error during JVMTI_EVENT_VM_INIT handling");
 	    exit(1);
 	} else {
-	    ee->debugEventsEnabled = CVM_TRUE;
+	    CVMjvmtiDebugEventsEnabled(ee) = CVM_TRUE;
 	}
 	
-	CVMjvmtiNotifyDebuggerOfThreadStart(ee, CVMcurrentThreadICell(ee));
+	if (CVMjvmtiShouldPostThreadLife()) {
+	    CVMjvmtiPostThreadStartEvent(ee, CVMcurrentThreadICell(ee));
+	}
 	/*
 	 * The debugger event hook might have thrown an exception
 	 */
@@ -3621,6 +3906,13 @@ initializeSystemClasses(JNIEnv* env,
     CVMExecEnv* ee = CVMjniEnv2ExecEnv(env);
     char* errorStr;
 
+#ifdef CVM_CLASSLOADING
+    /* init bootclasspath before doing System.initializeSystemClass()*/
+    if (!CVMclassBootClassPathInit(env)) {
+	return "Failed to initialize bootclasspath";
+    }
+#endif
+
     /* First ensure that we have no clinit for sun_misc_CVM before proceeding
        with class initialization of system classes: */
     if (CVMclassGetMethodBlock(CVMsystemClass(sun_misc_CVM),
@@ -3638,16 +3930,16 @@ initializeSystemClasses(JNIEnv* env,
      *     CVMglobals.clinitTid, CVM_TRUE) == NULL);
      */
     CVMcbSetROMClassInitializationFlag(ee, CVMsystemClass(sun_misc_CVM));
-
-    /* First do the initialization that doesn't require thread support */
-    if (!initializeClassList(ee, errorStrBuf, sizeofErrorStrBuf,
-			     classInitList, classInitListLen)) {
-	errorStr = errorStrBuf;
-	return errorStr;
-    }
     
     /* Prepare for thread creation */
     if ((errorStr = initializeThreadObjects(env)) != NULL) {
+	return errorStr;
+    }
+
+    /* Initilize some core classes first. */
+    if (!initializeClassList(ee, errorStrBuf, sizeofErrorStrBuf,
+			     classInitList, classInitListLen)) {
+	errorStr = errorStrBuf;
 	return errorStr;
     }
     
@@ -3726,6 +4018,8 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
 #endif
     CVMBool userHomePropSpecified = CVM_FALSE; /* -Duser.home specified */
     CVMBool userNamePropSpecified = CVM_FALSE; /* -Duser.name specified */
+    CVMpathInfo pathInfo;
+    const char *sunlibrarypathStr = NULL;
 
     /*
      * If the current system time is set to be before January 1, 1970,
@@ -3746,6 +4040,7 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
     }
 
     memset(&options, 0, sizeof options);
+    memset(&pathInfo, 0, sizeof pathInfo);
 
 #ifndef CDC_10
     /* assertions are off by default */
@@ -3755,7 +4050,7 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
 
     /* %comment: rt021 */
     if (numJVMs == 0) {
-	if (!CVMinitStaticState()) {
+	if (!CVMinitStaticState(&pathInfo)) {
 	    errorStr = "CVMinitStaticState failed";
 	    errorNo = JNI_ENOMEM;
 	    goto done;
@@ -3769,14 +4064,9 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
     sprops = CVMgetProperties();
 
 #ifdef CVM_CLASSLOADING
-    /*
-     * The default value of bootclasspath
-     */
-    options.bootclasspathStr = sprops->sysclasspath;
-
 #ifndef NO_JDK_COMPATABILITY
     /*
-     * ... and java.class.path
+     * The default value of java.class.path
      * If NO_JDK_COMPATABILITY is not set, the default value of
      * our class path is ., unless one is explicitly indicated.
      *
@@ -3788,6 +4078,10 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
      * The default verification mode is CVM_VERIFY_REMOTE
      */
     options.classVerificationLevel = CVM_VERIFY_REMOTE;
+
+#ifdef CVM_SPLIT_VERIFY
+    options.splitVerify = CVM_TRUE;
+#endif
 #endif
 
     for (argCtr = 0; argCtr < initArgs->nOptions; argCtr++) {
@@ -3860,47 +4154,77 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
 		errorNo = JNI_EINVAL;
 		goto done;
 	    }	    
+#ifdef CVM_SPLIT_VERIFY
+	} else if (!strncmp(str, "-XsplitVerify=", 14)) {
+	    char* value = (char*)str + 14;
+            if (!strcmp(value, "true")) {
+                options.splitVerify = CVM_TRUE;
+            } else if (!strcmp(value, "false")) {
+                options.splitVerify = CVM_FALSE;
+	    } else {
+		CVMconsolePrintf("Illegal -XsplitVerify option: \"%s\"\n",
+				 value);
+		errorNo = JNI_EINVAL;
+		goto done;
+	    }	    
+#endif
 	}
         else if (!strncmp(str, "-Xbootclasspath=", 16) ||
                  !strncmp(str, "-Xbootclasspath:", 16)) {
             options.bootclasspathStr = str + 16;
+            /* user has set bootclasspath, it overrides any
+             * -Xbootclasspath/a or /p
+             */
+            if (pathInfo.preBootclasspath != NULL) {
+                free(pathInfo.preBootclasspath);
+                pathInfo.preBootclasspath = NULL;
+            }
+            if (pathInfo.postBootclasspath != NULL) {
+                free(pathInfo.postBootclasspath);
+                pathInfo.postBootclasspath = NULL;
+            }
         }
         else if (!strncmp(str, "-Xbootclasspath/a=", 18) ||
                  !strncmp(str, "-Xbootclasspath/a:", 18)) {
             const char* p = str + 18;
-            char* tmp = xbootclasspath;
-            xbootclasspath = (char *)
-		malloc(strlen(p) + strlen(options.bootclasspathStr) 
-		       + strlen(CVM_PATH_CLASSPATH_SEPARATOR) + 1);
-            if (xbootclasspath == NULL) {
+            char* tmp = pathInfo.postBootclasspath;
+            pathInfo.postBootclasspath = (char *)
+                malloc(strlen(p) +
+                       (tmp == NULL ? 0 : strlen(tmp)) +
+                       strlen(CVM_PATH_CLASSPATH_SEPARATOR) + 1);
+            if (pathInfo.postBootclasspath == NULL) {
                 errorStr = "out of memory while parsing -Xbootclasspath";
 		errorNo = JNI_ENOMEM;
 		goto done;
             }
-            sprintf(xbootclasspath, "%s%s%s", 
-                    options.bootclasspathStr, CVM_PATH_CLASSPATH_SEPARATOR, p);
-            options.bootclasspathStr = xbootclasspath;
             if (tmp != NULL) {
+                sprintf(pathInfo.postBootclasspath, "%s%s%s", 
+                        tmp, CVM_PATH_CLASSPATH_SEPARATOR, p);
                 free(tmp);
+            } else {
+                pathInfo.postBootclasspath = strdup(p);
             }
         }
         else if (!strncmp(str, "-Xbootclasspath/p=", 18) ||
                  !strncmp(str, "-Xbootclasspath/p:", 18)) {
             const char* p = str + 18;
-            char* tmp = xbootclasspath;
-            xbootclasspath = (char *)
-		malloc(strlen(p) + strlen(options.bootclasspathStr) 
-		       + strlen(CVM_PATH_CLASSPATH_SEPARATOR) + 1);
-            if (xbootclasspath == NULL) {
+            char* tmp = pathInfo.preBootclasspath;
+            pathInfo.preBootclasspath = (char *)
+                malloc(strlen(p) +
+                       (tmp == NULL ?
+                        0 : strlen(tmp)) +
+                       strlen(CVM_PATH_CLASSPATH_SEPARATOR) + 1);
+            if (pathInfo.preBootclasspath == NULL) {
                 errorStr = "out of memory while parsing -Xbootclasspath";
-		errorNo = JNI_ENOMEM;
-		goto done;
+                errorNo = JNI_ENOMEM;
+                goto done;
             }
-            sprintf(xbootclasspath, "%s%s%s", 
-                    p, CVM_PATH_CLASSPATH_SEPARATOR, options.bootclasspathStr);
-            options.bootclasspathStr = xbootclasspath;
             if (tmp != NULL) {
+                sprintf(pathInfo.preBootclasspath, "%s%s%s", 
+                        p, CVM_PATH_CLASSPATH_SEPARATOR, tmp);
                 free(tmp);
+            } else {
+                pathInfo.preBootclasspath = strdup(p);
             }
         }
 #ifdef NO_JDK_COMPATABILITY
@@ -4035,10 +4359,22 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
 #ifdef CVM_HAVE_PROCESS_MODEL
 	    options.fullShutdownFlag = CVM_TRUE;
 #endif
+	} else if (!strcmp(str, "-XhangOnStartup")) {
+	    options.hangOnStartup = CVM_TRUE;
+	} else if (!strcmp(str, "-XunlimitedGCRoots")) {
+            options.unlimitedGCRoots = CVM_TRUE;
 #ifdef CVM_AGENTLIB
 	} else if (!strncmp(str, "-agentlib:", 10) ||
                !strncmp(str, "-agentpath:", 11)) {
 	    ++numAgentlibArguments;
+	    if (numAgentlibArguments > 1) {
+		/* currently only support one agent connection
+		 * At some point in the future we will support multiple
+		 * agent connections.
+		 */
+		CVMconsolePrintf("WARNING: Only one agent connection supported!\n");
+	    }
+
 	    /* Don't set the optionString to NULL, so we can take care
            of this on the next pass */
 	    continue;
@@ -4050,6 +4386,10 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
                of this on the next pass */
 	    continue;
 #endif
+	} else if (!strncmp(str, "-Dsun.boot.library.path=", 24)) {
+            sunlibrarypathStr = str + 24;
+            ++numUnrecognizedOptions;
+            continue;
 	} else {
 	    /* Unrecognized option, pass to Java */
 	    ++numUnrecognizedOptions;
@@ -4083,6 +4423,22 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
     }
 #endif
 
+    if (sunlibrarypathStr != NULL) {
+        if (pathInfo.dllPath != NULL) {
+            free(pathInfo.dllPath);
+        }
+        pathInfo.dllPath = strdup(sunlibrarypathStr);
+    }
+
+    {
+        if (!CVMinitPathValues((void *)CVMgetProperties(), &pathInfo,
+                               (char **)&options.bootclasspathStr)) {
+            errorStr = "CVMinitPathValues failed";
+            errorNo = JNI_ERR;
+            goto done;
+        }
+    }
+
     if (!CVMinitVMGlobalState(&CVMglobals, &options)) {
 	/* <tbd> - CVMinitVMGlobalState() should return the proper
 	 * JNI error code and have always already printed the error message.
@@ -4106,6 +4462,14 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
     CVMhwInit();
 #endif
 
+#ifdef CVM_JVMTI
+    CVMjvmtiEnterOnloadPhase();
+    CVMtimeThreadCpuClockInit(&ee->threadInfo);
+#endif
+
+#ifdef CVM_JVMTI_IOVEC
+    CVMinitIOVector(&CVMioFuncs);
+#endif
     /* Run agents */
     /* Agents run before VM is fully initialized */
 #ifdef CVM_AGENTLIB
@@ -4118,15 +4482,12 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
 #ifdef CVM_DYNAMIC_LINKING
       CVMAgentlibArg_t agentlibArgument;
       /* Initialize unload list */
-      if (!CVMAgentInitTable(&CVMglobals.agentonUnloadTable,
+      if (!CVMAgentInitTable(&CVMglobals.agentTable,
                              numAgentlibArguments)) {
 	    errorStr = "CVMAgentInitTable() failed";
 	    errorNo = JNI_ENOMEM;
 	    goto done;
       }
-#ifdef CVM_JVMTI
-      enter_onload_phase();
-#endif
       for (argCtr = 0; argCtr < initArgs->nOptions; argCtr++) {
 	    const char *str = initArgs->options[argCtr].optionString;
 	    if ((str != NULL)) {
@@ -4138,24 +4499,27 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
             if (!strncmp(str, "-agentpath:", 11)) {
               agentlibArgument.is_absolute = CVM_TRUE;
             }
-            if (!CVMAgentHandleArgument(&CVMglobals.agentonUnloadTable, env,
+            if (!CVMAgentHandleArgument(&CVMglobals.agentTable, env,
                                         &agentlibArgument)) {
               CVMconsolePrintf("Cannot start VM "
                 "(error handling -agentlib or -agentpath argument %s)\n",
                                agentlibArgument.str);
               errorNo = JNI_ERR;
               goto done;
-            }
+            } else {
+		/* loaded one agent, that's all we support right now */
+		break;
+	    }
           }
         }
       }
 #ifdef CVM_JVMTI
-      enter_primordial_phase();
+      CVMjvmtiEnterPrimordialPhase();
 #endif
 #else
-	errorStr = "-agentlib, -agentpath not supported - dynamic linking not built into VM";
-	errorNo = JNI_EINVAL;
-	goto done;
+      errorStr = "-agentlib, -agentpath not supported - dynamic linking not built into VM";
+      errorNo = JNI_EINVAL;
+      goto done;
 #endif
     }
 #endif
@@ -4192,20 +4556,6 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
 	goto done;
     }
 
-#if defined(CVM_AOT) && !defined(CVM_MTASK)
-    CVMjitCompileAOTCode(ee);
-#endif
-    
-#ifdef CVM_LVM /* %begin lvm */
-    /* Finish-up the main LVM bootstrapping after the VM gets 
-     * fully initialized */
-    if (!CVMLVMfinishUpBootstrapping(ee)) {
-	errorStr = "error during LVM initialization";
-	errorNo = JNI_ERR;
-	goto done;
-    }
-#endif /* %end lvm */
-
 #ifdef CVM_XRUN
     /* Now that the VM is initialized, may need to handle "helper"
        libraries for JVMTI/PI */
@@ -4238,6 +4588,73 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
     }
 #endif /* CVM_XRUN */
 
+    if (CVMglobals.hangOnStartup != 0) {
+	CVMconsolePrintf("Hanging on startup\n");
+	while (CVMglobals.hangOnStartup != 0);
+    }
+
+#if defined(CVM_AOT) && !defined(CVM_MTASK)
+#ifdef CVM_JVMTI
+    if (!CVMjvmtiIsInDebugMode())
+#endif
+    {
+        if (!CVMjitCompileAOTCode(ee)) {
+	    errorStr = "error during AOT compilation";
+            errorNo = JNI_ERR;
+            goto done;
+        }
+    }
+#endif
+    
+#ifdef CVM_LVM /* %begin lvm */
+    /* Finish-up the main LVM bootstrapping after the VM gets 
+     * fully initialized */
+    if (!CVMLVMfinishUpBootstrapping(ee)) {
+	errorStr = "error during LVM initialization";
+	errorNo = JNI_ERR;
+	goto done;
+    }
+#endif /* %end lvm */
+
+#ifdef CVM_JVMTI
+    CVMjvmtiEnterPrimordialPhase();
+    if (CVMjvmtiIsEnabled()) {
+	/* This thread was not fully initialized */
+	jthread thread = CVMcurrentThreadICell(ee);
+	if (CVMjvmtiFindThread(ee, thread) == NULL) {
+	    CVMjvmtiInsertThread(ee, thread);
+	}
+    }
+    CVMjvmtiDebugEventsEnabled(ee) = CVM_TRUE;
+    CVMjvmtiEnterStartPhase();
+    CVMjvmtiPostVmStartEvent(ee);    
+    CVMjvmtiEnterLivePhase();
+    CVMjvmtiPostVmInitEvent(ee);
+
+    /*
+     * The debugger event hook might have thrown an exception
+     */
+    if ((*env)->ExceptionCheck(env)) {
+	(*env)->ExceptionDescribe(env);
+	errorStr = "error during JVMTI_EVENT_VM_INIT handling";
+	errorNo = JNI_ERR;
+	goto done;
+    }
+    if (CVMjvmtiIsEnabled()) {
+	CVMjvmtiPostStartUpEvents(ee);
+    }
+    /*
+     * The debugger event hook might have thrown an exception
+     */
+    if ((*env)->ExceptionCheck(env)) {
+	CVMjvmtiDebugEventsEnabled(ee) = CVM_FALSE;
+	(*env)->ExceptionDescribe(env);
+	errorStr = "error during JVMTI_EVENT_THREAD_START handling";
+	errorNo = JNI_ERR;
+	goto done;
+    }
+#endif
+
 #ifdef CVM_JVMPI
     CVMjvmpiPostStartUpEvents(ee);
     if ((*env)->ExceptionCheck(env)) {
@@ -4261,46 +4678,12 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
 
 #endif /* CVM_JVMPI */
 
-#ifdef CVM_JVMTI
-    if (CVMglobals.jvmtiStatics.jvmtiInitialized) {
-      /* This thread was not fully initialized */
-      jthread thread = CVMcurrentThreadICell(ee);
-      if (CVMjvmtiFindThread(ee, thread) == NULL) {
-        CVMjvmtiInsertThread(ee, thread);
-      }
-    }
-    enter_start_phase();
-    CVMjvmtiNotifyDebuggerOfVmInit(ee);    
-	/*
-	 * The debugger event hook might have thrown an exception
-	 */
-	if ((*env)->ExceptionCheck(env)) {
-      (*env)->ExceptionDescribe(env);
-      errorStr = "error during JVMTI_EVENT_VM_INIT handling";
-      errorNo = JNI_ERR;
-      goto done;
-    }
-#endif
 
     /* In the future JVMPI will need to get a VM init event here as
        well */
 
 #ifdef CVM_JVMTI
-    ee->debugEventsEnabled = CVM_TRUE;
 
-    if (CVMjvmtiEventsEnabled()) {
-	CVMjvmtiNotifyDebuggerOfThreadStart(ee, CVMcurrentThreadICell(ee));
-	/*
-	 * The debugger event hook might have thrown an exception
-	 */
-	if ((*env)->ExceptionCheck(env)) {
-	    ee->debugEventsEnabled = CVM_FALSE;
-	    (*env)->ExceptionDescribe(env);
-	    errorStr = "error during JVMTI_EVENT_THREAD_START handling";
-	    errorNo = JNI_ERR;
-	    goto done;
-	}
-    }
 #endif
 
 #ifdef CVM_EMBEDDED_HOOK
@@ -4346,6 +4729,8 @@ JNI_CreateJavaVM(JavaVM **p_jvm, void **p_env, void *args)
 	free(xrunArguments);
     }
 #endif
+
+    CVMdestroyPathInfo(&pathInfo);
 
     if (errorStr != NULL) {
         CVMconsolePrintf("Cannot start VM (%s)\n", errorStr);
@@ -4440,12 +4825,14 @@ CVMjniDestroyJavaVM(JavaVM *vm)
 	CVMclearLocalException(ee);
     }
 
+    CVMprepareToExit();
+
     CVMpostThreadExitEvents(ee);
 #ifdef CVM_JVMTI
-    if (CVMjvmtiEventsEnabled()) {
-	CVMjvmtiNotifyDebuggerOfVmExit(ee);    
+    if (CVMjvmtiIsEnabled()) {
+	CVMjvmtiPostVmExitEvent(ee);    
+	CVMjvmtiDebugEventsEnabled(ee) = CVM_FALSE;
     }
-    ee->debugEventsEnabled = CVM_FALSE;
 #endif
 
     if (CVMglobals.fullShutdown) {
@@ -4466,7 +4853,7 @@ CVMjniDestroyJavaVM(JavaVM *vm)
 	CVMXrunProcessTable(&CVMglobals.onUnloadTable, env, vm);
 #endif
 #ifdef CVM_AGENTLIB
-	CVMAgentProcessTable(&CVMglobals.agentonUnloadTable, env, vm);
+	CVMAgentProcessTableUnload(&CVMglobals.agentTable, env, vm);
 #endif
 
 	/*
@@ -4495,7 +4882,6 @@ CVMjniDestroyJavaVM(JavaVM *vm)
 
     }
 
-    CVMprepareToExit();
 
 #ifdef CVM_INSTRUCTION_COUNTING
     /*
@@ -4599,7 +4985,7 @@ CVMjniDestroyJavaVM(JavaVM *vm)
 }
 
 static jint JNICALL
-CVMjniAttachCurrentThread(JavaVM *vm, void **penv, void *_args)
+attachCurrentThread(JavaVM *vm, void **penv, void *_args, CVMBool isDaemon)
 {
     JavaVMAttachArgs *args = (JavaVMAttachArgs *)_args;
     /* %comment: rt029 */
@@ -4628,7 +5014,7 @@ CVMjniAttachCurrentThread(JavaVM *vm, void **penv, void *_args)
 	    return JNI_ERR;
 	}
     
-	CVMaddThread(ee, CVM_TRUE); /* user thread */
+	CVMaddThread(ee, !isDaemon);
 
         env = CVMexecEnv2JniEnv(ee);
         *(JNIEnv **)penv = env;
@@ -4643,7 +5029,7 @@ CVMjniAttachCurrentThread(JavaVM *vm, void **penv, void *_args)
 	    jlong eetop;
 
 	    eetop = CVMvoidPtr2Long(ee);
-	    if (args && args->version == JNI_VERSION_1_2) {
+	    if (args && args->version >= JNI_VERSION_1_2) {
 		if (args->group != NULL) {
 		    threadGroup = args->group;
 		}
@@ -4675,13 +5061,11 @@ CVMjniAttachCurrentThread(JavaVM *vm, void **penv, void *_args)
 		}
 	    }
 
-
-
 	    /* Initialize Thread object of this attached thread */
 	    thread = CVMjniCallStaticObjectMethod(env, threadClass,
 		CVMglobals.java_lang_Thread_initAttachedThread,
 		threadGroup, threadName,
-		java_lang_Thread_NORM_PRIORITY, eetop);
+		java_lang_Thread_NORM_PRIORITY, eetop, isDaemon);
 
 	handleException:
 	    if (CVMexceptionOccurred(ee)) {
@@ -4701,7 +5085,9 @@ CVMjniAttachCurrentThread(JavaVM *vm, void **penv, void *_args)
 	}
 
 #ifdef CVM_JVMTI
-	ee->debugEventsEnabled = CVM_TRUE;
+	if (CVMjvmtiIsEnabled()) {
+	    CVMjvmtiDebugEventsEnabled(ee) = CVM_TRUE;
+	}
 #endif
 	CVMpostThreadStartEvents(ee);
 
@@ -4711,6 +5097,12 @@ CVMjniAttachCurrentThread(JavaVM *vm, void **penv, void *_args)
 
 	return JNI_OK;
     }
+}
+
+static jint JNICALL
+CVMjniAttachCurrentThread(JavaVM *vm, void **penv, void *_args)
+{
+    return attachCurrentThread(vm, penv, _args, CVM_FALSE);
 }
 
 static jint JNICALL
@@ -4726,11 +5118,30 @@ CVMjniDetachCurrentThread(JavaVM *vm)
 	    CVMcbJavaInstance(CVMsystemClass(java_lang_Thread));
 	jobject thread = CVMcurrentThreadICell(ee);
 	jobject throwable = CVMjniExceptionOccurred(env);
+	CVMFrameIterator iter;
+	CVMFrame *frame;
+
+	/* Can't detach a thread with an active Java frame on it */
+	frame = CVMeeGetCurrentFrame(ee);
+	CVMframeIterateInit(&iter, frame);
+	while (CVMframeIterateNextReflection(&iter, CVM_FALSE)) {
+	    frame = CVMframeIterateGetFrame(&iter);
+	    if (CVMframeIsJava(frame) 
+#ifdef CVM_JIT
+		|| CVMframeIsCompiled(frame)
+#endif
+	    ) {
+		return JNI_ERR;
+	    }
+	}
+
 	CVMjniExceptionClear(env);
 
 	CVMpostThreadExitEvents(ee);
 #ifdef CVM_JVMTI
-	ee->debugEventsEnabled = CVM_FALSE;
+	if (CVMjvmtiIsEnabled()) {
+	    CVMjvmtiDebugEventsEnabled(ee) = CVM_FALSE;
+	}
 #endif
 
 	CVMjniCallNonvirtualVoidMethod(
@@ -4753,12 +5164,14 @@ CVMjniDetachCurrentThread(JavaVM *vm)
     }
 }
 
+
 static jint JNICALL
 CVMjniGetEnv(JavaVM *vm, void **penv, jint version)
 {
     CVMExecEnv *ee = CVMgetEE();
     if (ee != NULL) {
-	if (version == JNI_VERSION_1_1 || version == JNI_VERSION_1_2) {
+	if (version == JNI_VERSION_1_1 || version == JNI_VERSION_1_2 ||
+	    version == JNI_VERSION_1_4) {
 	    *penv = (void *)CVMexecEnv2JniEnv(ee);
 	    return JNI_OK;
 #ifdef CVM_JVMPI
@@ -4770,8 +5183,13 @@ CVMjniGetEnv(JavaVM *vm, void **penv, jint version)
 
 #ifdef CVM_JVMTI
         } else if (version == JVMTI_VERSION_1) {
-            return CVMcreateJvmti(vm, penv);
+            return CVMjvmtiGetInterface(vm, penv);
 #endif /* CVM_JVMTI */
+#ifdef CVM_JVMTI_IOVEC
+        } else if (version == JVMIOVEC_VERSION_1) {
+            *penv = (void *)&CVMioFuncs;
+            return JNI_OK;
+#endif
         } else {
 	    *penv = NULL;
 	    return JNI_EVERSION;
@@ -4780,6 +5198,12 @@ CVMjniGetEnv(JavaVM *vm, void **penv, jint version)
 	*penv = NULL;
         return JNI_EDETACHED;
     }
+}
+
+static jint JNICALL
+CVMjniAttachCurrentThreadAsDaemon(JavaVM *vm, void **penv, void *_args)
+{
+    return attachCurrentThread(vm, penv, _args, CVM_TRUE);
 }
 
 static const struct JNIInvokeInterface CVMmainJVMfuncs = {
@@ -4791,6 +5215,8 @@ static const struct JNIInvokeInterface CVMmainJVMfuncs = {
     CVMjniAttachCurrentThread,
     CVMjniDetachCurrentThread,
     CVMjniGetEnv,
+    /* JNI_VERSION_1_4 additions: */
+    CVMjniAttachCurrentThreadAsDaemon,
 };
 
 void
@@ -4804,11 +5230,15 @@ CVMdestroyJNIEnv(CVMJNIEnv *p_env)
 {
 }
 
+#ifdef CVM_JVMTI
+
 struct JNINativeInterface *
 CVMjniGetInstrumentableJNINativeInterface()
 {
     return &CVMmainJNIfuncs;
 }
+
+#endif /* CVM_JVMTI */
 
 void
 CVMinitJNIJavaVM(CVMJNIJavaVM *p_javaVM)

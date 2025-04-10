@@ -1,7 +1,7 @@
 /*
  * @(#)net_util_md.cpp	1.14 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -77,7 +77,7 @@ NET_GetFileDescriptorID(JNIEnv *env)
 
 void
 NET_InetAddressToSockaddr(JNIEnv *env, jobject iaObj, int port,
-    struct sockaddr *him, int * /*len*/, jboolean isLocalAddr)
+    struct sockaddr *him, int * /*len*/)
 {
     jint family = (*env)->GetIntField(env, iaObj, ia_familyID);
     if (family == IPv4) {

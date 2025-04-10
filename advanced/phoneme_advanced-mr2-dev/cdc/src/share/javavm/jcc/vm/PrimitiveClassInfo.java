@@ -1,7 +1,7 @@
 /*
  * @(#)PrimitiveClassInfo.java	1.16 06/10/22
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -62,7 +62,6 @@ class PrimitiveClassInfo extends ClassInfo {
 	this.slotsize = slotsize;
 	this.elementsize = elementsize;
 	access = Const.ACC_FINAL | Const.ACC_ABSTRACT | Const.ACC_PUBLIC; 
-	constants = new ConstantObject[0];
 	methods = new MethodInfo[0];
 	fields  = new FieldInfo[0];
 	ClassTable.enterPrimitiveClass(this);

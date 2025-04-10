@@ -1,7 +1,7 @@
 #
 # @(#)defs_basis_microwindows.mk	1.20 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -25,8 +25,8 @@
 #
 
 # Include target specific makefiles first
--include ../$(TARGET_OS)/defs_basis_$(AWT_IMPLEMENTATION).mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_basis_$(AWT_IMPLEMENTATION).mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs_basis_$(AWT_IMPLEMENTATION).mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_basis_$(AWT_IMPLEMENTATION).mk
 
 ifeq ($(CVM_USE_NATIVE_TOOLS), true)
 # checks /usr/local/microwin/src/engine directory first
@@ -53,7 +53,7 @@ MICROWIN        ?= $(CVM_TOOLS_DIR)/lib/$(CVM_TARGET)/usr/microwin
 FREETYPE_CONFIG ?= $(MICROWIN)/freetype-config
 endif
 
-PROFILE_INCLUDES += -I$(MICROWIN)
+PROFILE_INCLUDE_DIRS += $(MICROWIN)
 AWT_LIB_LIBS ?= -L$(MICROWIN) -lmwengine `$(FREETYPE_CONFIG) --libs` -L/usr/X11R6/lib -lX11 -lpthread
 
 #
@@ -73,8 +73,8 @@ CVM_BUILDDIRS 	  += $(CVM_FONTSDIR)
 #
 PROFILE_SRCDIRS_NATIVE += \
 	$(CVM_SHAREROOT)/basis/native/awt/$(AWT_IMPLEMENTATION)
-PROFILE_INCLUDES  += \
-	-I$(CVM_SHAREROOT)/basis/native/awt/$(AWT_IMPLEMENTATION)
+PROFILE_INCLUDE_DIRS  += \
+	$(CVM_SHAREROOT)/basis/native/awt/$(AWT_IMPLEMENTATION)
 
 #
 # microwindows shared class directories

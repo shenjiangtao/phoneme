@@ -26,8 +26,11 @@
 
 package com.sun.jump.os;
 
+import java.io.IOException;
+
 import com.sun.jump.message.JUMPMessagable;
 import com.sun.jump.message.JUMPTimedOutException;
+import com.sun.jump.message.JUMPUnblockedException;
 
 /**
  * <code>JUMPMessageQueue</code> abstracts the communication channels between
@@ -49,7 +52,12 @@ public abstract class JUMPMessageQueueInterface {
 
     /** 
      * Must have exception interface
+     *
+     * @throws JUMPTimedOutException
+     * @throws JUMPUnblockedException
+     * @throws IOException
      */
-    public abstract byte[] receiveMessage(String type, long timeout) throws JUMPTimedOutException; 
+    public abstract byte[] receiveMessage(String type, long timeout)
+	throws JUMPTimedOutException, IOException;
 
 }

@@ -1,7 +1,7 @@
 /*
  * @(#)QpFrame.h	1.9 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -48,6 +48,7 @@ class QpFrame : public QpWidget {
             SOM = QpWidget::EOM,
             SetLineWidth = QpFrame::SOM,
             SetFrameStyle,
+            SetBackgroundMode,
             FrameRect,
             SetFrameRect,
             FrameGeometry,
@@ -59,10 +60,12 @@ class QpFrame : public QpWidget {
         };
 
     virtual void execute(int method, void *args);
+    void setBackgroundMode(Qt::BackgroundMode mode);
     private :
 
     void execSetLineWidth(int width);
     void execSetFrameStyle(int style);
+    void execSetBackgroundMode(Qt::BackgroundMode mode);
     QRect execFrameRect(void);
     void execSetFrameRect(QRect rect);
     QRect execFrameGeometry(void);

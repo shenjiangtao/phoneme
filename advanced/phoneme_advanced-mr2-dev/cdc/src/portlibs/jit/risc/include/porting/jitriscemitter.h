@@ -1,7 +1,7 @@
 /*
  * @(#)jitriscemitter.h	1.81 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -34,6 +34,10 @@
 #include "javavm/include/porting/jit/jit.h"
 #include "portlibs/jit/risc/include/export/jitregman.h"
 #include "javavm/include/jit/jitriscemitterdefs_cpu.h"
+
+#ifdef CVM_HDR_JIT_JITRISCEMITTER_H
+#include CVM_HDR_JIT_JITRISCEMITTER_H
+#endif
 
 /*
  * This file defines the RISC emitter porting layer which includes opaque
@@ -129,6 +133,8 @@
     // 32 bit ALU opcodes:
     CVMCPU_MOV_OPCODE       // reg32 = aluRhs32.
     CVMCPU_NEG_OPCODE       // reg32 = -reg32.
+    CVMCPU_NOT_OPCODE       // reg32 = (reg32 == 0)?1:0.
+    CVMCPU_INT2BIT_OPCODE   // reg32 = (reg32 != 0)?1:0.
     CVMCPU_ADD_OPCODE       // reg32 = reg32 + aluRhs32.
     CVMCPU_SUB_OPCODE       // reg32 = reg32 - aluRhs32.
     CVMCPU_AND_OPCODE       // reg32 = reg32 AND aluRhs32.
@@ -142,7 +148,7 @@
     CVMCPU_MULL_OPCODE      // reg32 = LO32(reg32 * reg32).
     CVMCPU_MULH_OPCODE      // reg32 = HI32(reg32 * reg32).
     CVMCPU_CMP_OPCODE       // cmp reg32, aluRhs32 => set cc.
-    CVMCPU_CMN_OPCODE       // cmp reg32, ~aluRhs32 => set cc.
+    CVMCPU_CMN_OPCODE       // cmp reg32, -aluRhs32 => set cc.
 
     // 64 bit ALU opcodes:
     CVMCPU_NEG64_OPCODE     // reg64 = -reg64.
@@ -877,6 +883,10 @@ CVMCPUemitMethodProloguePatch(CVMJITCompilationContext *con,
 extern void
 CVMCPUemitInvokeMethod(CVMJITCompilationContext *con);
 
+#ifndef CVMemitThreadSchedHook
+#define CVMemitThreadSchedHook(con)   /* */
+#endif
+
 /* ===== Optional APIs to support 64-bit registers ======================== */
 #ifdef CVMCPU_HAS_64BIT_REGISTERS
 
@@ -916,6 +926,33 @@ CVMCPUemitShiftAndAdd(CVMJITCompilationContext *con,
     !defined(CVMCPU_HAS_CONDITIONAL_CALL_INSTRUCTIONS)
 extern const CVMCPUCondCode CVMCPUoppositeCondCode[];
 #endif
+
+/* ===== Memory barrier emitters ======================== */
+#ifdef CVM_MP_SAFE
+extern void
+CVMCPUemitMemBar(CVMJITCompilationContext *con);
+
+/*
+ * Guarantees that all load/store subsequent to
+ * CVMCPUemitMemBarAcquire() becomes visible after it
+ * completes.
+ */
+extern void
+CVMCPUemitMemBarAcquire(CVMJITCompilationContext *con);
+
+/*
+ * Guarantees that all load/store occurring previous to
+ * CVMCPUemitMemBarAcquire() complete before it completes.
+ */
+extern void
+CVMCPUemitMemBarRelease(CVMJITCompilationContext *con);
+
+#else
+#define CVMCPUemitMemBar(con)
+#define CVMCPUemitMemBarAcquire(con)
+#define CVMCPUemitMemBarRelease(con)
+#endif
+
 
 /**************************************************************
  * CPU C Call convention abstraction - The following are prototypes of calling
@@ -1071,6 +1108,11 @@ CVMCPUCCALLdestroyArgs(CVMJITCompilationContext *con,
 
 #endif /* !CVMCPU_HAVE_PLATFORM_SPECIFIC_C_CALL_CONVENTION &&
           !CVMCPU_ALLOW_C_ARGS_BEYOND_MAX_ARG_REGS */
+
+/* Purpose: Emits a constantpool dump with a branch around. */
+extern void
+CVMRISCemitConstantPoolDumpWithBranchAround(
+    CVMJITCompilationContext* con);
 
 /* Purpose: Emits a constantpool dump with a branch around it if needed. */
 extern void

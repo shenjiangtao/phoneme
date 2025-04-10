@@ -2,24 +2,25 @@
  *
  * @(#)jitemitter_cpu.c	1.6 06/10/04
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+ * Reserved.  Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
@@ -796,7 +797,6 @@ void CVMX86movzxb_reg_reg(CVMJITCompilationContext* con, CVMX86Register dst, CVM
     getRegName(destRegBuf, dst);
     CVMconsolePrintf("	movzxb	%s, %s", destRegBuf, srcRegBuf);
   });  
-
 
   CVMassert(CVMX86has_byte_register(src) /* must have byte register */);
   CVMX86emit_byte(con, 0x0F);
@@ -2133,8 +2133,9 @@ void CVMX86rep_set(CVMJITCompilationContext* con) {
 }
 
 
-void CVMX86setb_reg(CVMJITCompilationContext* con, CVMX86Condition cc, CVMX86Register dst) {
-  CVMassert(0 <= cc && cc < 16 /* illegal cc */);
+void CVMX86setb_reg(CVMJITCompilationContext* con,
+                    CVMX86Condition cc, CVMX86Register dst) {
+  CVMassert(0 <= (int)cc && cc < 16 /* illegal cc */);
 
   CVMtraceJITCodegenExec({
     char ccBuf[30];
@@ -2219,9 +2220,9 @@ void CVMX86call_mem(CVMJITCompilationContext* con, CVMX86Address adr) {
 }
 
 void CVMX86jmp_imm8(CVMJITCompilationContext* con, CVMX86address dst) {
-   CVMUint32 offset = (int)dst - (int)CVMJITcbufGetPhysicalPC(con) - 2 /* size of jmp_imm8 */;
+   CVMInt32 offset = (int)dst - (int)CVMJITcbufGetPhysicalPC(con) - 2 /* size of jmp_imm8 */;
    CVMassert(dst != NULL /* jcc most probably wrong */);
-   CVMassert(-128 <= offset < 128 /* not a signed 8 bit value */);
+   CVMassert(-128 <= offset && offset < 128 /* not a signed 8 bit value */);
    CVMtraceJITCodegenExec({
       printPC(con);
       CVMconsolePrintf("	jmp_imm8	$0x%x", dst);
@@ -2292,11 +2293,12 @@ void CVMX86jmp_mem(CVMJITCompilationContext* con, CVMX86Address adr) {
 }
 
 
-void CVMX86jcc_imm8(CVMJITCompilationContext* con, CVMX86Condition cc, CVMX86address dst) {
-    CVMUint32 offset = (int)dst - (int)con->curPhysicalPC - 2 /* size of jcc_imm8 */;
-    CVMassert((0 <= cc) && (cc < 16) /* illegal cc */);
+void CVMX86jcc_imm8(CVMJITCompilationContext* con,
+                    CVMX86Condition cc, CVMX86address dst) {
+    CVMInt32 offset = (int)dst - (int)con->curPhysicalPC - 2 /* size of jcc_imm8 */;
+    CVMassert((0 <= (int)cc) && (cc < 16) /* illegal cc */);
     CVMassert(dst != NULL /* jcc most probably wrong */);
-    CVMassert(-128 <= offset < 128 /* not a signed 8 bit value */);
+    CVMassert(-128 <= offset && offset < 128 /* not a signed 8 bit value */);
     CVMtraceJITCodegenExec({
 	char ccBuf[30];
 	printPC(con);
@@ -2311,9 +2313,10 @@ void CVMX86jcc_imm8(CVMJITCompilationContext* con, CVMX86Condition cc, CVMX86add
 }
 
 
-void CVMX86jcc_imm32(CVMJITCompilationContext* con, CVMX86Condition cc, CVMX86address dst) {
+void CVMX86jcc_imm32(CVMJITCompilationContext* con, 
+                     CVMX86Condition cc, CVMX86address dst) {
   CVMUint32 offset = (int)dst - (int)con->curPhysicalPC - 6 /* size of jcc_imm32 */;
-  CVMassert((0 <= cc) && (cc < 16) /* illegal cc */);
+  CVMassert((0 <= (int)cc) && (cc < 16) /* illegal cc */);
   /* 0000 1111 1000 tttn #32-bit disp */
   /* InstructionMark im(this); */
 
@@ -3762,7 +3765,7 @@ getcc(char *buf, CVMX86Condition cc)
      case CVMX86greater:
 	ccStr = "g"; break;
      case CVMX86greaterEqual:
-    ccStr = "ge"; break;
+        ccStr = "ge"; break;
      case CVMX86belowEqual:
 	ccStr = "be"; break;
      case CVMX86above:
@@ -3785,6 +3788,7 @@ getcc(char *buf, CVMX86Condition cc)
 	ccStr = "np"; break;
      default:
 	CVMconsolePrintf("Unknown condition code %d\n", cc);
+	ccStr = NULL;
 	CVMassert(CVM_FALSE);
   }
   strncpy(buf, ccStr, 3);
@@ -4249,17 +4253,34 @@ CVMCPUemitUnaryALU(CVMJITCompilationContext *con, int opcode,
                    int destRegID, int srcRegID, CVMBool setcc)
 {
     switch (opcode) {
-       case CVMCPU_NEG_OPCODE: 
-       {
-	  if(destRegID != srcRegID)
-	  {
-	     CVMX86movl_reg_reg(con,destRegID,srcRegID);
-	  }
-	  CVMX86negl_reg(con,destRegID);       
-	  break;
-       }
-       default:
-	  CVMassert(CVM_FALSE);
+    case CVMCPU_NEG_OPCODE: 
+        if(destRegID != srcRegID) {
+            CVMX86movl_reg_reg(con, destRegID, srcRegID);
+        }
+        CVMX86negl_reg(con, destRegID);       
+        break;
+
+    case CVMCPU_NOT_OPCODE: 
+        if(destRegID != srcRegID) {
+            CVMX86movl_reg_reg(con, destRegID, srcRegID);
+        }
+        /* CVMX86notl_reg(con, destRegID);       */
+        CVMX86testl_reg_reg(con, destRegID, destRegID); /* AND with self. */
+        CVMX86setb_reg(con, CVMX86zero, destRegID); /* Set byte to 1 if 0. */
+        CVMX86movzxb_reg_reg(con, destRegID, destRegID); /* Zero extend. */
+        break;
+
+    case CVMCPU_INT2BIT_OPCODE: 
+        if(destRegID != srcRegID) {
+            CVMX86movl_reg_reg(con, destRegID, srcRegID);
+        }
+        CVMX86testl_reg_reg(con, destRegID, destRegID); /* AND with self. */
+        CVMX86setb_reg(con, CVMX86notZero, destRegID); /* Set to 1 if not 0. */
+        CVMX86movzxb_reg_reg(con, destRegID, destRegID); /* Zero extend. */
+        break;
+
+    default:
+        CVMassert(CVM_FALSE);
     }
 }
 
@@ -5179,6 +5200,7 @@ printAddress(CVMX86Address addr)
 	scaleFac = 8;
 	break;
       default:
+	scaleFac = 0;
 	CVMassert(0);
       }
       getRegName(baseregbuf, addr._base);
@@ -5203,6 +5225,7 @@ printAddress(CVMX86Address addr)
 	scaleFac = 8;
 	break;
       default:
+	scaleFac = 0;
 	CVMassert(0);
       }
       getRegName(baseregbuf, addr._base);

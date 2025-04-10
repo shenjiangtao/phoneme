@@ -1,7 +1,7 @@
 /*
  * @(#)CVM.c	1.82 06/10/30
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -31,6 +31,9 @@
  */
 
 #include "javavm/include/interpreter.h"
+#ifdef CVM_DUAL_STACK
+#include "javavm/include/dualstack_impl.h"
+#endif
 #include "javavm/include/directmem.h"
 #include "javavm/include/indirectmem.h"
 #include "javavm/include/utils.h"
@@ -40,6 +43,9 @@
 #include "javavm/include/preloader.h"
 #include "javavm/export/jvm.h"
 #include "generated/offsets/java_lang_Thread.h"
+
+#include "jni.h"
+#include "generated/javavm/include/build_defs.h"
 
 #ifdef CVM_TRACE_JIT
 #include "javavm/include/jit/jitutils.h"
@@ -54,9 +60,22 @@
 #ifdef CVM_XRUN
 #include "javavm/include/xrun.h"
 #endif
+#include "javavm/include/porting/time.h"
 #ifdef CVM_JVMTI
 #include "javavm/include/jvmti_jni.h"
 #endif
+
+/* Set the systemClassLoader */
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_setSystemClassLoader(CVMExecEnv*ee, CVMStackVal32 *arguments,
+                                     CVMMethodBlock **p_mb)
+{
+    jobject loaderObj = &arguments[0].j.r;
+    CVMD_gcSafeExec(ee, {
+        CVMclassSetSystemClassLoader(ee, loaderObj);
+    });
+    return CNI_VOID;
+}
 
 #ifdef CVM_DEBUG_ASSERTS
 #define CVMassertOKToCopyArrayOfType(expectedType_) \
@@ -96,7 +115,7 @@
 #define CVMassertOKToCopyArrayOfType(expectedType_)
 #endif
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyBooleanArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                  CVMMethodBlock **p_mb)
 {
@@ -118,7 +137,7 @@ CNIsun_misc_CVM_copyBooleanArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyByteArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                               CVMMethodBlock **p_mb)
 {
@@ -140,7 +159,7 @@ CNIsun_misc_CVM_copyByteArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyShortArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                CVMMethodBlock **p_mb)
 {
@@ -162,7 +181,7 @@ CNIsun_misc_CVM_copyShortArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyCharArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                               CVMMethodBlock **p_mb)
 {
@@ -184,7 +203,7 @@ CNIsun_misc_CVM_copyCharArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyIntArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                              CVMMethodBlock **p_mb)
 {
@@ -206,7 +225,7 @@ CNIsun_misc_CVM_copyIntArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyLongArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                               CVMMethodBlock **p_mb)
 {
@@ -228,7 +247,7 @@ CNIsun_misc_CVM_copyLongArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyFloatArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                CVMMethodBlock **p_mb)
 {
@@ -250,7 +269,7 @@ CNIsun_misc_CVM_copyFloatArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyDoubleArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                 CVMMethodBlock **p_mb)
 {
@@ -283,7 +302,7 @@ CNIsun_misc_CVM_copyDoubleArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
    If the condition of these checks and restrictions are not taken cared of
    by the caller, copyObjectArray() can fail in unpredictable ways.
 */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_copyObjectArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                 CVMMethodBlock **p_mb)
 {
@@ -305,7 +324,7 @@ CNIsun_misc_CVM_copyObjectArray(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_checkDebugFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				CVMMethodBlock **p_mb)
 {
@@ -318,7 +337,7 @@ CNIsun_misc_CVM_checkDebugFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_setDebugFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			      CVMMethodBlock **p_mb)
 {
@@ -331,7 +350,7 @@ CNIsun_misc_CVM_setDebugFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_clearDebugFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				CVMMethodBlock **p_mb)
 {
@@ -344,7 +363,7 @@ CNIsun_misc_CVM_clearDebugFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_restoreDebugFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				  CVMMethodBlock **p_mb)
 {
@@ -358,7 +377,7 @@ CNIsun_misc_CVM_restoreDebugFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_checkDebugJITFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                    CVMMethodBlock **p_mb)
 {
@@ -371,7 +390,7 @@ CNIsun_misc_CVM_checkDebugJITFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_setDebugJITFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                  CVMMethodBlock **p_mb)
 {
@@ -384,7 +403,7 @@ CNIsun_misc_CVM_setDebugJITFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_clearDebugJITFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                    CVMMethodBlock **p_mb)
 {
@@ -397,7 +416,7 @@ CNIsun_misc_CVM_clearDebugJITFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_restoreDebugJITFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                      CVMMethodBlock **p_mb)
 {
@@ -419,7 +438,7 @@ CNIsun_misc_CVM_restoreDebugJITFlags(CVMExecEnv* ee, CVMStackVal32 *arguments,
  * method in *p_mb, and return CVM_NEW_MB to the interpreter. This
  * signals the interpreter to invoke the method stored in *p_mb.
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_executeClinit(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			      CVMMethodBlock **p_mb)
 {
@@ -451,7 +470,7 @@ CNIsun_misc_CVM_executeClinit(CVMExecEnv* ee, CVMStackVal32 *arguments,
  * go through the motions anyway.)
  */
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_freeClinit(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			   CVMMethodBlock **p_mb)
 {
@@ -506,7 +525,7 @@ CNIsun_misc_CVM_freeClinit(CVMExecEnv* ee, CVMStackVal32 *arguments,
  * interpreter. This signals the interpreter to invoke the method
  * stored in *p_mb. 
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_executeLoadSuperClasses(
     CVMExecEnv* ee, CVMStackVal32 *arguments, CVMMethodBlock **p_mb)
 {
@@ -516,7 +535,7 @@ CNIsun_misc_CVM_executeLoadSuperClasses(
 }
 
 #ifdef FOR_EXAMPLE
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_arraycopy(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			  CVMMethodBlock **p_mb)
 {
@@ -536,7 +555,7 @@ CNIsun_misc_CVM_arraycopy(CVMExecEnv* ee, CVMStackVal32 *arguments,
 }
 #endif
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_disableRemoteExceptions(CVMExecEnv* ee,
 					CVMStackVal32 *arguments,
 					CVMMethodBlock **p_mb)
@@ -545,7 +564,7 @@ CNIsun_misc_CVM_disableRemoteExceptions(CVMExecEnv* ee,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_enableRemoteExceptions(CVMExecEnv* ee,
 				       CVMStackVal32 *arguments,
 				       CVMMethodBlock **p_mb)
@@ -559,7 +578,7 @@ CNIsun_misc_CVM_enableRemoteExceptions(CVMExecEnv* ee,
     }
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_throwRemoteException(CVMExecEnv* ee,
 				     CVMStackVal32 *arguments,
 				     CVMMethodBlock **p_mb)
@@ -587,7 +606,7 @@ CNIsun_misc_CVM_throwRemoteException(CVMExecEnv* ee,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_throwLocalException(CVMExecEnv* ee,
 				    CVMStackVal32 *arguments,
 				    CVMMethodBlock **p_mb)
@@ -599,32 +618,8 @@ CNIsun_misc_CVM_throwLocalException(CVMExecEnv* ee,
     return CNI_EXCEPTION;
 }
 
-#ifdef CVM_DUAL_STACK
-CVMBool
-CVMclassloaderIsCLDCClassLoader(CVMExecEnv *ee,
-                                CVMClassLoaderICell* loaderICell)
-{
-    if (loaderICell != NULL) {
-        CVMClassBlock* loaderCB = CVMobjectGetClass(
-                                  CVMID_icellDirect(ee, loaderICell));
-        const char *midletLoaderName = "sun/misc/MIDletClassLoader";
-        CVMClassTypeID MIDletClassLoaderID =
-            CVMtypeidLookupClassID(ee, midletLoaderName, 
-                                   strlen(midletLoaderName));
-        if (CVMcbClassName(loaderCB) == MIDletClassLoaderID ){
-            return CVM_TRUE;
-        } else {
-            return CVM_FALSE;
-        }
-    }
-    return CVM_FALSE;
-}
-#endif
-
-CNIResultCode
-CNIsun_misc_CVM_callerCLIsMIDCLs(CVMExecEnv* ee,
-                                   CVMStackVal32 *arguments,
-                                   CVMMethodBlock **p_mb)
+static void isMIDPClass(CVMExecEnv *ee, CVMStackVal32 *arguments,
+                        CVMMethodBlock **p_mb, CVMBool checkImpl)
 {
 #ifndef CVM_DUAL_STACK
     arguments[0].j.i = CVM_FALSE;
@@ -639,13 +634,72 @@ CNIsun_misc_CVM_callerCLIsMIDCLs(CVMExecEnv* ee,
     cb = CVMgetCallerClass(ee, 1);
     loaderICell = (cb == NULL) ? NULL : CVMcbClassLoader(cb);
     
-    arguments[0].j.i = CVMclassloaderIsCLDCClassLoader(ee, loaderICell);
+    arguments[0].j.i = CVMclassloaderIsMIDPClassLoader(
+        ee, loaderICell, checkImpl);
+#endif
+}
+
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_callerCLIsMIDCLs(CVMExecEnv* ee,
+                                   CVMStackVal32 *arguments,
+                                   CVMMethodBlock **p_mb)
+{
+    isMIDPClass(ee, arguments, p_mb, CVM_TRUE);
+    return CNI_SINGLE;
+}
+
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_callerIsMidlet(CVMExecEnv* ee,
+                                   CVMStackVal32 *arguments,
+                                   CVMMethodBlock **p_mb)
+{
+    isMIDPClass(ee, arguments, p_mb, CVM_FALSE);
+    return CNI_SINGLE;
+}
+
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_isMIDPContext(CVMExecEnv* ee,
+                              CVMStackVal32 *arguments,
+                              CVMMethodBlock **p_mb)
+{
+#ifndef CVM_DUAL_STACK
+   arguments[0].j.i = CVM_FALSE;
+#else
+    CVMBool result = CVM_FALSE;
+    int i;
+
+    /* 
+     * Check each caller on the stack to if it is was loaded by a MIDP class
+     * class loader. Note we start one frame up here because
+     * there is no frame pushed for the CNI method.
+     */
+    for (i = 1; ; i++) {
+        CVMClassBlock* cb;
+        CVMClassLoaderICell* loaderICell;
+ 
+        cb = CVMgetCallerClass(ee, i);
+        if (NULL == cb) {
+            break;
+        }
+
+        loaderICell = CVMcbClassLoader(cb);
+        if (NULL == loaderICell) {
+            continue;
+        }
+
+        result = CVMclassloaderIsMIDPClassLoader(ee, loaderICell, CVM_TRUE);
+        if (result) {
+            break;
+        }
+    }
+
+    arguments[0].j.i = result;
 #endif
     return CNI_SINGLE;
 }
 
 /* %begin lvm */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_inMainLVM(CVMExecEnv* ee,
 			  CVMStackVal32 *arguments,
 			  CVMMethodBlock **p_mb)
@@ -662,7 +716,7 @@ CNIsun_misc_CVM_inMainLVM(CVMExecEnv* ee,
 }
 /* %end lvm */
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_gcDumpHeapSimple(CVMExecEnv* ee,
 				 CVMStackVal32 *arguments,
 				 CVMMethodBlock **p_mb)
@@ -676,7 +730,7 @@ CNIsun_misc_CVM_gcDumpHeapSimple(CVMExecEnv* ee,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_gcDumpHeapVerbose(CVMExecEnv* ee,
 				  CVMStackVal32 *arguments,
 				  CVMMethodBlock **p_mb)
@@ -690,7 +744,7 @@ CNIsun_misc_CVM_gcDumpHeapVerbose(CVMExecEnv* ee,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_gcDumpHeapStats(CVMExecEnv* ee,
 				CVMStackVal32 *arguments,
 				CVMMethodBlock **p_mb)
@@ -712,7 +766,7 @@ CNIsun_misc_CVM_gcDumpHeapStats(CVMExecEnv* ee,
 static CVMInt64 millis[TRACE_SIZE];
 static int id[TRACE_SIZE];
 static int indx;
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_trace(CVMExecEnv *ee,
 		      CVMStackVal32 *arguments,
 		      CVMMethodBlock **p_mb)
@@ -740,7 +794,7 @@ CNIsun_misc_CVM_trace(CVMExecEnv *ee,
     return CNI_VOID;
 }
 #else
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_trace(CVMExecEnv *ee,
 		      CVMStackVal32 *arguments,
 		      CVMMethodBlock **p_mb)
@@ -750,17 +804,19 @@ CNIsun_misc_CVM_trace(CVMExecEnv *ee,
 #endif /* !DEBUG */
 
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_setDebugEvents(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
 {
 #ifdef CVM_JVMTI
-    ee->debugEventsEnabled = arguments[0].j.i;
+    if (CVMjvmtiIsEnabled()) {
+	CVMjvmtiDebugEventsEnabled(ee) = arguments[0].j.i;
+    }
 #endif
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_postThreadExit(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
 {
@@ -770,22 +826,18 @@ CNIsun_misc_CVM_postThreadExit(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_setContextArtificial(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				     CVMMethodBlock **p_mb)
 {
-    CVMFrameIterator iter;
-    CVMframeIterate(CVMeeGetCurrentFrame(ee), &iter);
-    CVMframeIterateSkipSpecial(&iter, 0, CVM_FALSE, CVM_FALSE);
-    CVMframeIterateSetFlags(&iter, (CVMFrameFlags)
-	(CVMframeIterateGetFlags(&iter) | CVM_FRAMEFLAG_ARTIFICIAL));
+    CVMframeSetContextArtificial(ee);
     return CNI_VOID;
 }
 
 /*
  * Inflates an object's monitor and marks it sticky so it's never freed.
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_objectInflatePermanently(CVMExecEnv* ee,
 					 CVMStackVal32 *arguments,
 					 CVMMethodBlock **p_mb)
@@ -807,7 +859,7 @@ CNIsun_misc_CVM_objectInflatePermanently(CVMExecEnv* ee,
 /*
  * enable/disable compilations by current thread
  */
-CNIResultCode 
+CNIEXPORT CNIResultCode 
 CNIsun_misc_CVM_setThreadNoCompilationsFlag(CVMExecEnv* ee,
 					    CVMStackVal32 *arguments,
 					    CVMMethodBlock **p_mb)
@@ -818,7 +870,8 @@ CNIsun_misc_CVM_setThreadNoCompilationsFlag(CVMExecEnv* ee,
 #endif    
     return CNI_VOID;
 }
-CNIResultCode
+
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_getCallerClass(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
 {
@@ -838,7 +891,7 @@ CNIsun_misc_CVM_getCallerClass(CVMExecEnv* ee, CVMStackVal32 *arguments,
 /*
  * Is the compiler built in?
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_isCompilerSupported(CVMExecEnv* ee,
 				    CVMStackVal32 *arguments,
 				    CVMMethodBlock **p_mb)
@@ -854,7 +907,7 @@ CNIsun_misc_CVM_isCompilerSupported(CVMExecEnv* ee,
 /*
  * Request a dump of the profiling data collected by the compiler if available.
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_dumpCompilerProfileData(CVMExecEnv* ee,
 				        CVMStackVal32 *arguments,
 				        CVMMethodBlock **p_mb)
@@ -870,7 +923,7 @@ CNIsun_misc_CVM_dumpCompilerProfileData(CVMExecEnv* ee,
 /*
  * Dump misc. stats
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_dumpStats(CVMExecEnv* ee,
 			  CVMStackVal32 *arguments,
 			  CVMMethodBlock **p_mb)
@@ -888,14 +941,14 @@ CNIsun_misc_CVM_dumpStats(CVMExecEnv* ee,
 /*
  * Mark the code buffer
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_markCodeBuffer(CVMExecEnv* ee,
 			       CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
 {
 #ifdef CVM_JIT
     CVMJITmarkCodeBuffer();
-#ifdef CVM_DEBUG
+#if 0
     CVMconsolePrintf("MARKED THIS JITBUFFER SPOT, %d BYTES IN USE\n",
 		     CVMglobals.jit.codeCacheBytesAllocated);
 #endif
@@ -912,13 +965,15 @@ CNIsun_misc_CVM_markCodeBuffer(CVMExecEnv* ee,
 /*
  * Enable compilation
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_initializeJITPolicy(CVMExecEnv* ee,
 			          CVMStackVal32 *arguments,
 			          CVMMethodBlock **p_m)
 {
 #ifdef CVM_JIT
-    CVMjitPolicyInit(ee, &CVMglobals.jit);
+#if defined(CVM_AOT) || defined(CVM_MTASK)
+    CVMjitProcessOptionsAndPolicyInit(ee, &CVMglobals.jit);
+#endif
 #endif
 
     return CNI_VOID;
@@ -927,7 +982,7 @@ CNIsun_misc_CVM_initializeJITPolicy(CVMExecEnv* ee,
 /*
  * Initialize pre-compiled code.
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_initializeAOTCode(CVMExecEnv* ee,
                                   CVMStackVal32 *arguments,
                                   CVMMethodBlock **p_m)
@@ -944,7 +999,7 @@ CNIsun_misc_CVM_initializeAOTCode(CVMExecEnv* ee,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_maskInterrupts(CVMExecEnv* ee,
 			       CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
@@ -955,7 +1010,7 @@ CNIsun_misc_CVM_maskInterrupts(CVMExecEnv* ee,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_unmaskInterrupts(CVMExecEnv* ee,
 			       CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
@@ -967,7 +1022,7 @@ CNIsun_misc_CVM_unmaskInterrupts(CVMExecEnv* ee,
 }
 
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_parseVerifyOptions(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				   CVMMethodBlock **p_mb)
 {
@@ -990,7 +1045,37 @@ CNIsun_misc_CVM_parseVerifyOptions(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_parseSplitVerifyOptions(CVMExecEnv* ee,
+                                        CVMStackVal32 *arguments,
+                                        CVMMethodBlock **p_mb)
+{
+    CVMBool result;
+#ifdef CVM_SPLIT_VERIFY
+    jobject opts  = &arguments[0].j.r;
+    char* value = CVMconvertJavaStringToCString(ee, opts);
+    if (value == NULL) {
+	result = CVM_FALSE;
+    } else {
+        if (!strcmp(value, "true")) {
+            CVMglobals.splitVerify = CVM_TRUE;
+            result = CVM_TRUE;
+        } else if (!strcmp(value, "false")) {
+            result = CVM_TRUE;
+            CVMglobals.splitVerify = CVM_FALSE;
+        } else {
+            result = CVM_FALSE;
+        }
+	free(value);
+    }
+#else
+    result = CVM_FALSE;
+#endif
+    arguments[0].j.i = result;
+    return CNI_SINGLE;
+}
+
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_parseXoptOptions(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				   CVMMethodBlock **p_mb)
 {
@@ -1009,7 +1094,7 @@ CNIsun_misc_CVM_parseXoptOptions(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_parseXssOption(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
 {
@@ -1028,7 +1113,7 @@ CNIsun_misc_CVM_parseXssOption(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_parseXgcOptions(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				CVMMethodBlock **p_mb)
 {
@@ -1051,7 +1136,7 @@ CNIsun_misc_CVM_parseXgcOptions(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_parseAssertionOptions(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				      CVMMethodBlock **p_mb)
 {
@@ -1120,7 +1205,7 @@ done:
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_agentlibSupported(CVMExecEnv* ee,
 			      CVMStackVal32 *arguments,
 			      CVMMethodBlock **p_mb)
@@ -1134,7 +1219,7 @@ CNIsun_misc_CVM_agentlibSupported(CVMExecEnv* ee,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_agentlibInitialize(CVMExecEnv* ee,
 			      CVMStackVal32 *arguments,
 			      CVMMethodBlock **p_mb)
@@ -1142,7 +1227,7 @@ CNIsun_misc_CVM_agentlibInitialize(CVMExecEnv* ee,
 #ifdef CVM_AGENTLIB
     CVMJavaInt numArgs = arguments[0].j.i;
     
-    if (CVMAgentInitTable(&CVMglobals.agentonUnloadTable, numArgs)) {
+    if (CVMAgentInitTable(&CVMglobals.agentTable, numArgs)) {
 	arguments[0].j.i = CVM_TRUE;
     } else {
 	arguments[0].j.i = CVM_FALSE;
@@ -1154,7 +1239,7 @@ CNIsun_misc_CVM_agentlibInitialize(CVMExecEnv* ee,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_agentlibProcess(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			    CVMMethodBlock **p_mb)
 {
@@ -1176,7 +1261,7 @@ CNIsun_misc_CVM_agentlibProcess(CVMExecEnv* ee, CVMStackVal32 *arguments,
 	}
 	CVMD_gcSafeExec(ee, {
 		if ((*env)->PushLocalFrame(env, 16) == JNI_OK) {
-		    result = CVMAgentHandleArgument(&CVMglobals.agentonUnloadTable,
+		    result = CVMAgentHandleArgument(&CVMglobals.agentTable,
 						    env,
 						    &agentlibArgument);
 		    (*env)->PopLocalFrame(env, NULL);
@@ -1192,7 +1277,7 @@ CNIsun_misc_CVM_agentlibProcess(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_xrunSupported(CVMExecEnv* ee,
 			      CVMStackVal32 *arguments,
 			      CVMMethodBlock **p_mb)
@@ -1207,7 +1292,7 @@ CNIsun_misc_CVM_xrunSupported(CVMExecEnv* ee,
 }
 
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_xrunInitialize(CVMExecEnv* ee,
 			      CVMStackVal32 *arguments,
 			      CVMMethodBlock **p_mb)
@@ -1227,7 +1312,7 @@ CNIsun_misc_CVM_xrunInitialize(CVMExecEnv* ee,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_xrunProcess(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			    CVMMethodBlock **p_mb)
 {
@@ -1258,19 +1343,19 @@ CNIsun_misc_CVM_xrunProcess(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_xdebugSet(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			  CVMMethodBlock **p_mb)
 {
     arguments[0].j.i = CVM_FALSE;
 #ifdef CVM_JVMTI
     /*
-     * NOTE: JVMTI doesn't use -Xdebug so this is actually set in
-     * jvmtiEnv.c CVMcreateJvmti()
+     * NOTE: JVMTI uses -Xdebug to signal that this is a debugging
+     * session vs. profiling.  This flag causes several jvmti 
+     * capabilities to be turned off.  See jvmtiCapabilities.c
      */
-    CVMglobals.jvmtiDebuggingEnabled = CVM_TRUE;
-    CVMjvmtiInstrumentJNINativeInterface();
-    arguments[0].j.i = CVM_TRUE;
+    CVMjvmtiSetDebugOption(CVM_TRUE); 
+    arguments[0].j.i = CVM_TRUE; 
 #endif
 
     return CNI_SINGLE;
@@ -1280,7 +1365,7 @@ CNIsun_misc_CVM_xdebugSet(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #include "jni_util.h"
 
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_00024Preloader_getClassLoaderNames(CVMExecEnv* ee,
     CVMStackVal32 *arguments,
     CVMMethodBlock **p_mb)
@@ -1316,7 +1401,7 @@ CNIsun_misc_CVM_00024Preloader_getClassLoaderNames(CVMExecEnv* ee,
     return result;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_00024Preloader_registerClassLoader0(CVMExecEnv* ee,
     CVMStackVal32 *arguments,
     CVMMethodBlock **p_mb)
@@ -1328,6 +1413,19 @@ CNIsun_misc_CVM_00024Preloader_registerClassLoader0(CVMExecEnv* ee,
     return CNI_VOID;
 }
 
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_nanoTime(CVMExecEnv* ee, CVMStackVal32 *arguments, CVMMethodBlock **p_mb)
+{
+    jlong time;
+#ifdef CVM_JVMTI
+    time = CVMtimeNanosecs();
+#else
+    time = (jlong)(((CVMInt64)CVMtimeMillis()) * 1000000);
+#endif
+    CVMlong2Jvm((CVMAddr*)&arguments[0].j, time);
+    return CNI_DOUBLE;
+}
+
 #if 1
 
 /*
@@ -1336,7 +1434,7 @@ CNIsun_misc_CVM_00024Preloader_registerClassLoader0(CVMExecEnv* ee,
  * case they are implemented as intrinsics emitters.
  */
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_simpleLockGrab(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb) {
     CVMassert(CVM_FALSE);
@@ -1344,7 +1442,7 @@ CNIsun_misc_CVM_simpleLockGrab(CVMExecEnv* ee, CVMStackVal32 *arguments,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_simpleLockRelease(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				  CVMMethodBlock **p_mb)
 {
@@ -1394,7 +1492,7 @@ extern void dumpMBs() {
 }
 
 /* NOTE: this code is disabled. See comment above */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_simpleLockGrab(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
 {
@@ -1417,7 +1515,7 @@ CNIsun_misc_CVM_simpleLockGrab(CVMExecEnv* ee, CVMStackVal32 *arguments,
 }
 
 /* NOTE: this code is disabled. See comment above */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVM_simpleLockRelease(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				  CVMMethodBlock **p_mb)
 {
@@ -1425,3 +1523,361 @@ CNIsun_misc_CVM_simpleLockRelease(CVMExecEnv* ee, CVMStackVal32 *arguments,
 }
 
 #endif
+
+/* Gets the VM build options as a Java string. */
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_getBuildOptionString(CVMExecEnv* ee, CVMStackVal32 *arguments,
+				     CVMMethodBlock **p_mb)
+{
+    jobject result = NULL;
+
+    CVMD_gcSafeExec(ee, {
+        JNIEnv *env = CVMexecEnv2JniEnv(ee);
+        if ((*env)->PushLocalFrame(env, 4) == 0) {
+	    result = (*env)->NewStringUTF(env, CVM_BUILD_OPTIONS);
+            if (result != NULL) {
+                CVMID_icellAssign(ee, &arguments[0].j.r, result);
+            }
+	    (*env)->PopLocalFrame(env, NULL);
+	}
+    });
+
+    if (CVMexceptionOccurred(ee)) {
+        return CNI_EXCEPTION;
+    }
+
+    return CNI_SINGLE;
+}
+
+/*
+ * Sets java.net.URLConnection.defaultUseCaches to the boolean
+ * argument passed in.
+ */
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_setURLConnectionDefaultUseCaches(CVMExecEnv* ee,
+						 CVMStackVal32 *arguments,
+						 CVMMethodBlock **p_mb)
+{
+    CVMClassBlock* cb = CVMsystemClass(java_net_URLConnection);
+    CVMFieldTypeID fieldTypeID = CVMtypeidLookupFieldIDFromNameAndSig(
+        ee, "defaultUseCaches", "Z");
+    CVMFieldBlock* fb = CVMclassGetStaticFieldBlock(cb, fieldTypeID);
+    CVMassert(fb != NULL);
+    CVMfbStaticField(ee, fb).i = arguments[0].j.i;
+    return CNI_VOID;
+}
+
+/*
+ * Clears the ucp field of the URLClassLoader passed in, which allows
+ * the JarFiles opened by the URLClassLoader to be gc'd and closed,
+ * even if the URLClassLoader is kept live.
+ */
+#include "generated/offsets/java_net_URLClassLoader.h"
+extern const CVMClassBlock java_net_URLConnection_Classblock;
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_clearURLClassLoaderUcpField(CVMExecEnv* ee,
+					    CVMStackVal32 *arguments,
+					    CVMMethodBlock **p_mb)
+{
+    CVMObjectICell* classLoaderICell = &arguments[0].j.r;
+    CVMD_fieldWriteRef(CVMID_icellDirect(ee, classLoaderICell),
+			 CVMoffsetOfjava_net_URLClassLoader_ucp,
+			 NULL);
+    return CNI_VOID;
+}
+
+/*
+ * Returns Throwable.backtrace, a private field.
+ */
+#include "generated/offsets/java_lang_Throwable.h"
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_getExceptionBackTrace(CVMExecEnv* ee,
+                                      CVMStackVal32 *arguments,
+                                      CVMMethodBlock **p_mb)
+{
+    CVMObjectICell* throwableICell = &arguments[0].j.r;
+    CVMObject* backtrace;
+    CVMD_fieldReadRef(CVMID_icellDirect(ee, throwableICell),
+                      CVMoffsetOfjava_lang_Throwable_backtrace,
+                      backtrace);
+    CVMID_icellSetDirect(ee, &arguments[0].j.r, backtrace);
+    return CNI_SINGLE;
+}
+
+/*
+ * Set ThreadGroup.saveThreadStarterClassFlag.
+ */
+#include "generated/offsets/java_lang_ThreadGroup.h"
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_setSaveThreadStarterClassFlag(CVMExecEnv* ee,
+                                              CVMStackVal32 *arguments,
+                                              CVMMethodBlock **p_mb)
+{
+    CVMObjectICell* groupICell = &arguments[0].j.r;
+    CVMBool value = arguments[1].j.i;
+    CVMD_fieldWriteInt(CVMID_icellDirect(ee, groupICell),
+                       CVMoffsetOfjava_lang_ThreadGroup_saveThreadStarterClassFlag,
+                       value);
+    return CNI_VOID;
+}
+
+/*
+ * Get Thread.threadStarterClass, a private field.
+ */
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_getThreadStarterClass(CVMExecEnv* ee,
+                                       CVMStackVal32 *arguments,
+                                       CVMMethodBlock **p_mb)
+{
+    CVMObjectICell* threadICell = &arguments[0].j.r;
+    CVMObject* backtrace;
+    CVMD_fieldReadRef(CVMID_icellDirect(ee, threadICell),
+                      CVMoffsetOfjava_lang_Thread_threadStarterClass,
+                      backtrace);
+    CVMID_icellSetDirect(ee, &arguments[0].j.r, backtrace);
+    return CNI_SINGLE;
+}
+
+/*
+ * Do a minimal GC if System.gc() called directly by MIDlet
+ */
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_gc(CVMExecEnv* ee,
+                   CVMStackVal32 *arguments,
+                   CVMMethodBlock **p_mb)
+{
+    CVMD_gcSafeExec(ee, {
+            CVMgcRunGCMin(ee);
+    });
+    return CNI_VOID;
+}          
+
+#include "generated/offsets/java_lang_ClassLoader.h"
+
+/*
+ * Used to set java.lang.ClassLoader.noVerification.
+ */
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_setNoVerification(CVMExecEnv* ee,
+                                  CVMStackVal32 *arguments,
+                                  CVMMethodBlock **p_mb)
+{
+    if (CVMglobals.classVerificationLevel != CVM_VERIFY_ALL) {
+        CVMObjectICell* classLoaderICell = &arguments[0].j.r;
+        CVMBool noVerification = arguments[1].j.i;
+        CVMD_fieldWriteInt(CVMID_icellDirect(ee, classLoaderICell),
+                           CVMoffsetOfjava_lang_ClassLoader_noVerification,
+                           noVerification);
+    }
+    return CNI_VOID;
+}
+
+/******************************************************
+ * CVM.nullifyRefsToDeadApp() can be used to forcefully 
+ * nullify references to application objects after setting
+ * the corresponding classloader using CVM.setDeadLoader().
+ ******************************************************/
+
+static void
+nullifyRefCallBack(CVMObject** refPtr, void* data) {
+    CVMObject* ref = *refPtr;
+    CVMClassBlock *cb;
+
+    if (ref == NULL || CVMobjectIsInROM(ref)) {
+        return;
+    }
+
+    cb = CVMobjectGetClass(ref);
+
+    if (data == NULL) {
+        if (cb != CVMsystemClass(java_lang_Class)) {
+            /* CVMconsolePrintf("===nullify application, size: %d\tClass: %C\n",
+                    CVMobjectSizeGivenClass(*refPtr,cb), cb); */
+            *refPtr = NULL;
+        }
+    } else {
+
+        CVMClassLoaderICell* currLoader = CVMcbClassLoader(cb);
+        CVMClassLoaderICell* deadLoader = (CVMClassLoaderICell*)data;
+        CVMObject* deadLoaderObj;
+        CVMObject* currLoaderObj;
+
+        if (currLoader != NULL) {
+            deadLoaderObj = (CVMObject*)deadLoader->ref_DONT_ACCESS_DIRECTLY;
+            currLoaderObj = (CVMObject*)currLoader->ref_DONT_ACCESS_DIRECTLY;
+            if (currLoaderObj == deadLoaderObj) {
+                /* CVMconsolePrintf("===nullify size: %d\tClass: %C\n",
+                        CVMobjectSizeGivenClass(*refPtr,cb), cb); */
+                *refPtr = NULL;
+            }
+        }
+    }
+    return;
+}
+
+
+static CVMBool
+iterateHeapCallBack(CVMObject* obj, CVMClassBlock* cb,
+                    CVMUint32 size, void* data)
+{
+    CVMExecEnv *ee = CVMgetEE();
+    CVMGCOptions gcOpts = {
+        /* isUpdatingObjectPointers */ CVM_FALSE,
+        /* discoverWeakReferences   */ CVM_FALSE,
+#if defined(CVM_DEBUG) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
+        /* isProfilingPass          */ CVM_FALSE
+#endif
+    };
+    CVMGCOptions *gcOptsPtr = &gcOpts;
+
+    /* Here we might want to check if CVMcbClassLoader(cb) is the same
+     * as the class loader passed in data, and perform different actions
+     * for application objects, and objects of classes not loaded by the
+     * application's class loader.
+     * Nullifying all refernces in application classes, is not safe!
+     * Nullifying references in none application objects is more risky
+     * than nullifying references in application objects, but provides
+     * better protection against system memory leak bugs. For now, we
+     * nullify all heap references to application objects.
+     */
+    CVMobjectWalkRefsWithSpecialHandling(ee, gcOptsPtr, obj,
+                                         CVMobjectGetClassWord(obj), {
+        if (*refPtr != 0) {
+            (*nullifyRefCallBack)(refPtr, data);
+        }
+    }, nullifyRefCallBack, data);
+    return CVM_TRUE;
+}
+
+extern void
+CVMgcScanStatics(CVMExecEnv *ee, CVMGCOptions* gcOpts,
+                 CVMRefCallbackFunc callback, void* data);
+
+static void
+scanClassCallBack(CVMExecEnv* ee, CVMClassBlock* cb, void* data)
+{
+    CVMClassLoaderICell* currLoader = CVMcbClassLoader(cb); 
+    CVMClassLoaderICell* deadLoader = (CVMClassLoaderICell*)data;
+     if ((currLoader != NULL) && (deadLoader->ref_DONT_ACCESS_DIRECTLY ==
+                                 currLoader->ref_DONT_ACCESS_DIRECTLY)) {
+
+       /* 
+        * Nullifying any static reference from application classes, is
+        * highly benficial for application leaking by thread. The leaking
+        * thread holds the class loader, and thus the classes, and thus
+        * any static data.
+        * Nullifying application statics is low risk.
+        */
+        CVMscanClassIfNeeded(ee, cb, nullifyRefCallBack, NULL);
+    } else {
+       /* 
+        * Nullifying static references to application objects, is
+        * a guard aginst system bugs. Use this for testing to reduce the likelihood
+        * of such bugs remaining in the shipping product. Consider turning it off
+        * in final product, since the risk of causing NPE in the system may outweigh
+        * the potential benefit.
+        */
+        CVMscanClassIfNeeded(ee, cb, nullifyRefCallBack, data);
+    }
+}
+
+int nullifyRefs = 0;
+
+static CVMBool scanRefAction(CVMExecEnv *ee, void *data)
+{
+    CVMgcClearClassMarks(ee, NULL);
+
+    /* scan preloader statics */
+    /* Nullifying static references to application objects, is
+     * a guard aginst system bugs. Use this for testing to reduce the likelihood
+     * of such bugs remaining in the shipping product. Consider turning it off
+     * in final product, since the risk of causing NPE in the system may outweigh
+     * the potential benefit.
+     */
+    /* CVMconsolePrintf("===nullify preloader statics\n"); */
+    {
+        CVMAddr  numRefStatics = CVMpreloaderNumberOfRefStatics();
+        CVMAddr* refStatics    = CVMpreloaderGetRefStatics();
+        CVMwalkContiguousRefs(refStatics, numRefStatics,
+                              nullifyRefCallBack,
+                              data);
+    }
+
+    /* scan dynamic loaded class statics */
+    /* CVMconsolePrintf("===nullify dynamic classes statics\n"); */
+    /*CVMsetDebugFlags(CVM_DEBUGFLAG(TRACE_GCSCAN));*/
+    CVMclassIterateAllClasses(ee, scanClassCallBack, data);
+    /*CVMclearDebugFlags(CVM_DEBUGFLAG(TRACE_GCSCAN));*/
+
+    /* iterate the heap objects */
+    /* CVMconsolePrintf("===nullify heap references\n"); */
+    CVMgcimplIterateHeap(ee, iterateHeapCallBack, data);
+
+    return CVM_TRUE;
+}
+
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_nullifyRefsToDeadApp0(CVMExecEnv* ee,
+                                CVMStackVal32 *arguments,
+                                CVMMethodBlock **p_mb)
+{
+    CVMClassLoaderICell* deadLoader = (CVMClassLoaderICell*)&arguments[0].j.r;
+
+    if (nullifyRefs) {
+
+#ifdef CVM_JIT
+        CVMD_gcSafeExec(ee, {
+            CVMsysMutexLock(ee, &CVMglobals.jitLock);
+        });
+#endif
+
+        CVMD_gcSafeExec(ee, {
+            CVMsysMutexLock(ee, &CVMglobals.heapLock);
+
+            CVMgcStopTheWorldAndDoAction(ee, deadLoader, NULL,
+                scanRefAction, NULL, NULL, NULL);
+
+            CVMsysMutexUnlock(ee, &CVMglobals.heapLock);
+        });
+
+#ifdef CVM_JIT
+        CVMsysMutexUnlock(ee, &CVMglobals.jitLock);
+#endif
+    }
+
+    return CNI_VOID;
+}
+
+/* Set the 'ignoreInterruptedException' flag in the target
+ * thread's 'ee'. The VM will ignore the InterruptedException
+ * handler in the target thread's non-system code.
+ */
+CNIEXPORT CNIResultCode
+CNIsun_misc_CVM_ignoreInterruptedException(CVMExecEnv* ee,
+                                CVMStackVal32 *arguments,
+                                CVMMethodBlock **p_mb)
+{
+    CVMObjectICell *threadICell = &arguments[0].j.r;
+    CVMJavaLong eetop;
+    CVMExecEnv *targetEE;
+
+    CVMD_gcSafeExec(ee, {
+        CVMsysMutexLock(ee, &CVMglobals.threadLock);
+    });
+
+    CVMD_fieldReadLong(CVMID_icellDirect(ee, threadICell),
+                       CVMoffsetOfjava_lang_Thread_eetop,
+                       eetop);
+    targetEE = (CVMExecEnv *)CVMlong2VoidPtr(eetop);
+
+    if (targetEE != NULL) {
+        targetEE->ignoreInterruptedException = CVM_TRUE;
+    }
+
+    CVMD_gcSafeExec(ee, {
+        CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
+    });
+
+    return CNI_VOID;
+}
+

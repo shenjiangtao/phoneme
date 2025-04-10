@@ -1,7 +1,7 @@
 /*
  * @(#)UnicodeConstant.java	1.13 06/10/21
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -45,18 +45,18 @@ class UnicodeConstant extends ConstantObject
     public int	  stringTableOffset;	// used by in-core output writers
     public boolean isSuffix = false;    // used by in-core output writers
 
-    private UnicodeConstant( int t, String s ){
-	tag = t;
+    public UnicodeConstant(String s) {
+        super(Const.CONSTANT_UTF8);
 	string = s;
-	nSlots = 1;
     }
 
-    public UnicodeConstant( String s ){
-	this( Const.CONSTANT_UTF8, s );
-    }
-
-    public static ConstantObject read( int t, DataInput i ) throws IOException{
-	return new UnicodeConstant( t, i.readUTF() );
+    /**
+     * Factory method to construct a UnicodeConstant instance from the
+     * constant pool data stream.  This method is only called from the
+     * ConstantObject.readObject() factory.
+     */
+    static ConstantObject read(DataInput i) throws IOException {
+	return new UnicodeConstant(i.readUTF());
     }
 
     public void write( DataOutput o ) throws IOException{
@@ -71,7 +71,7 @@ class UnicodeConstant extends ConstantObject
 
     public void incReference() {
 	Throwable t;
-	references++;
+        super.incReference();
 	t = new Error();
 	System.err.println("UnicodeConstant.incReference() at ");
 	t.printStackTrace();
@@ -100,7 +100,7 @@ class UnicodeConstant extends ConstantObject
      * This should stop processing and print a backtrace to the offender.
      */
     public void validate(){
-	if ((references != 0) || (ldcReferences != 0)){
+	if ((getReferences() != 0) || (getLdcReferences() != 0)) {
 	    throw new ValidationException("Referenced UnicodeConstant", this);
 	}
 	if (index != -1){

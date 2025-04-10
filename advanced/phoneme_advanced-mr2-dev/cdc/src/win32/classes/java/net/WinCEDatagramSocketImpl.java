@@ -1,7 +1,7 @@
 /*
  * @(#)WinCEDatagramSocketImpl.java	1.6 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -48,11 +48,26 @@ class WinCEDatagramSocketImpl extends PlainDatagramSocketImpl
 	    receive(p);
 	    peekPacket = p;
 	}
-	copyInetAddress(i, peekPacket.getAddress());
+	i.address = peekPacket.getAddress().address;
+	i.family = peekPacket.getAddress().family;
 	return peekPacket.getPort();
     }
 
-    private static native void copyInetAddress(InetAddress dest, InetAddress src);
+    protected synchronized int peekData(DatagramPacket pd) throws IOException {
+	if (peekPacket == null) {
+	    int len = bufLength;
+	    DatagramPacket p = new DatagramPacket(new byte[len], len);
+	    receive(p);
+	    peekPacket = p;
+	}
+	int peeklen = Math.min(pd.getLength(), peekPacket.getLength());
+	System.arraycopy(peekPacket.getData(), peekPacket.getOffset(),
+			 pd.getData(), pd.getOffset(), peeklen);
+	pd.setLength(peeklen);
+	pd.setAddress(peekPacket.getAddress());
+	pd.setPort(peekPacket.getPort());
+	return peekPacket.getPort();
+    }
 
     protected synchronized void receive(DatagramPacket p) throws IOException {
 	if (peekPacket == null) {

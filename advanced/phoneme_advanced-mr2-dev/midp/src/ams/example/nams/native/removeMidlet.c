@@ -1,24 +1,24 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
@@ -73,7 +73,7 @@ static const char* const removeUsageText =
  */
 int removeMidlet(int argc, char* argv[]) {
     int   status = -1;
-    char* midpHome = NULL;
+    char* appDir = NULL;
 
     if (argc == 1) {
         fprintf(stderr, removeUsageText);
@@ -87,12 +87,12 @@ int removeMidlet(int argc, char* argv[]) {
     }
 
     /* get midp home directory, set it */
-    midpHome = midpFixMidpHome(argv[0]);
-    if (midpHome == NULL) {
+    appDir = getApplicationDir(argv[0]);
+    if (appDir == NULL) {
         return -1;
     }
-    /* set up midpHome before calling initialize */
-    midpSetHomeDir(midpHome);
+    /* set up appDir before calling initialize */
+    midpSetAppDir(appDir);
 
     if (midpInitialize() != 0) {
         REPORT_ERROR(LC_AMS, "Not enough memory");

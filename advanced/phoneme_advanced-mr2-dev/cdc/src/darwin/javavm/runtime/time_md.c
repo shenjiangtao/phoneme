@@ -1,7 +1,7 @@
 /*
  * @(#)time_md.c	1.8 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -26,6 +26,50 @@
  */
 
 #include "javavm/include/porting/time.h"
+#include "javavm/include/porting/threads.h"
+#include "javavm/include/porting/ansi/stdlib.h"
+#include "portlibs/posix/threads.h"
+#include <stdio.h>
+#include <pthread.h>
+#include <errno.h>
+#include <dlfcn.h>
+#include <unistd.h>
+#include <string.h>
+#include "javavm/include/interpreter.h"
+#include "javavm/include/assert.h"
+
+#ifdef CVM_JVMTI
+#define NANOS_PER_SEC         1000000000L
+#define NANOS_PER_MILLISEC    1000000
+ 
+void CVMtimeClockInit(void) {
+}
+
+CVMBool
+CVMtimeIsThreadCpuTimeSupported(void) {
+    return CVM_FALSE;
+}
+
+CVMInt64
+CVMtimeThreadCpuTime(CVMThreadID *thread) {
+    return -1;
+}
+
+void CVMtimeThreadCpuClockInit(CVMThreadID *threadID) {
+    (void)threadID;
+}
+
+CVMInt64
+CVMtimeCurrentThreadCpuTime(CVMThreadID *threadID) {
+    return CVMtimeThreadCpuTime(threadID);
+}
+
+CVMInt64
+CVMtimeNanosecs(void)
+{
+    return CVMtimeMillis() * NANOS_PER_MILLISEC; /* the best we can do. */
+}
+#endif
 
 CVMInt64
 CVMtimeMillis(void)

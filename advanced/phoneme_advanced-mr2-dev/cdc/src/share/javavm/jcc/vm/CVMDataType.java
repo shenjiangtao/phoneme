@@ -1,7 +1,7 @@
 /*
  * @(#)CVMDataType.java	1.9 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -147,8 +147,9 @@ public abstract class CVMDataType implements CVMTypeCode, util.ClassFileConst {
 	{
 	    if ( d instanceof CVMClassDataType ){
 		CVMClassDataType c = (CVMClassDataType)d;
-		if ( c.classInPackage == classInPkg )
+		if (c.classInPackage == classInPkg) {
 		    return c;
+                }
 	    }
 	    prev = d;
 	}

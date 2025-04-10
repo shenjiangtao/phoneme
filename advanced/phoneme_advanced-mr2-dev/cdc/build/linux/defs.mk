@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -28,6 +28,15 @@
 # defs for Linux target
 #
 
+# enable/disable all IAI optimizations
+LINUX_ENABLE_SET_AFFINITY ?= false
+CVM_FLAGS	+= LINUX_ENABLE_SET_AFFINITY
+LINUX_ENABLE_SET_AFFINITY_CLEANUP_ACTION = \
+	rm -rf $(CVM_OBJDIR)/globals_md.o
+ifeq ($(LINUX_ENABLE_SET_AFFINITY), true)
+CVM_DEFINES += -DLINUX_ENABLE_SET_AFFINITY
+endif
+
 CVM_TARGETROOT	= $(CVM_TOP)/src/$(TARGET_OS)
 
 #
@@ -49,11 +58,11 @@ CVM_SRCDIRS   += \
 	$(CVM_TARGETROOT)/native/java/io \
 	$(CVM_TARGETROOT)/native/java/net \
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src \
-	-I$(CVM_TARGETROOT) \
-	-I$(CVM_TARGETROOT)/native/java/net \
-	-I$(CVM_TARGETROOT)/native/common \
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src \
+	$(CVM_TARGETROOT) \
+	$(CVM_TARGETROOT)/native/java/net \
+	$(CVM_TARGETROOT)/native/common \
 
 #
 # Platform specific objects
@@ -79,18 +88,21 @@ CVM_TARGETOBJS_SPACE += \
 	memory_md.o \
 
 #
-# On linux, CVM_INCLUDE_JUMP=true if and only if CVM_MTASK=true
+# On linux, USE_JUMP=true if and only if CVM_MTASK=true
 #
-ifeq ($(CVM_INCLUDE_JUMP), true)
+ifeq ($(USE_JUMP), true)
 override CVM_MTASK	= true
 endif
 ifeq ($(CVM_MTASK), true)
-override CVM_INCLUDE_JUMP = true
+ifneq ($(USE_JUMP), true)
+# It is too late to force USE_JUMP=true at this point, so produce an error.
+$(error CVM_MTASK=true requires USE_JUMP=true)
+endif
 endif
 
 ifeq ($(CVM_MTASK), true)
 CLASSLIB_CLASSES += \
-       sun.mtask.Warmup 
+       sun.misc.Warmup 
 CVM_DEFINES   += -DCVM_MTASK
 CVM_SHAREOBJS_SPACE += \
 	mtask.o 

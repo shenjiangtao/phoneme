@@ -1,7 +1,7 @@
 /*
  * @(#)string_impl.h	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -52,6 +52,12 @@ struct java_lang_String {
 	CVMJavaInt		count;
 #ifdef CVM_64
         CVMJavaInt pad_to_slot_size_1;
+#endif
+#if JAVASE >= 16
+        CVMJavaInt hash;
+#ifdef CVM_64
+        CVMJavaInt pad_to_slot_size_2;
+#endif
 #endif
 };
 

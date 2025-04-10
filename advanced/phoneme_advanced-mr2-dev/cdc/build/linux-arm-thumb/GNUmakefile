@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -48,7 +48,7 @@ CC_ARCH_FLAGS		= -mcpu=xscale  -mthumb-interwork -DCVM_STATIC_LINK
 CC_ARCH_FLAGS_FDLIB	=
 CC_ARCH_FLAGS_LOOP 	=
 LINK_ARCH_FLAGS		= -mthumb-interwork -static
-# FIXME: Why do we need to specify libgcc.a?
+# TODO: Why do we need to specify libgcc.a?
 LINK_ARCH_LIBS		= $(CVM_TOOLS_DIR)/lib/libgcc.a
 
 # assume the JIT is enabled for this device unless told otherwise

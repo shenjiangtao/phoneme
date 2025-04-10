@@ -1,7 +1,7 @@
 /*
  * %W% %E%
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -48,6 +48,9 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
     /** Open count */
     int opens = 0;
 
+    /** IPv6 address */
+    boolean ipv6 = false;
+
     /**
      * Open the connection
      */
@@ -56,12 +59,55 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
     }
 
     /*
-     * throws SecurityException if MIDP permission check fails 
-     * nothing to do for CDC
-    */
-    protected void checkMIDPPermission(String host, int port) {
+     * Check permission to connect to the indicated host.
+     * This should be overriden by the MIDP protocol handler
+     * to check the proper MIDP permission.
+     */
+    protected void checkPermission(String host, int port) {
+        // Check for SecurityManager.checkConnect()
+        java.lang.SecurityManager sm = System.getSecurityManager();
+        if (sm != null){
+            if (host != null) {
+                sm.checkConnect(host, port);
+            } else {
+                sm.checkConnect("localhost", port);
+            }
+        }               
         return;
-    }    
+    }
+
+    /*
+     * Check permission when opening an OutputStream. MIDP
+     * versions of the protocol handler should override this
+     * with an empty method. Throw a SecurityException if
+     * the connection is not allowed. Currently the socket
+     * protocol handler does not make a permission check at
+     * this point so this method is empty.
+     */
+    protected void outputStreamPermissionCheck() {
+        return;
+    }
+
+    /*
+     * Check permission when opening an InputStream. MIDP
+     * versions of the protocol handler should override this
+     * with an empty method. A SecurityException will be
+     * raised if the connection is not allowed. Currently the
+     * socket protocol handler does not make a permission
+     * check at this point so this method is empty.
+     */
+    protected void inputStreamPermissionCheck() {
+        return;
+    }
+
+    /*
+     * Creates a server socket. MIDP
+     * versions of the protocol handler should override this
+     * method.
+     */
+    protected com.sun.cdc.io.j2me.serversocket.Protocol createServerSocket() {
+        return new com.sun.cdc.io.j2me.serversocket.Protocol();
+    }
 
     /**
      * Open the connection
@@ -73,8 +119,8 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
      * The name string for this protocol should be:
      * "<name or IP number>:<port number>
      */
-    public Connection openPrim(String name, int mode, boolean timeouts) throws IOException {
-
+    public Connection openPrim(String name, int mode, boolean timeouts)
+        throws IOException {
         if(name.charAt(0) != '/' || name.charAt(1) != '/') {
             throw new IllegalArgumentException("Protocol must start with \"//\" "+name);
         }
@@ -86,14 +132,14 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
             String nameOrIP = "";
 
             /* Port number */
-            int port;
+            final int port;
 
             /* Look for the : */
             int colon = name.indexOf(':');
 
             if(colon != -1) {
                /* Strip off the protocol name */
-               nameOrIP = name.substring(0, colon);
+                nameOrIP = parseHostName(name, colon);
                /* Host name should not contain reserved characters specified in RFC 2396 */
                if ((nameOrIP.indexOf('/') != -1) || (nameOrIP.indexOf('@') != -1) || (nameOrIP.indexOf('?') != -1) ||  (nameOrIP.indexOf(';') != -1)) {
                        throw new IllegalArgumentException("hostname " + nameOrIP + " cannot contain \"?\" , \"@\" , \";\", \":\", or \"/\" character.");
@@ -107,21 +153,43 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
                  */
                  /* socket:// and socket://: are also valid serversocket urls */
                 com.sun.cdc.io.j2me.serversocket.Protocol con =
-                    new com.sun.cdc.io.j2me.serversocket.Protocol();
+                    createServerSocket();
                 con.open("//"+name, mode, timeouts);
                 return con;
             }
 
             /* Get the port number */
-            port = Integer.parseInt(name.substring(colon+1));
-            
-            checkMIDPPermission(nameOrIP, port);
-            /* Open the socket */
-            socket = new Socket(nameOrIP, port);
+            if (ipv6) {
+                int lastColon = name.lastIndexOf(":");
+                port = Integer.parseInt(name.substring(lastColon+1));
+            } else {
+                port = Integer.parseInt(name.substring(colon+1));
+            }
+
+            /* If the proper security check has not been made, make
+             * it now.
+             */
+	    checkPermission(nameOrIP, port);
+
+            /* Open the socket. Use a doPrivileged block
+             * to avoid excessive prompting.
+             */
+            final String hostName = nameOrIP;
+            socket = (Socket)java.security.AccessController.doPrivileged(
+                 new java.security.PrivilegedExceptionAction() {
+                     public Object run() throws
+                         java.security.PrivilegedActionException,
+                         IOException {
+                             return new Socket(hostName, port);
+                         } 
+                     });
             opens++;
             return this;
         } catch(NumberFormatException x) {
             throw new IllegalArgumentException("Invalid port number in "+name);
+        } catch(java.security.PrivilegedActionException pae) {
+            IOException ioe = (IOException)pae.getException();
+            throw ioe;
         }
     }
 
@@ -135,6 +203,34 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
         this.socket = socket;
     }
 
+
+    private String parseHostName(String connection, int colon) {
+        /* IPv6 addresses are enclosed within [] */
+        int beginIndex = connection.indexOf("[");
+        int endIndex = connection.indexOf("]");
+        
+        if (beginIndex > endIndex) {
+            throw new IllegalArgumentException("invalid host name " + connection);
+        }
+        if ((beginIndex ==0) && (endIndex >0)) {
+            return parseIPv6Address(connection, endIndex);
+        } else {
+            return parseIPv4Address(connection, colon);
+        }
+    }
+
+
+    private String parseIPv4Address(String name, int colon) {
+        return name.substring(0, colon);
+    }
+
+
+    private String parseIPv6Address(String address, int closing) {
+        ipv6 = true;
+        /* beginning '[' and closing ']' should be included in the hostname*/
+        return address.substring(0, closing+1);
+    }
+
     /**
      * Returns an input stream for this socket.
      *
@@ -143,6 +239,7 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
      *                          input stream.
      */
     public InputStream openInputStream() throws IOException {
+        inputStreamPermissionCheck();
         InputStream is = new UniversalFilterInputStream(this, socket.getInputStream());
         opens++;
         return is;
@@ -156,7 +253,9 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
      *                          output stream.
      */
     public OutputStream openOutputStream() throws IOException {
-        OutputStream os = new UniversalFilterOutputStream(this, socket.getOutputStream());
+        outputStreamPermissionCheck();
+        OutputStream os = new UniversalFilterOutputStream(this,
+                                 socket.getOutputStream());
         opens++;
         return os;
     }
@@ -223,10 +322,14 @@ public class Protocol extends ConnectionBase implements StreamConnection, Socket
                        socket.setSoLinger(value != 0, value);
                        break;				
           case SocketConnection.RCVBUF: 
-                       socket.setReceiveBufferSize(value);
+	               if (value > 0) {
+			   socket.setReceiveBufferSize(value);
+		       }
                        break;				
           case SocketConnection.SNDBUF: 
-                       socket.setSendBufferSize(value);
+	              if (value > 0) {
+			  socket.setSendBufferSize(value);
+		      }
                        break;				
           default:
               throw new IllegalArgumentException("Option identifier is out of range");

@@ -1,7 +1,7 @@
 /*
  * @(#)QtImageRepresentation.cc	1.22 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -1654,8 +1654,16 @@ Java_sun_awt_qt_QtImageRepresentation_imageStretch (JNIEnv * env,
     imageRect.setHeight(imgRep->getNumLines());
     intersection = sourceRect.intersect(imageRect);
 
-    if (sourceRect.intersects(imageRect))
-	sourceRect = intersection;
+    if (sourceRect.intersects(imageRect)) {
+        sourceRect = intersection;
+        /* 
+         * 6643917:
+         * Adjusting dest rect to match source rect
+         * if the latter exceeds the source image size.
+         */
+        destRect.setWidth((int)(sourceRect.width() * scaleX));
+        destRect.setHeight((int)(sourceRect.height() * scaleY));
+    }
     else {
 	/* No intersection - nothing to draw. */
 	AWT_QT_UNLOCK;

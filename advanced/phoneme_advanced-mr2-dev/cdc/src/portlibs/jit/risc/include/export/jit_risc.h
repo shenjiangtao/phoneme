@@ -1,7 +1,7 @@
 /*
  * @(#)jit_risc.h	1.23 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -36,7 +36,7 @@
 
 /*
  * Support Simple Sync methods if we do fast locking with spinlock microlocks
- * or with atomic ops unless the platform has told us not to be #defining
+ * or with atomic ops unless the platform has told us not to by #defining
  * CVMCPU_NO_SIMPLE_SYNC_METHODS.
  */
 #if defined(CVMJIT_INTRINSICS) && !defined(CVMCPU_NO_SIMPLE_SYNC_METHODS)

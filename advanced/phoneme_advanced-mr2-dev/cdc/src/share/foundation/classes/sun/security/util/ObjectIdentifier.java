@@ -1,7 +1,7 @@
 /*
  * @(#)ObjectIdentifier.java	1.37 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -302,13 +302,17 @@ class ObjectIdentifier implements Serializable
     {
         int retval, i, tmp;
 
-	for (i = 0, retval = 0; i < 4; i++) {
-	    retval <<= 7;
-	    tmp = in.getByte ();
-	    retval |= (tmp & 0x07f);
-	    if ((tmp & 0x080) == 0)
-		return retval;
-	}
+        for (i = 0, retval = 0; i < 4; i++) {
+            retval <<= 7;
+            tmp = in.getByte ();
+            if (i == 0 && tmp == 0x80) {   // First byte is 0x80, BER
+                throw new IOException ("ObjectIdentifier() -- " +
+                        "sub component starts with 0x80");
+            }
+            retval |= (tmp & 0x07f);
+            if ((tmp & 0x080) == 0)
+                return retval;
+        }
 
         throw new IOException ("X509.OID, component value too big");
     }

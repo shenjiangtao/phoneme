@@ -1,7 +1,7 @@
 /*
  * @(#)linker.h	1.18 06/10/30
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -90,6 +90,10 @@ void *CVMdynlinkSym(void *dsoHandle, const void *name);
  */
 
 void CVMdynlinkClose(void *dsoHandle);
+
+/* check is library exists */
+
+CVMBool CVMdynlinkExists(const char *name);
 
 #include CVM_HDR_LINKER_H
 

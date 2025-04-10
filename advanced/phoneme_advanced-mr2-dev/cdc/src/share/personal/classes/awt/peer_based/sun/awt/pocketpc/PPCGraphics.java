@@ -1,7 +1,7 @@
 /*
  * @(#)PPCGraphics.java	1.3 02/12/09
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -47,6 +47,7 @@ import sun.awt.PlatformFont;
 import sun.awt.CharsetString;
 import java.io.CharConversionException;
 import sun.io.CharToByteConverter;
+import java.text.AttributedCharacterIterator;
 
 /**
  * PPCGraphics is an object that encapsulates a graphics context for a
@@ -147,6 +148,21 @@ class PPCGraphics extends Graphics2D implements ConstrainableGraphics {
         graphicsConfiguration = image.gc;
         this.image = image;
         setupApproximatedAlpha();
+    }
+
+    private BasicStroke stroke = new BasicStroke();
+
+    /* Dummy method */
+    public Stroke getStroke() {
+        return stroke;
+    }
+
+    /* Dummy method */
+    public void setStroke(Stroke s) {
+    }
+
+    /* Dummy method */
+    public void drawString(AttributedCharacterIterator text, int x, int y) {
     }
 
     /**

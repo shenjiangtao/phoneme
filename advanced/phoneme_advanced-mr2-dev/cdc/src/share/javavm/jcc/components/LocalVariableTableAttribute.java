@@ -1,7 +1,7 @@
 /*
  * @(#)LocalVariableTableAttribute.java	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -58,9 +58,9 @@ class LocalVariableTableAttribute extends Attribute
     }
 
     public void
-    countConstantReferences( boolean isRelocatable ){
-	super.countConstantReferences( isRelocatable );
-	if (isRelocatable){
+    countConstantReferences(boolean isRelocatable) {
+	super.countConstantReferences(isRelocatable);
+	if (isRelocatable) {
 	    for (int i = 0; i < data.length; i++) {
 		data[i].name.incReference();
 		data[i].sig.incReference();
@@ -70,11 +70,11 @@ class LocalVariableTableAttribute extends Attribute
 
 
     public static Attribute
-    readAttribute(DataInput i, ConstantObject constants[]) throws IOException{
+    readAttribute(DataInput i, ConstantPool cp) throws IOException{
 	UnicodeConstant name;
 
-	name = (UnicodeConstant)constants[i.readUnsignedShort()];
-	return finishReadAttribute( i, name, constants );
+	name = (UnicodeConstant)cp.elementAt(i.readUnsignedShort());
+	return finishReadAttribute( i, name, cp );
     }
 
     //
@@ -85,7 +85,7 @@ class LocalVariableTableAttribute extends Attribute
     finishReadAttribute(
 	DataInput in,
 	UnicodeConstant name,
-	ConstantObject constants[])
+	ConstantPool cp)
 	throws IOException
     {
 	int l;
@@ -95,6 +95,7 @@ class LocalVariableTableAttribute extends Attribute
 	l  = in.readInt();
 	n  = in.readUnsignedShort();
 	d = new LocalVariableTableEntry[ n ];
+	ConstantObject[] constants = cp.getConstants();
 	for ( int i = 0; i < n; i++ ){
 	    d[i] = new
 		LocalVariableTableEntry( in.readUnsignedShort(),

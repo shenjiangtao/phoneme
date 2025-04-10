@@ -1,6 +1,6 @@
 /* @(#)eventHandler.c	1.96 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -1440,13 +1440,11 @@ eventHandler_initialize(jbyte sessionID)
     if (error != JVMTI_ERROR_NONE) {
         EXIT_ERROR(error,"Can't enable class prepare events");
     }
-#if 0
     error = threadControl_setEventMode(JVMTI_ENABLE, 
                                        EI_GC_FINISH, NULL);
     if (error != JVMTI_ERROR_NONE) {
         EXIT_ERROR(error,"Can't enable garbage collection finish events");
     }
-#endif
     (void)memset(&(gdata->callbacks),0,sizeof(gdata->callbacks));
     /* Event callback for JVMTI_EVENT_SINGLE_STEP */
     gdata->callbacks.SingleStep                 = &cbSingleStep;

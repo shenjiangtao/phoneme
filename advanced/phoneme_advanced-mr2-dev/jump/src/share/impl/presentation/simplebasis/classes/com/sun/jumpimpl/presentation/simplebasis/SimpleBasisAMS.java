@@ -28,6 +28,7 @@ import com.sun.jump.command.JUMPIsolateLifecycleRequest;
 import com.sun.jump.command.JUMPIsolateWindowRequest;
 import com.sun.jump.common.JUMPWindow;
 import com.sun.jump.executive.JUMPExecutive;
+import com.sun.jump.executive.JUMPIsolateFactory;
 import com.sun.jump.message.JUMPMessageDispatcher;
 import com.sun.jump.message.JUMPMessageDispatcherTypeException;
 import com.sun.jump.module.lifecycle.JUMPApplicationLifecycleModule;
@@ -41,20 +42,25 @@ import com.sun.jump.message.JUMPMessage;
 import com.sun.jump.message.JUMPMessageHandler;
 import com.sun.jump.module.installer.JUMPInstallerModule;
 import com.sun.jump.module.installer.JUMPInstallerModuleFactory;
-import com.sun.jump.module.isolatemanager.JUMPIsolateManagerModule;
-import com.sun.jump.module.isolatemanager.JUMPIsolateManagerModuleFactory;
 import com.sun.jump.module.windowing.JUMPWindowingModule;
 import com.sun.jump.module.windowing.JUMPWindowingModuleFactory;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.Frame;
+import java.awt.Graphics;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.io.IOException;
 import java.net.URL;
 import java.util.Map;
 import java.util.Vector;
@@ -65,20 +71,54 @@ import java.util.Vector;
 public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandler {
     
     private Frame frame = null;
-    private Container commandContainer = null;
-    private Container screenContainer = null;
+    private CommandContainer commandContainer = null;
+    private ScreenContainer screenContainer = null;
     private JUMPWindowingModuleFactory wmf = null;
     private JUMPWindowingModule wm = null;
     private JUMPApplicationLifecycleModuleFactory almf = null;
     private JUMPApplicationLifecycleModule alm = null;
-    private JUMPIsolateManagerModuleFactory lcmf = null;
-    private JUMPIsolateManagerModule lcm = null;
-    private JUMPApplication currentApp = null;
+    private JUMPIsolateFactory lcm = null;
+    private JUMPApplicationProxy currentApp = null;
     private Object timeoutObject = null;
     private boolean appWindowDisplayState = false;
     private static final int TIMEOUT_VAL = 2000;
     protected static final int MAX_TITLE_CHARS = 15;
-    private boolean verbose = false;
+    private SimpleBasisAMSImageButton applicationsScreenButtons[] = null;
+    private SimpleBasisAMSImageButton switchScreenButtons[] = null;
+    private SimpleBasisAMSImageButton killScreenButtons[] = null;
+    
+    static final int SCREEN_ROWS = 3;
+    static final int SCREEN_COLUMNS = 3;
+    static final int SCREEN_DISPLAY_ICONS = SCREEN_ROWS * SCREEN_COLUMNS;
+    
+    private int CURRENT_SCREEN = 0;
+    private static final int APPLICATIONS_SCREEN = 1;
+    private static final int SWITCHTO_SCREEN = 2;
+    private static final int KILL_SCREEN = 3;
+    private static final int HELP_SCREEN = 4;
+    private static final int PREFS_SCREEN = 5;
+    
+    
+    private static final Color APPLICATIONS_SCREEN_COLOR = new Color(179, 229, 188);
+    private static final Color SWITCHTO_SCREEN_COLOR = new Color(87, 188, 132);
+    private static final Color KILL_SCREEN_COLOR = new Color(229, 183, 179);
+    private static final Color HELP_SCREEN_COLOR = new Color(225, 227, 187);
+    private static final Color PREFS_SCREEN_COLOR = new Color(255, 188, 157);
+    
+    private static final Color BUTTON_BLUE_COLOR = new Color(86, 135, 248);
+    
+    int applicationsScreenPageNumber = 0;
+    int switchToScreenPageNumber = 0;
+    int killScreenPageNumber = 0;
+    
+    SimpleBasisAMSInstall installer = null;
+    static boolean verbose;
+    Map map = null;
+    
+    JUMPMessageDispatcher md = null;
+    Object isolateWindowHandler = null;
+    Object lifecycleHandler = null;
+    
     /**
      * Creates a new instance of SimpleBasisAMS
      */
@@ -90,6 +130,8 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
      * @param map the configuration data required for loading this module.
      */
     public void load(Map map) {
+        this.map = map;
+        
         // check if verbose mode is used
         String verboseStr = System.getProperty("jump.presentation.verbose");
         if (verboseStr == null && map != null) {
@@ -106,27 +148,91 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
     public void unload() {
     }
     
+    class ScreenContainer extends Container implements FocusListener, KeyListener {
+        
+        public ScreenContainer() {
+            addKeyListener(this);
+            addFocusListener(this);
+        }
+        
+        public boolean isFocusable() {
+            return true;
+        }
+        
+        public void focusGained(FocusEvent e) {
+            transferFocus();
+        }
+        
+        public void focusLost(FocusEvent e) {
+        }
+        
+        public void keyTyped(KeyEvent e) {
+        }
+        
+        public void keyPressed(KeyEvent e) {
+        }
+        
+        public void keyReleased(KeyEvent e) {
+        }
+    }
+    
+    class CommandContainer extends Container implements FocusListener, KeyListener {
+        public CommandContainer() {
+            addKeyListener(this);
+            addFocusListener(this);
+        }
+        
+        public Dimension getPreferredSize() {
+            return new Dimension(480, 50);
+        }
+        
+        public boolean isFocusable() {
+            return true;
+        }
+        
+        public void focusGained(FocusEvent e) {
+            transferFocus();
+        }
+        
+        public void focusLost(FocusEvent e) {
+        }
+        
+        public void keyTyped(KeyEvent e) {
+        }
+        
+        public void keyPressed(KeyEvent e) {;
+        }
+        
+        public void keyReleased(KeyEvent e) {
+        }
+    }
+    
     private boolean setup() {
+        
+        // the loading of apps will happen in its own thread
+        LoadAppsThread loadAppsThread = new LoadAppsThread();
+        loadAppsThread.start();
+        
         frame = new Frame();
         frame.setLayout(new BorderLayout());
         
-        commandContainer = new Container() {
-            public Dimension getPreferredSize() {
-                return new Dimension(480, 50);
-            }
-        };
+        commandContainer = new CommandContainer();
         
-        commandContainer.setLayout(new GridLayout(1, 3));
-        addCommandButton("Apps", new ApplicationsScreenActionListener());
-        addCommandButton("Switch", new SwitchToScreenActionListener());
-        addCommandButton("Kill", new KillScreenActionListener());
-        addCommandButton("Exit", new ExitActionListener());
+        commandContainer.setLayout(new GridLayout(0, 4));
+        addCommandButton("Apps", commandContainer, new ApplicationsScreenActionListener());
+        addCommandButton("Switch", commandContainer, new SwitchToScreenActionListener());
+        addCommandButton("Kill", commandContainer, new KillScreenActionListener());
+        addCommandButton("Help", commandContainer, new HelpScreenActionListener());
+        addCommandButton("Install", commandContainer, new InstallScreenActionListener());
+        addCommandButton("Remove", commandContainer, new RemoveScreenActionListener());
+        addCommandButton("Prefs", commandContainer, new PrefsScreenActionListener());
+        addCommandButton("Exit", commandContainer, new ExitActionListener());
         
-        screenContainer = new Container();
-        screenContainer.setLayout(new GridLayout(0, 2));
+        screenContainer = new ScreenContainer();
+        screenContainer.setLayout(new BorderLayout());
         
-        frame.add(commandContainer, BorderLayout.NORTH);
         frame.add(screenContainer, BorderLayout.CENTER);
+        frame.add(commandContainer, BorderLayout.NORTH);
         
         wmf = JUMPWindowingModuleFactory.getInstance();
         wm = wmf.getModule();
@@ -134,23 +240,54 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
         almf = JUMPApplicationLifecycleModuleFactory.getInstance();
         alm = almf.getModule(JUMPApplicationLifecycleModuleFactory.POLICY_ONE_LIVE_INSTANCE_ONLY);
         
-        lcmf = JUMPIsolateManagerModuleFactory.getInstance();
-        lcm = lcmf.getModule();
         
         JUMPExecutive e = JUMPExecutive.getInstance();
-        JUMPMessageDispatcher md = e.getMessageDispatcher();
+        md = e.getMessageDispatcher();
+
+        lcm = e.getIsolateFactory();
+        
         try {
-            md.registerHandler(JUMPIsolateWindowRequest.MESSAGE_TYPE, this);
-            md.registerHandler(JUMPIsolateLifecycleRequest.MESSAGE_TYPE, this);
+            isolateWindowHandler = md.registerHandler(JUMPIsolateWindowRequest.MESSAGE_TYPE, this);
+            lifecycleHandler = md.registerHandler(JUMPIsolateLifecycleRequest.MESSAGE_TYPE, this);
         } catch (JUMPMessageDispatcherTypeException ex) {
+            ex.printStackTrace();
+        } catch (IOException ex) {
             ex.printStackTrace();
         }
         
+        try {
+            loadAppsThread.join();
+        } catch (InterruptedException ex) {
+            ex.printStackTrace();
+        }
+        
+        installer = new SimpleBasisAMSInstall(this);
         return true;
     }
     
+    public void refreshApplicationsScreen() {
+        // the loading of apps will happen in its own thread
+        LoadAppsThread loadAppsThread = new LoadAppsThread();
+        loadAppsThread.start();
+        try {
+            loadAppsThread.join();
+        } catch (InterruptedException ex) {
+            ex.printStackTrace();
+        }
+    }
+    
+    class LoadAppsThread extends Thread {
+        public void run() {
+            JUMPApplication apps[] = getInstalledApps();
+            applicationsScreenButtons = new SimpleBasisAMSImageButton[apps.length];
+            for (int i = 0; i < apps.length; i++) {
+                trace("Loading: " + apps[i].getTitle());
+                applicationsScreenButtons[i] = createScreenButton(apps[i], new LaunchAppActionListener(apps[i]), APPLICATIONS_SCREEN_COLOR);
+            }
+        }
+    }
+    
     class LaunchThread extends Thread {
-        
         JUMPApplication app = null;
         
         public LaunchThread(JUMPApplication app) {
@@ -160,59 +297,6 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
             timeoutObject = new Object();
             launchApp(app);
         }
-    }
-
-    private JUMPWindow getWindowFromApplication(JUMPApplication app) {
-
-        // TBD: very inefficient way to find relationship between 
-        //      JUMPApplication and JUMPWindow based on assumtion that one 
-        //      isolate can run only one JUMPWindow which may change
-        //      once we support MIDP dialogs
-
-        // find isolate running passed in JUMPApplication
-        // (Note: assume that one JUMPApplication canb run only in one isolate)
-        JUMPIsolateProxy appIsolate = null;
-
-        trace("**************** getWindowFromApplication begin ***********************");
-
-        JUMPIsolateProxy isolates[] = lcm.getActiveIsolates();
-        for(int i = 0; i < isolates.length; ++i) {
-            JUMPIsolateProxy isolate = isolates[i];
-
-            JUMPApplicationProxy apps[] = isolate.getApps();
-
-            for(int j = 0; j < apps.length; ++j) {
-                JUMPApplication tmpApp = apps[j].getApplication();
-                if(tmpApp.getId() == app.getId()) {
-                    i = isolates.length;
-                    appIsolate = isolate;
-                    break;
-                }
-            }
-        }
-
-        trace("appIsolate: " + appIsolate);
-        if(appIsolate == null) {
-            // should never happen
-            trace("**************** getWindowFromApplication failed ***********************");
-            return null;
-        }
-
-        JUMPWindow windows[] = wm.getWindows();
-        
-        trace("Length of wm.getWindows(): " + windows.length);
-        for(int i = 0; i != windows.length; ++i) {
-            JUMPWindow window = windows[i];
-            trace("-> Window: " + i + ": " + window);
-
-            if(appIsolate.equals(window.getIsolate())) {
-                trace("**************** getWindowFromApplication ok ***********************");
-                return window;
-            }
-        }
-
-        trace("**************** getWindowFromApplication headless ***********************");
-        return null;
     }
     
     public void handleMessage(JUMPMessage message) {
@@ -225,7 +309,7 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
             int isolateID = cmd.getIsolateId();
             int windowID = cmd.getWindowId();
             JUMPWindow window = wm.idToWindow(isolateID);
-
+            
             if (JUMPIsolateWindowRequest.ID_NOTIFY_WINDOW_FOREGROUND.equals
                     (cmd.getCommandId())) {
                 trace("====== COMMAND RECEIVED: JUMPIsolateWindowRequest.ID_NOTIFY_WINDOW_FOREGROUND");
@@ -246,95 +330,374 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
                     JUMPIsolateLifecycleRequest.fromMessage(message);
             
             int isolateID = cmd.getIsolateId();
-            int appID = cmd.getAppId();
-
+            
             if (JUMPIsolateLifecycleRequest.ID_ISOLATE_DESTROYED.equals
                     (cmd.getCommandId())) {
                 
                 trace("====== COMMAND RECEIVED: JUMPIsolateLifecycleRequest.ID_ISOLATE_DESTROYED");
-
+                
                 JUMPIsolateProxy isolateProxy = lcm.getIsolate(isolateID);
                 JUMPApplicationProxy apps[] = isolateProxy.getApps();
-
-                JUMPApplication app = null;
-                for(int i = 0; i < apps.length; ++i) {
-                    JUMPApplication tmpApp = apps[i].getApplication();
-                    if(tmpApp.getId() == appID) {
-                        app = tmpApp;
-                        break;
-                    }
-                }
-
-                trace("====== killApp( + " + app + ")");
                 
                 // the killApp(app) call below may not be needed and needs
                 // to undergo testing to see if this is necessary.  In fact,
                 // it may be the case that the 'app' value returned by
                 // window application is null.  If killApp(app) is not needed,
                 // then it should be replaced with a "currentApp = null".
-                if(app != null) {
-                    killApp(app);
+                if(apps != null) {
+                    for(int i = 0; i < apps.length; ++i) {
+                        trace("====== killApp( + " + apps[i].getApplication() + ")");
+                        killApp(apps[i]);
+                    }
                 }
             }
         }
     }
     
+    public void displayDialog(String str, ActionListener okActionListener,
+            ActionListener cancelActionListener) {
+        trace("ENTERING DIALOG SCREEN");
+        if (currentApp != null) {
+            pauseApp(currentApp);
+            bringWindowToBack(currentApp);
+        }
+        Container dialogContainer = new Container();
+        dialogContainer.setBackground(Color.white);
+        dialogContainer.setLayout(new BorderLayout());
+        
+        final String displayStr = str;
+        Container textContainer = new Container() {
+            public void paint(Graphics g) {
+                super.paint(g);
+                g.drawString(displayStr, 10, 20);
+            }
+        };
+        textContainer.setBackground(Color.white);
+        
+        Container buttonContainer = new Container();
+        buttonContainer.setLayout(new GridLayout(1, 2));
+        addDialogButton("OK", buttonContainer, okActionListener);
+        addDialogButton("Cancel", buttonContainer, cancelActionListener);
+        
+        dialogContainer.add(textContainer, BorderLayout.CENTER);
+        dialogContainer.add(buttonContainer, BorderLayout.SOUTH);
+        
+        showScreen(dialogContainer);
+    }
+    
+    private void pageUp() {
+        int currentScreen = getCurrentScreen();
+        
+        if (currentScreen == APPLICATIONS_SCREEN) {
+            // Determine if there is possibly more icons to display
+            // beyond this page
+            if (applicationsScreenPageNumber > 0) {
+                applicationsScreenPageNumber--;
+                doApplicationsScreen();
+            }
+            
+        } else if (currentScreen == SWITCHTO_SCREEN) {
+            // Determine if there is possibly more icons to display
+            // beyond this page
+            if (switchToScreenPageNumber > 0) {
+                switchToScreenPageNumber--;
+                doSwitchToScreen();
+            }
+        } else if (currentScreen == KILL_SCREEN) {
+            // Determine if there is possibly more icons to display
+            // beyond this page
+            if (killScreenPageNumber > 0) {
+                killScreenPageNumber--;
+                doKillScreen();
+            }
+        } else {
+            installer.pageUp();
+        }
+    }
+    
+    private void pageDown() {
+        int currentScreen = getCurrentScreen();
+        if (currentScreen == APPLICATIONS_SCREEN) {
+            // Find out number of total screen pages
+            int totalApplicationsScreenPages = getTotalScreenPages(applicationsScreenButtons.length, SCREEN_DISPLAY_ICONS);
+            
+            // Don't scroll beyond the last page
+            if (applicationsScreenPageNumber < (totalApplicationsScreenPages - 1)) {
+                applicationsScreenPageNumber++;
+                doApplicationsScreen();
+            }
+            
+        } else if (currentScreen == SWITCHTO_SCREEN) {
+            // Find out number of total screen pages
+            int totalSwitchToScreenPages = getTotalScreenPages(switchScreenButtons.length, SCREEN_DISPLAY_ICONS);
+            // Don't scroll beyond the last page
+            if (switchToScreenPageNumber < (totalSwitchToScreenPages - 1)) {
+                switchToScreenPageNumber++;
+                doSwitchToScreen();
+            }
+            
+        } else if (currentScreen == KILL_SCREEN) {
+            // Find out number of total screen pages
+            int totalKillScreenPages = getTotalScreenPages(killScreenButtons.length, SCREEN_DISPLAY_ICONS);
+            // Don't scroll beyond the last page
+            if (killScreenPageNumber < (totalKillScreenPages - 1)) {
+                killScreenPageNumber++;
+                doKillScreen();
+            }
+            
+        } else {
+            installer.pageDown();
+        }
+    }
+    
+    /*
+     * Utility method to determine the number of pages to store
+     * a total number of icons
+     */
+    int getTotalScreenPages(int numIcons, int screenIconCapacity) {
+        int totalScreenPages = 0;
+        int div = numIcons / screenIconCapacity;
+        int mod = numIcons % screenIconCapacity;
+        if (mod == 0) {
+            totalScreenPages = div;
+        } else {
+            totalScreenPages = div + 1;
+        }
+        return totalScreenPages;
+    }
+    
+    
     /**
      * Display the screen containing application icons.
      */
-    public void doApplicationsScreen() {
+    void doApplicationsScreen() {
         trace("ENTERING SCREEN: APPLICATIONS");
         if (currentApp != null) {
             pauseApp(currentApp);
             bringWindowToBack(currentApp);
         }
-        clearScreen();
-        JUMPApplication apps[] = getInstalledApps();
-        for (int i = 0; i < apps.length; i++) {
-            addScreenButton(apps[i], new LaunchAppActionListener(apps[i]), Color.yellow);
+        showScreen(createApplicationsScreen());
+        setCurrentScreen(APPLICATIONS_SCREEN);
+    }
+    
+    private Container createApplicationsScreen() {
+        Container applicationsScreen = new Container();
+        applicationsScreen.setLayout(new DisplayLayout());
+        int firstPositionIndex = applicationsScreenPageNumber * SCREEN_DISPLAY_ICONS;
+        for (int i = firstPositionIndex;
+        i < (applicationsScreenPageNumber * SCREEN_DISPLAY_ICONS + SCREEN_DISPLAY_ICONS); i++) {
+            if (i < applicationsScreenButtons.length) {
+                applicationsScreen.add(applicationsScreenButtons[i]);
+            } else {
+                applicationsScreen.add(createScreenButton(null, APPLICATIONS_SCREEN_COLOR));
+            }
         }
-        refreshScreen();
+        return applicationsScreen;
+    }
+    
+    class ScreenButtonsKeyListener implements KeyListener {
+        SimpleBasisAMSImageButton button = null;
+        
+        public ScreenButtonsKeyListener(SimpleBasisAMSImageButton button) {
+            this.button = button;
+        }
+        
+        public void keyTyped(KeyEvent e) {
+        }
+        
+        public void keyPressed(KeyEvent e) {
+            int keyCode = e.getKeyCode();
+            if (keyCode == KeyEvent.VK_PAGE_UP || keyCode == KeyEvent.VK_F1) {
+                pageUp();
+            } else if (keyCode == KeyEvent.VK_PAGE_DOWN || keyCode == KeyEvent.VK_F2) {
+                pageDown();
+            } else if (keyCode == KeyEvent.VK_ENTER) {
+                button.doAction();
+            } else if (keyCode == KeyEvent.VK_UP || keyCode == KeyEvent.VK_LEFT ) {
+                if (e.getComponent() == screenContainer.getComponent(0)) {
+                    commandContainer.requestFocusInWindow();
+                } else {
+                    button.transferFocusBackward();
+                }
+            } else if (keyCode == KeyEvent.VK_DOWN | keyCode == KeyEvent.VK_RIGHT) {
+                button.transferFocus();
+            }
+        }
+        
+        public void keyReleased(KeyEvent e) {
+        }
+    }
+    
+    class CommandButtonsKeyListener implements KeyListener {
+        SimpleBasisAMSImageButton button = null;
+        
+        public CommandButtonsKeyListener(SimpleBasisAMSImageButton button) {
+            this.button = button;
+        }
+        public void keyTyped(KeyEvent e) {
+        }
+        
+        public void keyPressed(KeyEvent e) {
+            int keyCode = e.getKeyCode();
+            if (keyCode == KeyEvent.VK_PAGE_UP || keyCode == KeyEvent.VK_F1) {
+                pageUp();
+            } else if (keyCode == KeyEvent.VK_PAGE_DOWN || keyCode == KeyEvent.VK_F2) {
+                pageDown();
+            } else if (keyCode == KeyEvent.VK_ENTER) {
+                button.doAction();
+            } else if (keyCode == KeyEvent.VK_DOWN || keyCode == KeyEvent.VK_UP) {
+                screenContainer.requestFocusInWindow();
+            } else if (keyCode == KeyEvent.VK_LEFT) {
+                button.transferFocusBackward();
+            } else if (keyCode == KeyEvent.VK_RIGHT) {
+                button.transferFocus();
+            }
+        }
+        
+        public void keyReleased(KeyEvent e) {
+        }
     }
     
     /**
      * Display the switch-to screen, consisting of icons
      * pertaining to currently running applications.
      */
-    public void doSwitchToScreen() {
+    private void doSwitchToScreen() {
         trace("ENTERING SCREEN: SWITCH");
         if (currentApp == null) {
-            trace("***currentApp is NULL.***");
+            trace("*** currentApp is NULL. ***");
         } else {
-            trace("*** currentApp -> " + currentApp.getTitle() + " ***");
+            trace("*** currentApp -> " + currentApp.getApplication().getTitle() + " ***");
         }
         if (currentApp != null) {
             pauseApp(currentApp);
             bringWindowToBack(currentApp);
         }
-        clearScreen();
-        JUMPApplication apps[] = getRunningApps();
+        showScreen(createSwitchToScreen());
+        setCurrentScreen(SWITCHTO_SCREEN);
+    }
+    
+    private Container createSwitchToScreen() {
+        Container switchToScreen = new Container();
+        switchToScreen.setLayout(new DisplayLayout());
+        JUMPApplicationProxy apps[] = getRunningApps();
+        switchScreenButtons = new SimpleBasisAMSImageButton[apps.length];
         for (int i = 0; i < apps.length; i++) {
-            addScreenButton(apps[i], new SwitchToActionListener(apps[i]), Color.green);
+            switchScreenButtons[i] = createScreenButton(apps[i].getApplication(), new SwitchToActionListener(apps[i]), SWITCHTO_SCREEN_COLOR);
         }
-        refreshScreen();
+        int firstPositionIndex = switchToScreenPageNumber * SCREEN_DISPLAY_ICONS;
+        for (int i = firstPositionIndex;
+        i < (switchToScreenPageNumber * SCREEN_DISPLAY_ICONS + SCREEN_DISPLAY_ICONS); i++) {
+            if (i < switchScreenButtons.length) {
+                switchToScreen.add(switchScreenButtons[i]);
+            } else {
+                switchToScreen.add(createScreenButton(null, SWITCHTO_SCREEN_COLOR));
+            }
+        }
+        return switchToScreen;
     }
     
     /**
      * Display the kill screen, consisting of icons pertaining to currently
      * running applications that can be killed .
      */
-    public void doKillScreen() {
+    private void doKillScreen() {
         trace("ENTERING SCREEN: KILL");
         if (currentApp != null) {
             pauseApp(currentApp);
             bringWindowToBack(currentApp);
         }
-        clearScreen();
-        JUMPApplication apps[] = getRunningApps();
+        showScreen(createKillScreen());
+        setCurrentScreen(KILL_SCREEN);
+    }
+    
+    private Container createKillScreen() {
+        Container killScreen = new Container();
+        killScreen.setLayout(new DisplayLayout());
+        JUMPApplicationProxy apps[] = getRunningApps();
+        killScreenButtons = new SimpleBasisAMSImageButton[apps.length];
         for (int i = 0; i < apps.length; i++) {
-            addScreenButton(apps[i], new KillActionListener(apps[i]), Color.red);
+            killScreenButtons[i] = createScreenButton(apps[i].getApplication(), new KillActionListener(apps[i]), KILL_SCREEN_COLOR);
         }
-        refreshScreen();
+        int firstPositionIndex = killScreenPageNumber * SCREEN_DISPLAY_ICONS;
+        for (int i = firstPositionIndex;
+        i < (killScreenPageNumber * SCREEN_DISPLAY_ICONS + SCREEN_DISPLAY_ICONS) ; i++) {
+            if (i < killScreenButtons.length) {
+                killScreen.add(killScreenButtons[i]);
+            } else {
+                killScreen.add(createScreenButton(null, KILL_SCREEN_COLOR));
+            }
+        }
+        return killScreen;
+    }
+    
+    private void doRemoveScreen() {
+        trace("ENTERING SCREEN: INSTALLER");
+        if (currentApp != null) {
+            pauseApp(currentApp);
+            bringWindowToBack(currentApp);
+        }
+        installer.showRemoveScreen();
+    }
+    
+    private void doInstallScreen() {
+        trace("ENTERING SCREEN: INSTALLER");
+        if (currentApp != null) {
+            pauseApp(currentApp);
+            bringWindowToBack(currentApp);
+        }
+        installer.showInstallScreen();
+    }
+    
+    private void doHelpScreen() {
+        trace("ENTERING SCREEN: KILL");
+        if (currentApp != null) {
+            pauseApp(currentApp);
+            bringWindowToBack(currentApp);
+        }
+        Container helpContainer = new Container() {
+            public void paint(Graphics g) {
+                super.paint(g);
+                g.drawString(" NOTE: When there is no mouse support,", 10, 20);
+                g.drawString("  the TAB key must be pressed to initially", 10, 40);
+                g.drawString("  bring focus to this window.", 10, 60);
+                g.drawString(" F1  : PAGE UP", 10, 100);
+                g.drawString(" F2  : PAGE DOWN", 10, 120);
+            }
+        };
+        helpContainer.setBackground(HELP_SCREEN_COLOR);
+        showScreen(helpContainer);
+        setCurrentScreen(HELP_SCREEN);
+    }
+    
+    private void doPrefsScreen() {
+        trace("ENTERING SCREEN: PREFS");
+        if (currentApp != null) {
+            pauseApp(currentApp);
+            bringWindowToBack(currentApp);
+        }
+        Container prefsContainer = new Container() {
+            public void paint(Graphics g) {
+                super.paint(g);
+                g.drawString(" NOTE: This screen is currently,", 10, 20);
+                g.drawString("  unimplemented.", 10, 40);
+            }
+        };
+        prefsContainer.setBackground(PREFS_SCREEN_COLOR);
+        showScreen(prefsContainer);
+        setCurrentScreen(PREFS_SCREEN);
+    }
+    
+    class InstallScreenActionListener implements ActionListener {
+        public void actionPerformed(ActionEvent e) {
+            doInstallScreen();
+        }
+    }
+    
+    class RemoveScreenActionListener implements ActionListener {
+        public void actionPerformed(ActionEvent e) {
+            doRemoveScreen();
+        }
     }
     
     class ApplicationsScreenActionListener
@@ -361,12 +724,22 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
     
     class KillScreenActionListener
             implements ActionListener {
-        
-        public KillScreenActionListener() {
-        }
-        
         public void actionPerformed(ActionEvent e) {
             doKillScreen();
+        }
+    }
+    
+    class HelpScreenActionListener
+            implements ActionListener {
+        public void actionPerformed(ActionEvent e) {
+            doHelpScreen();
+        }
+    }
+    
+    class PrefsScreenActionListener
+            implements ActionListener {
+        public void actionPerformed(ActionEvent e) {
+            doPrefsScreen();
         }
     }
     
@@ -386,9 +759,9 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
     
     class SwitchToActionListener
             implements ActionListener {
-        JUMPApplication app;
+        JUMPApplicationProxy app;
         
-        public SwitchToActionListener(JUMPApplication app) {
+        public SwitchToActionListener(JUMPApplicationProxy app) {
             this.app = app;
         }
         
@@ -399,14 +772,15 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
     
     class KillActionListener
             implements ActionListener {
-        JUMPApplication app;
+        JUMPApplicationProxy app;
         
-        public KillActionListener(JUMPApplication app) {
+        public KillActionListener(JUMPApplicationProxy app) {
             this.app = app;
         }
         
         public void actionPerformed(ActionEvent e) {
             killApp(app);
+            doKillScreen();
         }
     }
     
@@ -415,6 +789,17 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
         
         public void actionPerformed(ActionEvent e) {
             killAllApps();
+            // shut down the server
+            new com.sun.jumpimpl.os.JUMPOSInterfaceImpl().shutdownServer();
+            try {
+                md.cancelRegistration(isolateWindowHandler);
+                md.cancelRegistration(lifecycleHandler);                
+            } catch (Exception ex) {
+                System.out.println("ERROR: " + ex.getMessage());
+                ex.printStackTrace();
+            }
+            finally {
+            }
             System.exit(0);
         }
     }
@@ -428,7 +813,7 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
         }
     }
     
-    private SimpleBasisAMSImageButton addCommandButton(String label, ActionListener action) {
+    private SimpleBasisAMSImageButton addCommandButton(String label, Container container, ActionListener action) {
         
         SimpleBasisAMSImageButton button = new SimpleBasisAMSImageButton();
         if (button == null) {
@@ -436,60 +821,132 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
         }
         button.addActionListener(action);
         button.setEnabled(true);
-        button.setForeground(Color.blue);
-        button.setTextShadow(true);
+        button.setForeground(BUTTON_BLUE_COLOR);
+        button.setTextShadow(false);
         button.setPaintBorders(true);
+        button.setLabel(label);
+        button.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        CommandButtonsKeyListener keyListener = new CommandButtonsKeyListener(button);
+        button.addKeyListener(keyListener);
         
-        String str = null;
-        if (label.trim().length() > MAX_TITLE_CHARS) {
-            str = label.trim().substring(0, MAX_TITLE_CHARS - 3);
-            str += "...";
-        } else {
-            str = label.trim();
-        }
-        button.setLabel(str);
-        commandContainer.add(button);
+        container.add(button);
         return button;
     }
     
-    private void clearScreen() {
+    private SimpleBasisAMSImageButton addDialogButton(String label, Container container, ActionListener action) {
+        
+        SimpleBasisAMSImageButton button = new SimpleBasisAMSImageButton();
+        if (button == null) {
+            return null;
+        }
+        button.addActionListener(action);
+        button.setEnabled(true);
+        button.setForeground(BUTTON_BLUE_COLOR);
+        button.setTextShadow(true);
+        button.setPaintBorders(true);
+        button.setLabel(label);
+        
+        container.add(button);
+        return button;
+    }
+    
+    private void clearCommandScreen() {
+        commandContainer.removeAll();
+    }
+    
+    private void refreshCommandScreen() {
+        commandContainer.validate();
+        commandContainer.repaint();
+    }
+    
+    public void clearScreen() {
         screenContainer.removeAll();
     }
     
-    private void refreshScreen() {
+    public void showScreen(Container container) {
+        clearScreen();
+        screenContainer.add(container, BorderLayout.CENTER);
+        refreshScreen();
+    }
+    
+    public void refreshScreen() {
         screenContainer.validate();
         screenContainer.repaint();
     }
     
-    private SimpleBasisAMSImageButton addScreenButton(JUMPApplication app, ActionListener action, Color color) {
-        Image image = getIconImage(app);
+    
+    SimpleBasisAMSImageButton createScreenButton(JUMPApplication app, ActionListener action, Color color) {
         SimpleBasisAMSImageButton button = null;
-        if (image != null) {
-            button = new SimpleBasisAMSImageButton(getIconImage(app));
+        // When app is null, create an empty button
+        if (app != null) {
+            Image image = getIconImage(app);
+            if (image != null) {
+                button = new SimpleBasisAMSImageButton(getIconImage(app));
+            } else {
+                button = new SimpleBasisAMSImageButton();
+            }
+            if (button == null) {
+                return null;
+            }
+            
+            button.setLabel(app.getTitle().trim());
+            button.setTextShadow(true);
+            button.addActionListener(action);
+            
         } else {
             button = new SimpleBasisAMSImageButton();
+            if (button == null) {
+                return null;
+            }
+            button.setEnabled(true);
+            button.setForeground(color);
+            button.setPaintBorders(true);
+            button.setFocusable(false);
         }
+        
+        button.setEnabled(true);
+        button.setForeground(color);
+        button.setPaintBorders(true);
+        
+        ScreenButtonsKeyListener keyListener = new ScreenButtonsKeyListener(button);
+        button.addKeyListener(keyListener);
+        
+        return button;
+    }
+    
+    SimpleBasisAMSImageButton createScreenButton(String title, ActionListener action, Color color) {
+        SimpleBasisAMSImageButton button = null;
+        // Create an empty button
+        button = new SimpleBasisAMSImageButton();
         if (button == null) {
             return null;
         }
         button.setEnabled(true);
         button.setForeground(color);
-        button.setTextShadow(true);
         button.setPaintBorders(true);
-        
-        // Trim strings that are too long to fit.
-        String str = null;
-        if (app.getTitle().trim().length() > MAX_TITLE_CHARS) {
-            str = app.getTitle().trim().substring(0, MAX_TITLE_CHARS - 3);
-            str += "...";
-        } else {
-            str = app.getTitle().trim();
-        }
-        
-        button.setLabel(str);
+        button.setLabel(title);
+        button.setTextShadow(true);
         button.addActionListener(action);
+        ScreenButtonsKeyListener keyListener = new ScreenButtonsKeyListener(button);
+        button.addKeyListener(keyListener);
         
-        screenContainer.add(button);
+        return button;
+    }
+    
+    SimpleBasisAMSImageButton createScreenButton(ActionListener action, Color color) {
+        SimpleBasisAMSImageButton button = null;
+        // Create an empty button
+        button = new SimpleBasisAMSImageButton();
+        if (button == null) {
+            return null;
+        }
+        button.setEnabled(true);
+        button.setForeground(color);
+        button.setPaintBorders(true);
+        button.addActionListener(action);
+        ScreenButtonsKeyListener keyListener = new ScreenButtonsKeyListener(button);
+        button.addKeyListener(keyListener);
+        
         return button;
     }
     
@@ -512,110 +969,108 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
         }
         
         if (appWindowDisplayState) {
-            bringWindowToFront(app);
-            currentApp = app;
+            bringWindowToFront(appProxy);
+            currentApp = appProxy;
         }
+        refreshCommandScreen();
+        
         return appProxy;
     }
     
     private void killAllApps() {
-        JUMPApplication apps[] = getRunningApps();
+        JUMPApplicationProxy apps[] = getRunningApps();
         for (int i = 0; i < apps.length; i++) {
             killApp(apps[i]);
         }
     }
     
-    private void killApp(JUMPApplication app) {
+    private void killApp(JUMPApplicationProxy app) {
         destroyApp(app);
         currentApp = null;
     }
     
-    private void bringWindowToFront(JUMPApplication app) {
+    private void bringWindowToFront(JUMPApplicationProxy app) {
         if (app == null) {
             trace("ERROR:  Cannot do a bringWindowToFront... app is null.");
             return;
         }
         
-        JUMPWindow window = getWindowFromApplication(app);
-        wm.setForeground(window);
+        JUMPWindow[] windows = app.getIsolateProxy().getWindows();
+        if(windows != null) {
+            for (int i = 0; i < windows.length; i++) {
+                wm.setForeground(windows[i]);
+            }
+        }
     }
     
-    private void bringWindowToBack(JUMPApplication app) {
+    private void bringWindowToBack(JUMPApplicationProxy app) {
         if (app == null) {
             trace("ERROR:  Cannot do a bringWindowToBack... app is null.");
             return;
         }
-        JUMPWindow window = getWindowFromApplication(app);
-        wm.setBackground(window);
+        
+        JUMPWindow[] windows = app.getIsolateProxy().getWindows();
+        if(windows != null) {
+            for (int i = 0; i < windows.length; i++) {
+                wm.setBackground(windows[i]);
+            }
+        }
     }
     
-    private void switchToApp(JUMPApplication app) {
+    private void switchToApp(JUMPApplicationProxy app) {
         resumeApp(app);
         bringWindowToFront(app);
         currentApp = app;
     }
     
-    private void resumeApp(JUMPApplication app) {
+    private void resumeApp(JUMPApplicationProxy app) {
         if (app == null) {
             return;
         }
-        trace("*** Trying to resume: " + app.getTitle());
-        // find app's proxy and resume it
-        JUMPApplicationProxy appProxies[] = alm.getApplications(app);
-        for(int i = 0; i != appProxies.length /* 1 */; ++i) {
-            appProxies[i].resumeApp();
-        }
+        trace("*** Trying to resume: " + app.getApplication().getTitle());
+        app.resumeApp();
     }
     
-    private void destroyApp(JUMPApplication app) {
+    private void destroyApp(JUMPApplicationProxy app) {
         if (app == null) {
             return;
         }
-        trace("*** Trying to kill: " + app.getTitle());
-        // find app's proxy and destroy it's apps
-        JUMPApplicationProxy appProxies[] = alm.getApplications(app);
-        if (appProxies == null) {
+        trace("*** Trying to kill: " + app.getApplication().getTitle());
+        app.destroyApp();
+    }
+    
+    private void pauseApp(JUMPApplicationProxy app) {
+        if (app == null) {
             return;
-        } else {
-            for(int i = 0; i != appProxies.length /* 1 */; ++i) {
-                appProxies[i].destroyApp();
+        }
+        trace("*** Trying to pause: " + app.getApplication().getTitle());
+        app.pauseApp();
+    }
+    
+    boolean isRunningApp(JUMPApplication app) {
+        JUMPApplicationProxy proxy[] = getRunningApps();
+        for (int i = 0; i < proxy.length; i++) {
+            if (proxy[i].getApplication().equals(app)) {
+                return true;
             }
         }
+        return false;
     }
     
-    private void pauseApp(JUMPApplication app) {
-        if (app == null) {
-            return;
-        }
-        trace("*** Trying to pause: " + app.getTitle());
-        // find app's proxy and resume it
-        JUMPApplicationProxy appProxies[] = alm.getApplications(app);
-        if (appProxies == null) {
-            return;
-        } else {
-            trace("*** alm.getApplications() returns the length: " + appProxies.length);
-            for(int i = 0; i != appProxies.length /* 1 */; ++i) {
-                appProxies[i].pauseApp();
-            }
-        }
-    }
-    
-    private JUMPApplication[] getRunningApps() {
+    private JUMPApplicationProxy[] getRunningApps() {
         JUMPIsolateProxy[] ips = lcm.getActiveIsolates();
         Vector appsVector = new Vector();
         for (int i = 0; i < ips.length; i++) {
             JUMPIsolateProxy ip = ips[i];
             JUMPApplicationProxy appProxy[] = ip.getApps();
-            if (appProxy == null) {
-                return null;
-            } else {
+            if (appProxy != null) {
                 for (int j = 0; j < appProxy.length; j++) {
-                    appsVector.add(appProxy[j].getApplication());
+                    appsVector.add(appProxy[j]);
                 }
             }
         }
         
-        return (JUMPApplication[]) appsVector.toArray(new JUMPApplication[]{});
+        return (JUMPApplicationProxy[]) appsVector.toArray(new JUMPApplicationProxy[]{});
     }
     
     private JUMPApplication[] getInstalledApps() {
@@ -636,9 +1091,15 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
         return (JUMPApplication[]) appsVector.toArray(new JUMPApplication[]{});
     }
     
-    void trace(String str) {
+    static void trace(String str) {
         if (verbose) {
             System.out.println(str);
+        }
+    }
+    
+    class DisplayLayout extends GridLayout {
+        public DisplayLayout() {
+            super(SCREEN_ROWS, SCREEN_COLUMNS);
         }
     }
     
@@ -648,12 +1109,21 @@ public class SimpleBasisAMS implements JUMPPresentationModule, JUMPMessageHandle
     public void start() {
         System.err.println("*** Starting SimpleBasisAMS ***");
         if (setup()) {
-            doApplicationsScreen();
             if (frame != null) {
                 frame.setVisible(true);
             }
+            doApplicationsScreen();
         } else {
             System.err.println("*** Setup of SimpleBasisAMS failed. ***");
         }
     }
+    
+    void setCurrentScreen(int screen) {
+        CURRENT_SCREEN = screen;
+    }
+    
+    int getCurrentScreen() {
+        return CURRENT_SCREEN;
+    }
+    
 }

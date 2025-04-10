@@ -1,7 +1,7 @@
 /*
  * @(#)linker_md.c  1.16 06/10/30
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  *
  * This program is free software; you can redistribute it and/or
@@ -61,7 +61,7 @@ CVMdynlinkbuildLibName(char *holder, int holderlen, const char *pname,
     const char c = (pnamelen > 0) ? pname[pnamelen-1] : 0;
     char *suffix;
 
-#ifdef DEBUG
+#if defined(CVM_DEBUG) && (!defined(JAVASE) || JAVASE < 16)
     suffix = "_g";
 #else
     suffix = "";
@@ -74,11 +74,14 @@ CVMdynlinkbuildLibName(char *holder, int holderlen, const char *pname,
     }
 
     if (pnamelen == 0) {
-        sprintf(holder, "lib%s%s.dll", fname, suffix);
+        sprintf(holder, "%s%s%s%s", JNI_LIB_PREFIX, fname, suffix,
+		JNI_LIB_SUFFIX);
     } else if (c == ':' || c == '\\') {
-        sprintf(holder, "lib%s%s%s.dll", pname, fname, suffix);
+        sprintf(holder, "%s%s%s%s%s", pname, JNI_LIB_PREFIX, fname, suffix,
+		JNI_LIB_SUFFIX);
     } else {
-        sprintf(holder, "%s\\lib%s%s.dll", pname, fname, suffix);
+        sprintf(holder, "%s\\%s%s%s%s", pname, JNI_LIB_PREFIX, fname, suffix,
+		JNI_LIB_SUFFIX);
     }
 }
 
@@ -88,53 +91,55 @@ CVMdynlinkOpen(const void *absolutePathName)
     HANDLE hh;
 
     if (absolutePathName == NULL) {
-
-  hh = LoadLibrary(TEXT("cvmi.dll"));
-
+#ifdef CVM_DLL
+        hh = LoadLibrary(TEXT("cvmi.dll"));
+#else
+        hh = GetModuleHandle(NULL);
+#endif
     } else {
 #ifdef UNICODE
-  WCHAR *wc;
-  char *pathName = (char *)absolutePathName;
-
-/* wince doesn't like the path to a dll so provide the library name */
-#ifdef WINCE
-  pathName = strrchr(pathName, '\\');
-  pathName++;  /* Skip the backslash in the name */
-#endif
-
-  wc = createWCHAR(pathName);
-  hh = LoadLibrary(wc);
+        char *pathName = (char*)absolutePathName;
+        WCHAR *wc = createWCHAR(pathName);
+        hh = LoadLibrary(wc);
+        free(wc);
 #else
-  char *wc = (char *)absolutePathName;
-  hh = LoadLibraryA(wc);
-#endif
-#ifdef CVM_DEBUG
-  if (hh == NULL) {
-      LPVOID lpMsgBuf;
-      FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_SYSTEM |
-        FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL,
-        GetLastError(),
-        0, /* default language */
-        (LPTSTR) &lpMsgBuf,
-        0,
-        NULL);
-
-      MessageBox(NULL,
-           (LPCTSTR) lpMsgBuf,
-           TEXT("Error"),
-           MB_OK | MB_ICONINFORMATION);
-
-      LocalFree(lpMsgBuf);
-
-      /* DWORD err = GetLastError(); */
-  }
-#endif
-#ifdef UNICODE
-  free(wc);
+        char *wc = (char*)absolutePathName;
+        hh = LoadLibraryA(wc);
 #endif
     }
+
+#ifdef CVM_DEBUG
+    /* Print an error message if we failed to open the dll. */
+    if (hh == NULL) {
+        fprintf(stderr, "CVMdynlinkOpen(%s) failed. err=0x%x\n",
+                absolutePathName == NULL ? "NULL" : absolutePathName,
+                GetLastError());
+    }
+#endif
+
+#ifdef CVM_DEBUG
+    /* Put up an error dialog if we failed to open the dll. */
+    if (hh == NULL) {
+        LPVOID lpMsgBuf;
+        FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                      FORMAT_MESSAGE_FROM_SYSTEM |
+                      FORMAT_MESSAGE_IGNORE_INSERTS,
+                      NULL,
+                      GetLastError(),
+                      0, /* default language */
+                      (LPTSTR) &lpMsgBuf,
+                      0,
+                      NULL);
+
+        MessageBox(NULL,
+                   (LPCTSTR) lpMsgBuf,
+                   TEXT("Error"),
+                   MB_OK | MB_ICONINFORMATION);
+
+        LocalFree(lpMsgBuf);
+    }
+#endif
+
     return hh;
 }
 
@@ -149,6 +154,16 @@ CVMdynlinkSym(void *dsoHandle, const void *name)
 #else
     v = GetProcAddress((HANDLE)dsoHandle, name);
 #endif
+
+    /* Enable this if you want to know why a symbol lookup is failing. */
+#if 0
+    if (v == NULL) {
+	char buf[256];
+	int err = CVMioGetLastErrorString(buf, sizeof(buf));
+	fprintf(stderr, "CVMdynlinkSym(%s) failed. err=0x%x (%s)\n",
+			 name, err, err == 0 ? "???" : buf);
+    }
+#endif
     return v;
 }
 
@@ -158,35 +173,16 @@ CVMdynlinkClose(void *dsoHandle)
     FreeLibrary((HANDLE)dsoHandle);
 }
 
-/* Basically copied from the JDK */
 CVMBool
-CVMdynlinkBuildLibName(void *holder, int holderlen,
-           void *pname, void *fname)
+CVMdynlinkExists(const char *name)
 {
-    const int pnamelen = pname ? strlen(pname) : 0;
-    char *suffix;
+    void *handle;
 
-    suffix = "";
-
-    /* Truncate on buffer overflow and return an error. */
-    if (pnamelen + strlen(fname) + 10 > (size_t) holderlen) {
-        *((char *) holder) = '\0';
-        return CVM_FALSE;
+    handle = CVMdynlinkOpen((const char *) name);
+    if (handle != NULL) {
+        CVMdynlinkClose(handle);
     }
-
-    if (pnamelen == 0) {
-#ifndef WINCE
-  sprintf((char *) holder, "%s%s%s%s",
-      JNI_LIB_PREFIX, (char *) fname, (char *) suffix, JNI_LIB_SUFFIX);
-#else
-  sprintf((char *) holder, "/%s%s%s%s",
-      JNI_LIB_PREFIX, (char *) fname, (char *) suffix, JNI_LIB_SUFFIX);
-#endif
-    } else {
-        sprintf((char *) holder, "%s/%s%s%s%s",
-        (char *) pname, JNI_LIB_PREFIX, (char *) fname, (char *) suffix, JNI_LIB_SUFFIX);
-    }
-    return CVM_TRUE;
+    return (handle != NULL);
 }
 
 #endif /* #defined CVM_DYNAMIC_LINKING */

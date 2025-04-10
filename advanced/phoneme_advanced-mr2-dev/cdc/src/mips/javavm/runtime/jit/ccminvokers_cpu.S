@@ -1,7 +1,7 @@
 /*
  * @(#)ccminvokers_cpu.S	1.35 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -404,7 +404,7 @@ CVMMIPShandleGCAtInvoke:
 	 * yet "committed" to the stack, and as such, cannot be located
 	 * by GC.
 	 */
-        lbu	a1, OFFSET_CVMMethodBlock_accessFlagsX(a1)
+        lhu	a1, OFFSET_CVMMethodBlock_invokerAndAccessFlagsX(a1)
 	andi	a1, a1, CONSTANT_METHOD_ACC_SYNCHRONIZED
 	beq	a1, zero, 1f
 	
@@ -438,7 +438,7 @@ CVMMIPShandleGCAtInvoke:
 	  again to see if we should restore 'receiverObjX'
 	  from miscICell.
 	*/
-        lbu	a2, OFFSET_CVMMethodBlock_accessFlagsX(a1)
+        lhu	a2, OFFSET_CVMMethodBlock_invokerAndAccessFlagsX(a1)
 	andi	a2, a2, CONSTANT_METHOD_ACC_SYNCHRONIZED
         beq	a2, zero, mipsGcPatchPointAtInvoke
 
@@ -611,6 +611,43 @@ ENTRY( CVMCCMinvokeJNIMethod )
 	jr	ra
 
         SET_SIZE( CVMCCMinvokeJNIMethod ) 
+
+/*
+ * Invoke a virtual method
+ * 
+ * This function is used for doing a true virtual invocation in the patched 
+ * method invocations implementation.  In particular, it is used if we
+ * have emitted a direct branch to a method known not to be overridden during 
+ * compilation of the method that invokes it, and later it becomes overridden.
+ * When this happens the original direct method call is patched to instead
+ * call here so a true virtual invocation can be done.
+ */
+#ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
+	/* 
+ 	 *  a0 = invokeMb (not the targetMb) 
+ 	 */
+	ENTRY( CVMCCMinvokeVirtual )
+	/* Get "this" by looking back on the stack */
+        lbu	a1, OFFSET_CVMMethodBlock_argsSizeX(a0)
+        sll	a1, a1, 2	/* a1 = argSize * 4 */
+        subu	a1, JSP, a1	/* a1 = stack address of "this" */
+	lw	a1, 0(a1)	/* a1 = "this" */
+	/* get the method table from "this" */
+	lw	a2, OFFSET_CVMObjectHeader_clas(a1)
+        li      a3, ~3
+	and	a2, a2, a3	/* mask off low 2 bits of object cb */
+	lw	a2, OFFSET_CVMClassBlock_methodTablePtrX(a2)
+	/* get method table index from invokeMb */
+	lhu	a3, OFFSET_CVMMethodBlock_methodTableIndexX(a0)
+	sll	a3, a3, 2       /* a3 = index * 4 */
+	/* get targetMb from method table */
+        add     a2, a3          /* a2 = methodTablePtr + index * 4 */
+	lw	a0, 0(a2)	/* mb = *(methodTablePtr + index * 4) */
+	/* call the method */
+	lw	a1, OFFSET_CVMMethodBlock_jitInvokerX(a0)
+	jr	a1	/* call the method. don't trash ra */
+        SET_SIZE( CVMCCMinvokeVirtual ) 
+#endif
 
 ENTRY( CVMCCMletInterpreterDoInvoke )
 

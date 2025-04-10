@@ -1,7 +1,7 @@
 /*
  * @(#)ccmcodecachecopy_cpu.S	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,6 +29,9 @@
  * Compile together all the code we want to copy into the codecache 
  * so it is easier to copy and guarantee ordering of symbols.
  */
+
+#include "javavm/include/asmmacros_cpu.h"
+#include "javavm/include/jit/jitasmconstants.h"
 
 #ifdef __RVCT__
 	IMPORT CVMJITfixupFrames
@@ -82,9 +85,6 @@
 #endif
 #endif /* __RVCT__ */
 
-#include "javavm/include/asmmacros_cpu.h"
-#include "javavm/include/jit/jitasmconstants.h"
-
 /*
  * NOTE: Some linker such as the ARM RVCT (v2.2) linker sorts 
  *	 sections by attributes and section name. To make sure
@@ -92,20 +92,21 @@
  *	 in ccmcodecachecopy_cpu.S, we need to name the sections
  *	 in alphabetical order.
  */
+        PRESERVE8
 	SET_SECTION_EXEC(s0_ccmcodecachecopy_cpu)
 
 
 /*************************************************************************
  * This is the start of the code we copy into the start of the code cache.
  *************************************************************************/
-	ENTRY ( CVMCCMcodeCacheCopyStart )
+	ENTRY(CVMCCMcodeCacheCopyStart)
 ENTRY1 ( CVMCCMcodeCacheCopyStart )
 	
 #include "ccmglue_cpu.S"
 #include "ccmallocators_cpu.S"
 #include "ccminvokers_cpu.S"
-#include "ccmmath_cpu.S"
 #include "ccmintrinsics_asm_cpu.S"
+#include "ccmmath_cpu.S"
 #include "../memory_asm_cpu.S"
 
 /*************************************************************************
@@ -113,5 +114,5 @@ ENTRY1 ( CVMCCMcodeCacheCopyStart )
  * The .pool is important. It must appear just before this symbol.
  *************************************************************************/
 	POOL
-	ENTRY( CVMCCMcodeCacheCopyEnd )
+	ENTRY(CVMCCMcodeCacheCopyEnd)
 ENTRY1( CVMCCMcodeCacheCopyEnd )

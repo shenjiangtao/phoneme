@@ -1,7 +1,7 @@
 /*
  * @(#)CodeAttribute.java	1.13 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -58,14 +58,14 @@ class CodeAttribute extends Attribute
     }
 
     public void
-    countConstantReferences( boolean isRelocatable ){
-	super.countConstantReferences( isRelocatable );
+    countConstantReferences(boolean isRelocatable) {
+	super.countConstantReferences(isRelocatable);
 	if (exceptionTable != null) {
-	    for( int i = 0; i < exceptionTable.length; i++ ){
+	    for(int i = 0; i < exceptionTable.length; i++) {
 		exceptionTable[i].countConstantReferences();
 	    }
 	}
-	Attribute.countConstantReferences( codeAttributes, isRelocatable );
+	Attribute.countConstantReferences(codeAttributes, isRelocatable);
     }
 
     protected int
@@ -108,13 +108,12 @@ class CodeAttribute extends Attribute
     }
 
     public static Attribute
-    readAttribute(DataInput i, ConstantObject constants[])
+    readAttribute(DataInput i, ConstantPool cp)
 	throws IOException
     {
-	UnicodeConstant name;
-
-	name = (UnicodeConstant)constants[i.readUnsignedShort()];
-	return finishReadAttribute( i, name, constants);
+	UnicodeConstant name =
+	    (UnicodeConstant)cp.elementAt(i.readUnsignedShort());
+	return finishReadAttribute(i, name, cp);
     }
 
     //
@@ -125,7 +124,7 @@ class CodeAttribute extends Attribute
     finishReadAttribute(
 	DataInput in,
 	UnicodeConstant name,
-	ConstantObject constants[])
+	ConstantPool cp)
 	throws IOException
     {
 	int l;
@@ -139,26 +138,28 @@ class CodeAttribute extends Attribute
 	nlocals = in.readUnsignedShort();
 
 	int codesize = in.readInt();
-	byte code[] = new byte[ codesize ];
+	byte code[] = new byte[codesize];
 	in.readFully(code);
 
 	int tableSize = in.readUnsignedShort();
 	exceptionTable = new ExceptionEntry[tableSize];
+	ConstantObject constants[] = cp.getConstants();
 	for (int j = 0; j < tableSize; j++) {
-	    int sPC = in.readUnsignedShort();
-	    int e = in.readUnsignedShort();
-	    int h = in.readUnsignedShort();
+	    int startPC = in.readUnsignedShort();
+	    int endPC = in.readUnsignedShort();
+	    int handlerPC = in.readUnsignedShort();
 	    int catchTypeIndex = in.readUnsignedShort();
-	    ClassConstant ctype;
+	    ClassConstant catchType;
 	    if (catchTypeIndex == 0){
-		ctype = null;
-	    }else{
-		ctype = (ClassConstant)constants[catchTypeIndex];
+		catchType = null;
+	    } else {
+		catchType = (ClassConstant)constants[catchTypeIndex];
 	    }
-	    exceptionTable[j] = new ExceptionEntry(sPC, e, h, ctype);
+	    exceptionTable[j] =
+                new ExceptionEntry(startPC, endPC, handlerPC, catchType);
 	}
 
-	Attribute a[] = Attribute.readAttributes(in, constants,
+	Attribute a[] = Attribute.readAttributes(in, cp,
 						 codeAttributeTypes, false);
 	return new CodeAttribute(name, l, nstack, nlocals,
 				 code, exceptionTable, a);

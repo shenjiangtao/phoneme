@@ -1,7 +1,7 @@
 /*
  * @(#)sync_md.c	1.32 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -39,6 +39,10 @@
 #include <sys/wait.h>
 #ifdef CVM_JVMPI
 #include "javavm/include/globals.h"
+#endif
+#ifdef CVM_JVMTI
+#include "javavm/include/globals.h"
+#include "javavm/include/jvmtiExport.h"
 #endif
 #ifdef CVM_JIT
 #include "javavm/include/porting/jit/jit.h"
@@ -500,10 +504,15 @@ void crash(int sig)
     kill(pid, SIGSTOP);
 }
 
-#ifdef CVM_JVMPI
+#if defined(CVM_JVMPI) || defined(CVM_JVMTI)
 void sigquitHandler(int sig)
 {
+#ifdef CVM_JVMPI
     CVMjvmpiSetDataDumpRequested();
+#endif
+#ifdef CVM_JVMTI
+    CVMjvmtiSetDataDumpRequested();
+#endif
 }
 #endif
 
@@ -527,7 +536,7 @@ linuxSyncInit(void)
 #if !defined(CVM_JIT) && !defined(CVM_USE_MEM_MGR)
 	    {SIGSEGV, crash, 0},
 #endif
-#ifdef CVM_JVMPI
+#if defined(CVM_JVMPI) || defined(CVM_JVMTI)
             {SIGQUIT, sigquitHandler, SA_RESTART},
 #endif
 	    {SIGUSR1, handleSuspendResume, SA_RESTART},

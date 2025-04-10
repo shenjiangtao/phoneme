@@ -1,7 +1,7 @@
 /*
  * @(#)jvmti_jni.h	1.2 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -34,6 +34,10 @@
 
 extern void
 CVMjvmtiInstrumentJNINativeInterface();
+extern void
+CVMjvmtiUninstrumentJNINativeInterface();
+#define CVMjvmtiUninstrumentJNINativeInterface() \
+    /* Nothing to do currently because this is only called at VM shutdown. */
 
 #endif /* CVM_JVMTI */
 

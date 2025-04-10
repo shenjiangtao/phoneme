@@ -1,7 +1,7 @@
 /*
  * @(#)VirtualMachineImpl.c     1.100 05/03/08
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -37,7 +37,7 @@
 
 static char *versionName = "Java Debug Wire Protocol";
 static int majorVersion = 1;  /* JDWP major version */
-static int minorVersion = 4;  /* JDWP minor version */
+static int minorVersion = 6;  /* JDWP minor version */
 
 static jboolean 
 version(PacketInputStream *in, PacketOutputStream *out)

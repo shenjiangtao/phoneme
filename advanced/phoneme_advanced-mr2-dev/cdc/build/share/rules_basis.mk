@@ -1,7 +1,7 @@
 #
 # @(#)rules_basis.mk	1.33 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -28,7 +28,7 @@
 # Basis profile sits on top of Foundationm so we need to include 
 # foundation rules.
 #
-include ../share/rules_foundation.mk
+include $(CDC_DIR)/build/share/rules_foundation.mk
 
 # print our configuration
 printconfig::
@@ -42,7 +42,7 @@ include $(AWT_IMPLEMENTATION_DIR)/build/share/rules_$(J2ME_CLASSLIB)_$(AWT_IMPLE
 
 # Include profile specific gunit rules, if it exists
 ifeq ($(CVM_GUNIT_TESTS), true)
--include ../share/rules_$(J2ME_CLASSLIB)_gunit.mk
+-include $(CDC_DIR)/build/share/rules_$(J2ME_CLASSLIB)_gunit.mk
 endif
 
 testclasses:: basis_test_copy_resources
@@ -64,7 +64,7 @@ ifneq ($(CVM_STATICLINK_LIBS), true)
 AWT_LIB_OBJECTS += $(patsubst %.o,$(CVM_OBJDIR)/%.o,$(AWT_LIB_OBJS))
 $(AWT_LIB_PATHNAME) :: $(AWT_LIB_OBJECTS)
 	@echo "Linking $@"
-	$(SO_LINK_CMD) $(AWT_LIB_LIBS)
+	$(call SO_LINK_CMD, $^, $(AWT_LIB_LIBS))
 endif
 
 #
@@ -74,19 +74,15 @@ ifneq ($(CVM_STATICLINK_LIBS), true)
 JPEG_LIB_OBJECTS = $(patsubst %.o,$(CVM_OBJDIR)/%.o,$(JPEG_LIB_OBJS))
 $(JPEG_LIB_PATHNAME) :: $(JPEG_LIB_OBJECTS)
 	@echo "Linking $@"
-	$(SO_LINK_CMD) $(JPEG_LIB_LIBS)
+	$(call SO_LINK_CMD, $^, $(JPEG_LIB_LIBS))
 endif
 
 #
 # If we are preloading or statically linking the profile, then we must link
 # against the libraries that the profile requires (like X11 or QT libraries).
 #
-ifeq ($(CVM_PRELOAD_LIB), true)
-LINKLIBS += $(AWT_LIB_LIBS) $(JPEG_LIB_LIBS)
-else
 ifeq ($(CVM_STATICLINK_LIBS), true)
 LINKLIBS += $(AWT_LIB_LIBS) $(JPEG_LIB_LIBS)
-endif
 endif
 
 #

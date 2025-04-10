@@ -1,7 +1,7 @@
 /*
  * @(#)jni_md.h	1.7 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -33,9 +33,10 @@
 #define _WIN32_JNI_MD_H
 
 #define JNIEXPORT __declspec(dllexport)
+#define JNIIMPORT __declspec(dllimport)
 #define JNICALL
 
-#define JNI_LIB_PREFIX "lib"
+#define JNI_LIB_PREFIX ""
 #define JNI_LIB_SUFFIX ".dll"
 
 #if _MSC_VER >= 1300

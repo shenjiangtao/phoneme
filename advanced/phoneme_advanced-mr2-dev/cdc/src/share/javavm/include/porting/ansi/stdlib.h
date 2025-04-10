@@ -1,7 +1,7 @@
 /*
  * @(#)stdlib.h	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -37,8 +37,9 @@
  *
  * void* malloc(size_t size);
  * void* calloc(size_t nelem, size_t elsize);
- * void  free(void* ptr);
  * void* realloc(void* ptr, size_t size);
+ * char* strdup(const char *s);
+ * void  free(void* ptr);
  *
  * long  strtol(const char *str, char **endptr, int base);
  *

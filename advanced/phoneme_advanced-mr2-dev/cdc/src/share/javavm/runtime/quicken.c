@@ -1,7 +1,7 @@
 /*
  * @(#)quicken.c	1.57 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -33,7 +33,7 @@
 #include "javavm/include/preloader.h"
 #include "javavm/include/common_exceptions.h"
 #include "javavm/include/porting/int.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #include "javavm/include/globals.h"
 #include "javavm/include/bcattr.h"
 #include "javavm/include/indirectmem.h"
@@ -52,6 +52,19 @@
  */
 #undef  GET_INDEX
 #define GET_INDEX(ptr) (CVMgetUint16(ptr))
+
+/* Used to be that we defined CVM_NO_LOSSY_OPCODES in the makefile.
+ * Now we do a runtime check to determine if we will quicken to
+ * a lossy opcode.  This is so we can build with JVMTI code compiled
+ * in but run with the non-jvmti interpreter loop and with lossy
+ * romized opcodes.  JVMPI instruction tracing needs lossless opcodes
+ * as well, hence this bool.
+ */
+#ifdef CVM_JVMPI_TRACE_INSTRUCTION
+static CVMBool isLossy = CVM_FALSE;
+#else
+static CVMBool isLossy = CVM_TRUE;
+#endif
 
 /* 
  * Macro to make sure that no register caching is done when we
@@ -178,7 +191,7 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 	 * has been quickened, then we don't care about cpIndex.
 	 */
 #ifdef CVM_JVMTI
-	CVM_DEBUGGER_LOCK(ee);
+	CVM_JVMTI_LOCK(ee);
 #else
 	CVM_CODE_LOCK(ee);
 #endif
@@ -200,7 +213,7 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
     /* release the CVM_CODE_LOCK if necessary */
     if (clobbersCpIndex) {
 #ifdef CVM_JVMTI
-	CVM_DEBUGGER_UNLOCK(ee);
+	CVM_JVMTI_UNLOCK(ee);
 #else
 	CVM_CODE_UNLOCK(ee);
 #endif
@@ -369,16 +382,26 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 	    newOpcode = opc_instanceof_quick;
 	    break;
 	case opc_ldc:
-	    if (CVMcpTypeIs(cp, cpIndex, StringICell)) {
+	    switch (CVMcpEntryType(cp, cpIndex)) {
+	    case CVM_CONSTANT_StringICell:
 		newOpcode = opc_aldc_ind_quick;
-	    } else {
+		break;
+	    case CVM_CONSTANT_ClassBlock:
+		CVMpanic("Trying to quicken ldc of type Class");
+		break;
+	    default:
 		newOpcode = opc_ldc_quick;
 	    }
 	    break;
 	case opc_ldc_w:
-	    if (CVMcpTypeIs(cp, cpIndex, StringICell)) {
+	    switch (CVMcpEntryType(cp, cpIndex)) {
+	    case CVM_CONSTANT_StringICell:
 		newOpcode = opc_aldc_ind_w_quick;
-	    } else {
+		break;
+	    case CVM_CONSTANT_ClassBlock:
+		CVMpanic("Trying to quicken ldc of type Class");
+		break;
+	    default:
 		newOpcode = opc_ldc_w_quick;
 	    }
 	    break;
@@ -400,10 +423,23 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 		CVMcbIs(cb, FINAL)) {
 		newOpcode = opc_invokenonvirtual_quick;
 	    }
-#ifndef CVM_NO_LOSSY_OPCODES
-#ifndef CVM_JIT /* The JIT causes unconditional quickening to
-		   invokevirtual_quick_w for inlining purposes */
-	    else if (CVMmbMethodTableIndex(mb) <= 0xFF) {
+	    /* This used to be #ifndef CVM_NO_LOSSY_OPCODES but now
+	     * we determine at runtime if we are going to quicken to
+	     * a non-lossy opcode based on whether JVMPI instruction tracing
+	     * is on (rare) or some JVMTI agent has connected with the VM.
+	     * This is so we can build with JVMTI code compiled
+	     * in but run with the non-jvmti interpreter loop and with lossy
+	     * romized opcodes. 
+	     */
+#ifndef CVM_JIT
+	    /* The JIT causes unconditional quickening to
+	     *  invokevirtual_quick_w for inlining purposes */
+
+	    else if (isLossy &&
+#ifdef CVM_JVMTI
+                !CVMjvmtiIsEnabled() &&
+#endif
+             CVMmbMethodTableIndex(mb) <= 0xFF) {
 		if (CVMmbClassBlock(mb) == CVMsystemClass(java_lang_Object)) {
 		    newOpcode = opc_invokevirtualobject_quick;
 		} else switch(CVMtypeidGetReturnType(CVMmbNameAndTypeID(mb))) {
@@ -426,21 +462,21 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 		changesOperands = CVM_TRUE;
 	    }
 #endif
-#endif
 	    else {
 		newOpcode = opc_invokevirtual_quick_w;
 	    }
 	    break;
 	case opc_invokespecial: {
 	    CVMMethodBlock* new_mb = mb;
+	    CVMMethodTypeID methodID = CVMmbNameAndTypeID(mb);
 	    CVMClassBlock* currClass = CVMeeGetCurrentFrameCb(ee);
 	    if (CVMisSpecialSuperCall(currClass, mb)) {
-		new_mb = CVMcbMethodTableSlot(CVMcbSuperclass(currClass),
-					      CVMmbMethodTableIndex(mb));
+		/* Find matching declared method in a super class. */
+		new_mb = CVMlookupSpecialSuperMethod(ee, currClass, methodID);
 	    }
 	    if (mb == new_mb) {
 		if (CVMmbClassBlock(mb) == CVMsystemClass(java_lang_Object) &&
-		    CVMmbNameAndTypeID(mb) == CVMglobals.initTid) {
+		    methodID == CVMglobals.initTid) {
 		    /* we can ignore all calls to Object.<init> */
 		    newOpcode = opc_invokeignored_quick;
 		    CVMassert(CVMmbArgsSize(mb) == 1);
@@ -452,8 +488,8 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 		}
 	    } else {
 		newOpcode = opc_invokesuper_quick;
-		operand1 = CVMmbMethodTableIndex(mb) >> 8;
-		operand2 = CVMmbMethodTableIndex(mb) & 0xFF;
+		operand1 = CVMmbMethodTableIndex(new_mb) >> 8;
+		operand2 = CVMmbMethodTableIndex(new_mb) & 0xFF;
 		changesOperands = CVM_TRUE;
 	    }
 	    break;
@@ -491,7 +527,6 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 		    }
 		}
 	    } else {
-#ifndef CVM_NO_LOSSY_OPCODES
 		CVMBool getfieldQuickeningAllowed;
 		CVMUint16 offset = CVMfbOffset(fb);
                 /* Only quicken if the field is non-volatile. For volatile
@@ -499,8 +534,15 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
                  * are used.
                  */
 		getfieldQuickeningAllowed = !CVMfbIs(fb, VOLATILE);
-		
-		if ((offset <= 0xFF) && getfieldQuickeningAllowed) {
+		/* We determine at runtime if we are going to quicken to
+		 * a lossy opcode based on whether JVMPI instruction tracing
+		 * is on (rare) or some JVMTI agent has connected with the VM
+		 */
+		if (isLossy &&
+#ifdef CVM_JVMTI
+                    !CVMjvmtiIsEnabled() &&
+#endif
+                    (offset <= 0xFF) && getfieldQuickeningAllowed) {
 		    if (CVMfbIsDoubleWord(fb)) {
 			newOpcode = (isPutOpcode ? opc_putfield2_quick
 				                 : opc_getfield2_quick);
@@ -515,7 +557,7 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 		    operand2 = 0; /* not really needed */
 		    changesOperands = CVM_TRUE;
 		} else
-#endif /* CVM_NO_LOSSY_OPCODES */
+
 		{
 		    newOpcode = (isPutOpcode ? opc_putfield_quick_w 
 				             : opc_getfield_quick_w);
@@ -545,7 +587,7 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 	 * Don't let *pc change to an opc_breakpoint while we are trying
 	 * to determine its current status.
 	 */
-	CVM_DEBUGGER_LOCK(ee);
+	CVM_JVMTI_LOCK(ee);
 
 	/*
 	 * If we have to modify the instruction operands, then the
@@ -579,7 +621,7 @@ CVMquickenOpcodeHelper(CVMExecEnv* ee, CVMUint8* quickening, CVMUint8* pc,
 	    CVM_CODE_UNLOCK(ee);
 	}
 
-	CVM_DEBUGGER_UNLOCK(ee);
+	CVM_JVMTI_UNLOCK(ee);
 	return CVM_QUICKEN_ALREADY_QUICKENED;
 #else /* CVM_JVMTI */
 	if (changesOperands) {

@@ -1,7 +1,7 @@
 /*
  * @(#)util.c	1.79 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -1672,10 +1672,14 @@ getPropertyUTF8(JNIEnv *env, char *propertyName)
             JNI_FUNC_PTR(env,ReleaseStringUTFChars)(env, valueString, utf);
         }
     }
+    /* Used to die here if property not defined.  CVM may have 
+     * NULL sun.boot.class.path.  JDWP should call getSystemProperties
+     * to get list of properties available.
     if ( value == NULL ) {
         ERROR_MESSAGE(("JDWP Can't get property value for %s", propertyName));
         EXIT_ERROR(AGENT_ERROR_NULL_POINTER,NULL);
     }
+    */
     return value;
 }
 
@@ -1884,6 +1888,8 @@ map2jvmtiError(jdwpError error)
             return AGENT_ERROR_INVALID_COUNT;
         case JDWP_ERROR(INTERNAL):
             return AGENT_ERROR_JDWP_INTERNAL;
+    default:
+        return AGENT_ERROR_INTERNAL;
     }
     return AGENT_ERROR_INTERNAL;
 }
@@ -2207,7 +2213,7 @@ map2jdwpError(jvmtiError error)
         case AGENT_ERROR_JDWP_INTERNAL:
             return JDWP_ERROR(INTERNAL);
         default:
-          return JDWP_ERROR(INTERNAL);
+            return JDWP_ERROR(INTERNAL);
     }
     return JDWP_ERROR(INTERNAL);
 }

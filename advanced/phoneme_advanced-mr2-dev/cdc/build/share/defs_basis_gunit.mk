@@ -1,6 +1,6 @@
 
 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -38,4 +38,12 @@ CVM_TEST_CLASSES  += \
    tests.appcontext.FullScreenTest \
    tests.ixcpermission.IxcPermissionTest \
 
-include ../share/defs_gunit.mk
+# Tests to run by make run-unittests.
+CVM_CDC_TESTS_TORUN = \
+   tests.appcontext.FocusMgmtTest \
+   tests.ixcpermission.IxcPermissionTest
+
+# tests.volatileImage.ImageTest is interactive
+# tests.appcontext.FullScreenTest fails
+
+include $(CDC_DIR)/build/share/defs_gunit.mk

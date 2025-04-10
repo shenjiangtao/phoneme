@@ -1,7 +1,7 @@
 /*
  * @(#)StringConstant.java	1.11 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,7 +29,9 @@ package components;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import util.Assert;
 import util.DataFormatException;
+import consts.Const;
 
 // Represents a CONSTANT_String.  These constants are somewhat
 // complicated in that we must fake string bodies for them.
@@ -49,43 +51,49 @@ class StringConstant extends ConstantObject
     public boolean handleWritten = false;
 
 
-    private StringConstant( int t, int i ){
-	tag = t;
-	strIndex = i;
-	nSlots = 1;
+    private StringConstant(int index) {
+	super(Const.CONSTANT_STRING);
+	strIndex = index;
     }
 
-    public static ConstantObject read( int t, DataInput i ) throws IOException{
-	return new StringConstant( t, i.readUnsignedShort() );
+    /**
+     * Factory method to construct a StringConstant instance from the
+     * constant pool data stream.  This method is only called from the
+     * ConstantObject.readObject() factory.
+     */
+    static ConstantObject read(DataInput i) throws IOException {
+	return new StringConstant(i.readUnsignedShort());
     }
 
-    public void resolve( ConstantObject table[] ){
-	if (resolved) return;
-	str = (UnicodeConstant)table[strIndex];
-	resolved = true;
+    public void flatten(ConstantPool cp) {
+	if (isFlat) return;
+        Assert.disallowClassloading();
+	str = (UnicodeConstant)cp.elementAt(strIndex);
+	isFlat = true;
+        Assert.allowClassloading();
     }
 
-    public void write( DataOutput o ) throws IOException{
-	o.writeByte( tag );
-	if ( resolved ){
-	    o.writeShort( str.index );
+    public void write(DataOutput o) throws IOException {
+	o.writeByte(tag);
+	if (isFlat) {
+	    o.writeShort(str.index);
 	} else {
 	    throw new DataFormatException("unresolved StringConstant");
-	    //o.writeShort( strIndex );
+	    //o.writeShort(strIndex);
 	}
     }
 
-    public String toString(){
-	return "String: "+ ((resolved)?str.string:("[ "+strIndex+" ]"));
+    public String toString() {
+	return "String: "+ (isFlat ? str.string : ("[ "+strIndex+" ]"));
     }
 
     public void incReference() {
-	references++;
+	super.incReference();
 	//str.incReference();
     }
 
     public void decReference() {
-	references--;
+	super.decReference();
 	//str.decReference();
     }
 

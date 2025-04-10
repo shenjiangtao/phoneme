@@ -1,5 +1,5 @@
 //
-// Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+// Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 // DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 //   
 // This program is free software; you can redistribute it and/or  
@@ -172,7 +172,7 @@ reg32: ISUB32 aluRhs reg32 : 15 : : : : {
     };
 
 // Purpose: valueFloat = -valueFloat.
-reg32: FNEG reg32 : 10 : : : : {
+reg32: FNEG reg32 : 50 : : : : {
         /* Since floats are sign,magnitute quantities, we only need to toggle
            the sign bit (i.e. the MSB bit) with an exclusive or operation:
 
@@ -194,7 +194,7 @@ reg32: FNEG reg32 : 10 : : : : {
     };
 
 // Purpose: valueDouble = -valueDouble.
-reg64: DNEG reg64 : 20 : : : : {
+reg64: DNEG reg64 : 50 : : : : {
         /* Since doubles are sign,magnitute quantities, we only need to toggle
            the sign bit (i.e. the MSB bit) with an exclusive or operation:
 
@@ -232,6 +232,8 @@ reg64: DNEG reg64 : 20 : : : : {
 
 /* Purpose: Emits code to convert a cond resource to an int.
             -1 for less than, 0 for equal, 1 for greater than. */
+
+#ifdef CVM_NEED_CONVERT_COND2INT_HELPER
 static void
 convertCond2Int(CVMJITCompilationContext *con, CVMJITIRNodePtr thisNode,
                 CVMRMregset target, CVMRMregset avoid)
@@ -247,6 +249,7 @@ convertCond2Int(CVMJITCompilationContext *con, CVMJITIRNodePtr thisNode,
     CVMRMoccupyAndUnpinResource(CVMRM_INT_REGS(con), dest, thisNode);
     pushResource(con, dest);
 }
+#endif
 
 %}
 
@@ -268,7 +271,8 @@ root: BCOND_DOUBLE reg64 reg64 : 80 : SET_AVOID_C_CALL($$); :
 
 // Purpose: value32{-1,0,1} = FCMPL(valueFloat1, valueFloat2)
 reg32: FCMPL reg32 reg32 : 80 : SET_AVOID_C_CALL($$); :
-    SET_TARGET2($$, ARG1, ARG2); : CVM_NEED_DO_FCMP_HELPER : {
+    SET_TARGET2($$, ARG1, ARG2); 
+    : CVM_NEED_DO_FCMP_HELPER CVM_NEED_CONVERT_COND2INT_HELPER : {
         fcomparecc(con, $$,
 		   CVM_FALSE /* needBranch */, CVM_FALSE /* needSetcc */);
         convertCond2Int(con, $$, GET_REGISTER_GOALS);
@@ -276,7 +280,8 @@ reg32: FCMPL reg32 reg32 : 80 : SET_AVOID_C_CALL($$); :
 
 // Purpose: value32{-1,0,1} = FCMPG(valueFloat1, valueFloat2)
 reg32: FCMPG reg32 reg32 : 80 : SET_AVOID_C_CALL($$); :
-    SET_TARGET2($$, ARG1, ARG2); : CVM_NEED_DO_FCMP_HELPER : {
+    SET_TARGET2($$, ARG1, ARG2);
+    : CVM_NEED_DO_FCMP_HELPER CVM_NEED_CONVERT_COND2INT_HELPER : {
         fcomparecc(con, $$,
 		   CVM_FALSE /* needBranch */, CVM_FALSE /* needSetcc */);
         convertCond2Int(con, $$, GET_REGISTER_GOALS);
@@ -284,7 +289,8 @@ reg32: FCMPG reg32 reg32 : 80 : SET_AVOID_C_CALL($$); :
 
 // Purpose: value32{-1,0,1} = DCMPL(valueDouble1, valueDouble2)
 reg32: DCMPL reg64 reg64 : 80 : SET_AVOID_C_CALL($$); :
-    SET_TARGET2($$, ARG1, ARG3); : CVM_NEED_DO_DCMP_HELPER : {
+    SET_TARGET2($$, ARG1, ARG3);
+    : CVM_NEED_DO_DCMP_HELPER CVM_NEED_CONVERT_COND2INT_HELPER : {
         dcomparecc(con, $$,
 		   CVM_FALSE /* needBranch */, CVM_FALSE /* needSetcc */);
         convertCond2Int(con, $$, GET_REGISTER_GOALS);
@@ -292,7 +298,8 @@ reg32: DCMPL reg64 reg64 : 80 : SET_AVOID_C_CALL($$); :
 
 // Purpose: value32{-1,0,1} = DCMPG(valueDouble1, valueDouble2)
 reg32: DCMPG reg64 reg64 : 80 : SET_AVOID_C_CALL($$); :
-    SET_TARGET2($$, ARG1, ARG3); : CVM_NEED_DO_DCMP_HELPER : {
+    SET_TARGET2($$, ARG1, ARG3);
+    : CVM_NEED_DO_DCMP_HELPER CVM_NEED_CONVERT_COND2INT_HELPER : {
         dcomparecc(con, $$,
 		   CVM_FALSE /* needBranch */, CVM_FALSE /* needSetcc */);
         convertCond2Int(con, $$, GET_REGISTER_GOALS);

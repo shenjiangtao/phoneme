@@ -1,7 +1,7 @@
 /*
  * @(#)ClassEntry.java	1.27 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,7 +29,7 @@ package dependenceAnalyzer;
 import util.*;
 import java.util.*;
 import components.*;
-import Const;
+import consts.Const;
 
 /*
  * Class ClassEntry is for use with Member-level dependence analysis.
@@ -399,24 +399,22 @@ public class ClassEntry extends DependenceNode implements MemberArcTypes {
 	}
     doCode:
 	if ( mi.code != null ){
-	    try {
-		mi.findConstantReferences();
-	    } catch ( DataFormatException e ){
-		System.out.println(this);
-		e.printStackTrace();
-		break doCode;
-	    }
 	    byte code[] = mi.code;
-	    int  locs[] = mi.ldcInstructions;
-	    ConstantObject cpool[] = mi.parent.constants;
 	    try {
+		int  locs[] = mi.getLdcInstructions();
+		ConstantObject cpool[] =
+		    mi.parent.getConstantPool().getConstants();
+
 		for ( int j = 0; j < locs.length; j++ ){
 		    ConstantObject o = cpool[ (int)code[locs[j]+1]&0xff ];
 		    if ( o instanceof StringConstant ){
 			makeString( md );
+		    } else if ( o instanceof ClassConstant ){
+			conditionalClassReference( md,
+			    (ClassConstant) o, ARC_CLASS );
 		    }
 		}
-		locs = mi.wideConstantRefInstructions;
+		locs = mi.getWideConstantRefInstructions();
 		for ( int j = 0; j < locs.length; j++ ){
 		    FMIrefConstant fref;
 
@@ -445,6 +443,9 @@ public class ClassEntry extends DependenceNode implements MemberArcTypes {
 			ConstantObject o = cpool[ getUnsignedShort( code, locs[j]+1 ) ];
 			if ( o instanceof StringConstant ){
 			    makeString( md );
+			} else if ( o instanceof ClassConstant ){
+			    conditionalClassReference( md,
+				(ClassConstant) o, ARC_CLASS );
 			}
 			break;
 		    }

@@ -1,27 +1,27 @@
 /*
  * 
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /** @file
@@ -88,7 +88,7 @@ int pcsl_socket_open_start(
     int result;
     int ipn;
 
-    if (pcsl_network_init() == PCSL_NET_IOERROR) { 
+    if (pcsl_network_init_start(NULL) == PCSL_NET_IOERROR) { 
         return PCSL_NET_IOERROR;
     }
 
@@ -395,7 +395,7 @@ int pcsl_network_gethostbyname_start(
     int result;
 
     /* Initially open the linux serial port */
-    if (pcsl_network_init() == PCSL_NET_IOERROR) { 
+    if (pcsl_network_init_start(NULL) == PCSL_NET_IOERROR) { 
         return PCSL_NET_IOERROR;
     }
 
@@ -520,8 +520,17 @@ int pcsl_socket_getremoteport(
 /**
  * See pcsl_network.h for definition.
  */ 
-int pcsl_network_init(void) {
+int pcsl_network_init(void){
+	return pcsl_network_init_start(NULL);
+}
+
+/**
+ * See pcsl_network.h for definition.
+ */ 
+int pcsl_network_init_start(PCSL_NET_CALLBACK pcsl_network_callback) {
     int result;
+
+    (void)pcsl_network_callback;
 
     /* Initially open the linux serial port */
     if (portfd == -1) {
@@ -540,6 +549,29 @@ int pcsl_network_init(void) {
 
 /**
  * See pcsl_network.h for definition.
+ */
+int pcsl_network_init_finish(void) {
+    return PCSL_NET_SUCCESS;
+}
+
+/**
+ * See pcsl_network.h for definition.
+ */
+int pcsl_network_finalize_start(PCSL_NET_CALLBACK pcsl_network_callback) {
+    (void)pcsl_network_callback;
+    return PCSL_NET_SUCCESS;
+}
+
+/**
+ * See pcsl_network.h for definition.
+ */
+int pcsl_network_finalize_finish(void) {
+    return PCSL_NET_SUCCESS;
+}
+
+
+/**
+ * See pcsl_network.h for definition.
  */ 
 int pcsl_network_error(void *handle) {
     //Value of portfd is > 0 if it is opened successfully, hence it can
@@ -552,7 +584,7 @@ int pcsl_network_error(void *handle) {
  */ 
 int pcsl_network_getLocalHostName(char *pLocalHost) {
     /* Initialize the network */
-    if (pcsl_network_init() != PCSL_NET_SUCCESS) {
+    if (pcsl_network_init_start() != PCSL_NET_SUCCESS) {
         return PCSL_NET_IOERROR;
     }
 

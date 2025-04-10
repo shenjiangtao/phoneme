@@ -1,6 +1,6 @@
 # @(#)defs_basis_qt.mk	1.13 06/10/16
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -24,11 +24,11 @@
 
 
 # Include target specific makefiles first
--include ../$(TARGET_OS)/defs_basis_$(AWT_IMPLEMENTATION).mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_basis_$(AWT_IMPLEMENTATION).mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs_basis_$(AWT_IMPLEMENTATION).mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_basis_$(AWT_IMPLEMENTATION).mk
 
 # setup qt tools, includes, and libs
-include ../share/defs_qt.mk
+include $(CDC_DIR)/build/share/defs_qt.mk
 
 TOOLKIT_CLASS = java.awt.QtToolkit
 
@@ -37,8 +37,8 @@ TOOLKIT_CLASS = java.awt.QtToolkit
 #
 PROFILE_SRCDIRS_NATIVE += \
         $(CVM_SHAREROOT)/basis/native/awt/$(AWT_IMPLEMENTATION)
-PROFILE_INCLUDES  += \
-        -I$(CVM_SHAREROOT)/basis/native/awt/$(AWT_IMPLEMENTATION)
+PROFILE_INCLUDE_DIRS  += \
+        $(CVM_SHAREROOT)/basis/native/awt/$(AWT_IMPLEMENTATION)
 #
 # microwindows shared class directories
 #

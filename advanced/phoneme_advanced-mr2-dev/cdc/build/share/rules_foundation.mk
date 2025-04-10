@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved. 
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved. 
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER 
 #  
 # This program is free software; you can redistribute it and/or 
@@ -22,5 +22,5 @@
 # information or have any questions.
 #
 
-include ../share/rules_cdc.mk
--include ../share/rules_foundation-commercial.mk
+include $(CDC_DIR)/build/share/rules_cdc.mk
+-include $(CDC_DIR)/build/share/rules_foundation-commercial.mk

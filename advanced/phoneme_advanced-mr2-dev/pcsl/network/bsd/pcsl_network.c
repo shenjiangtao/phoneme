@@ -1,27 +1,27 @@
 /*
  * 	
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /**
@@ -44,6 +44,11 @@
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+
+#ifdef SOLARIS
+#include <sys/sockio.h>
+#endif
+
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -112,7 +117,6 @@ int pcsl_network_gethostbyname_start(
     *pLen = realLen;
     return PCSL_NET_SUCCESS;
 }
-
 
 /**
  * See pcsl_network.h for definition.
@@ -199,7 +203,6 @@ int pcsl_network_getsockopt(
     }
 }
 
-
 /**
  * See pcsl_socket.h for definition.
  */
@@ -268,7 +271,37 @@ int pcsl_network_setsockopt(
  * See pcsl_network.h for definition.
  */
 int pcsl_network_init(void) {
+    return pcsl_network_init_start(NULL);
+}
+
+/**
+ * See pcsl_network.h for definition.
+ */
+int pcsl_network_init_start(PCSL_NET_CALLBACK pcsl_network_callback) {
+    (void)pcsl_network_callback;
     lastError = 0;
+    return PCSL_NET_SUCCESS;
+}
+
+/**
+ * See pcsl_network.h for definition.
+ */
+int pcsl_network_init_finish(void) {
+    return PCSL_NET_SUCCESS;
+}
+
+/**
+ * See pcsl_network.h for definition.
+ */
+int pcsl_network_finalize_start(PCSL_NET_CALLBACK pcsl_network_callback) {
+    (void)pcsl_network_callback;
+    return PCSL_NET_SUCCESS;
+}
+
+/**
+ * See pcsl_network.h for definition.
+ */
+int pcsl_network_finalize_finish(void) {
     return PCSL_NET_SUCCESS;
 }
 
@@ -296,10 +329,57 @@ int pcsl_network_getLocalHostName(
     return PCSL_NET_IOERROR;
 }
 
-
 /**
  * See pcsl_network.h for definition.
  */
+#ifdef SOLARIS
+int pcsl_network_getLocalIPAddressAsString(
+        char *pLocalIPAddress)
+{
+    int sfd; 
+    int i; 
+    struct lifnum ifnum;
+    struct lifconf ifconf;
+    struct lifreq *ifr;
+    struct sockaddr_in *sin;
+
+    if ((sfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) { 
+        lastError = errno; 
+        return PCSL_NET_IOERROR;
+    }
+
+    /* use AF_INET for IPv4 only, switch to AF_UNSPEC to enable IPv6 */
+    ifnum.lifn_family = AF_INET;
+    ifnum.lifn_flags = 0;
+    if (ioctl(sfd, SIOCGLIFNUM, &ifnum) != 0) { 
+        lastError = errno; 
+        return PCSL_NET_IOERROR;
+    }
+
+    memset(&ifconf, 0, sizeof(ifconf)); 
+ 
+    ifconf.lifc_family = AF_INET;
+    ifconf.lifc_len = sizeof(struct lifreq) * ifnum.lifn_count;
+    ifconf.lifc_buf = calloc(ifnum.lifn_count, sizeof(struct lifreq));
+
+    if (ioctl(sfd, SIOCGLIFCONF, &ifconf) != 0) { 
+        lastError = errno; 
+        return PCSL_NET_IOERROR;
+    }
+
+    for (i = 0; i < ifnum.lifn_count; i++) {
+        ifr = ifconf.lifc_req + i;
+        sin = (struct sockaddr_in *)&ifr->lifr_addr; 
+        if (strcmp("lo0", ifr->lifr_name)) {
+            strcpy(pLocalIPAddress, inet_ntoa(sin->sin_addr)); 
+            break;
+        }
+    }
+
+    free(ifconf.lifc_buf);
+    return PCSL_NET_SUCCESS;
+}
+#else
 int pcsl_network_getLocalIPAddressAsString(
         char *pLocalIPAddress)
 {
@@ -327,6 +407,7 @@ int pcsl_network_getLocalIPAddressAsString(
 
     return PCSL_NET_SUCCESS;
 }
+#endif
 
 /**
  * See pcsl_network.h for definition.
@@ -419,7 +500,6 @@ int pcsl_network_getlocalport(
 
     return PCSL_NET_SUCCESS;
 }
-        
 
 /**
  * See pcsl_network.h for definition.

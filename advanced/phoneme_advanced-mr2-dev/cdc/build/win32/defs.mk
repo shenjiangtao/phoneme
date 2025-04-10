@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -32,13 +32,27 @@
 # to override a lot of values.
 #
 
+# Is CVM a DLL (not an EXE)?
+CVM_DLL		?= true
+CVM_FLAGS	+= CVM_DLL
+CVM_DLL_CLEANUP_ACTION = rm -rf $(CVM_OBJDIR)/java_md.*
+ifeq ($(CVM_DLL),true)
+CVM_DEFINES += -DCVM_DLL
+endif
+
 # Miscellaneous options we override
+ifeq ($(CVM_DLL),true)
 CVM		= cvmi.dll
-CVMLIB		= cvm.o
+else
+CVM		= cvm.exe
+endif
 override GENERATEMAKEFILES = false  
 TARGET_CCC = $(TARGET_CC)
 
 WIN_LINKLIBS += wininet.lib
+
+WIN32_PLATFORM ?= win32
+JAVACALL_TARGET ?= $(WIN32_PLATFORM)_$(TARGET_CPU_FAMILY)
 
 #
 # Platform source directory
@@ -67,17 +81,18 @@ CVM_SRCDIRS   += \
 	$(CVM_TARGETROOT)/native/java/util \
 	$(CVM_TARGETROOT)/native/sun/security/provider \
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src \
-	-I$(CVM_TARGETROOT) \
-        -I$(CVM_TARGETROOT)/native/java/net \
-        -I$(CVM_TARGETROOT)/native/java/util \
-        -I$(CVM_TARGETROOT)/native/common \
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src \
+	$(CVM_TARGETROOT) \
+        $(CVM_TARGETROOT)/native/java/net \
+        $(CVM_TARGETROOT)/native/java/util \
+        $(CVM_TARGETROOT)/native/common \
 
 #
 # Platform specific objects
 #
 CVM_TARGETOBJS_SPACE += \
+	io_sockets.o \
 	io_md.o \
 	net_md.o \
 	time_md.o \
@@ -89,6 +104,15 @@ CVM_TARGETOBJS_SPACE += \
 	java_props_md.o \
 	tchar.o \
         memory_md.o
+
+# objects that always link with cvm.exe, even if we build cvmi.dll
+CVMEXE_OBJS += ansi_java_md.o java_md.o tchar.o
+
+# If we are not building a dll, then CVMEXE_OBJS need to be part of the
+# main cvm link command (the standalone cvm.exe).
+ifneq ($(CVM_DLL),true)
+CVM_TARGETOBJS_SPACE += $(CVMEXE_OBJS)
+endif
 
 ifeq ($(CVM_DYNAMIC_LINKING), true)
 	CVM_TARGETOBJS_SPACE += linker_md.o
@@ -108,6 +132,34 @@ CVM_TARGETOBJS_SPACE += \
         jit_md.o
 endif
 
-# Is CVM a DLL (not an EXE)?
-CVM_DLL = true
+# support for putting up a splash screen
+ifeq ($(USE_SPLASH_SCREEN),true)
+ifeq ($(WIN32_PLATFORM),wince)
+SPLASH_RES = $(CVM_OBJDIR)/splash.res
+
+ifeq ($(USE_CDC_COM),true)
+ifdef CDC_PROJECT
+SPLASH_RC ?= $(CDC_COM_DIR)/projects/$(CDC_PROJECT)/resources/win32/splash.rc
+endif
+endif
+
+ifeq ($(SPLASH_RC),)
+$(error SPLASH_RC must point to a .rc file if USE_SPLASH_SCREEN=true)
+endif
+
+ifeq ($(wildcard $(SPLASH_RC)),)
+$(error SPLASH_RC must point to a .rc file if USE_SPLASH_SCREEN=true: \
+	"$(SPLASH_RC)")
+endif
+
+ifeq ($(CVM_DLL),false)
+CVM_RESOURCES += $(SPLASH_RES)
+endif
+
+CVMEXE_OBJS += splash.o
+CVM_DEFINES += -DENABLE_SPLASH_SCREEN
+LINKCVMEXE_LIBS += aygshell.lib
+endif
+endif
+
 include ../win32/host_defs.mk

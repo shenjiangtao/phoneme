@@ -1,7 +1,7 @@
 /*
  * @(#)asmmacros_arch.h	1.7 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -31,20 +31,13 @@
 #ifndef _ASM
 #define _ASM 
 #endif
-	
-#include <asm/regdef.h>
-#include <asm/asm.h>
+
+/* Must include sgidefs.h first since some versions of regdef.h rely on it. */
+#include <sgidefs.h>
+#include <sys/regdef.h>
+#include <sys/asm.h>
 
 #define ENTRY(x)	LEAF(x)
 #define SET_SIZE(x)	END(x)
-
-#ifdef __PIC__
-#define LA(r,sym)			\
-	lui	r, %hi(sym);		\
-	addiu	r, %lo(sym)
-#else
-#define LA(r,sym)			\
-	la	r, sym
-#endif
 
 #endif /* _INCLUDED_ASMMACROS_ARCH_H */

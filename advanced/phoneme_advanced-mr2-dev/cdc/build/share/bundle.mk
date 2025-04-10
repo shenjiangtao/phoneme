@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -27,8 +27,7 @@
 #
 # Targets (default is src.zip):
 #   src.zip:      j2me source bundle. Renamed to <profile>-src.zip.
-#   jcov-src.zip: JCOV source bundle
-#   all:          both of the above
+#   all:          src.zip target
 #
 # Options - defaults in parenthesis:
 #   J2ME_CLASSLIB(cdc): profile to build source bundle for.
@@ -48,7 +47,11 @@
 #   INCLUDE_DUALSTACK(false): Include cdc/cldc dual stack support.
 #   INCLUDE_KNI(false): Include support for KNI methods
 #   INCLUDE_COMMCONNECTION(true): Include CommConnection support.
+#   INCLUDE_JCOV(false): Include support for JCOV
 #   INCLUDE_MTASK: true for oi build. false for ri builds.
+#   INCLUDE_GCI(false): Set true to include GCI makefiles
+#   USE_CDC_COM(false): set true for commericial source bundles
+#   CDC_COM_DIR: directory of cdc-com component
 #
 # BUNDLE_PORTS lists all the ports to include in the source bundle using
 # the format <os>-<cpu>-<device>. Wildcards are supported, but you must
@@ -71,14 +74,17 @@
 #
 
 default: src.zip
-all:	 src.zip jcov-src.zip
+all:	 src.zip
 
 empty:=
 comma:= ,
 space:= $(empty) $(empty)
 
-CVM_TOP 	?= ../..
-INSTALLDIR	= $(CVM_TOP)/install
+ABSPATH 	= $(shell cd $(1); echo `pwd`)
+
+CVM_TOP		:= ../..
+CVM_TOP_ABS	:= $(call ABSPATH,$(CVM_TOP))
+INSTALLDIR	:= $(CVM_TOP_ABS)/install
 ZIP		= zip
 
 USE_VERBOSE_MAKE	= false
@@ -103,6 +109,8 @@ CVM_PRODUCT = oi
 INCLUDE_DUALSTACK	= false
 INCLUDE_KNI		= $(INCLUDE_DUALSTACK)
 INCLUDE_COMMCONNECTION  = true
+INCLUDE_JCOV		= false
+INCLUDE_GCI		= false
 ifeq ($(CVM_PRODUCT),ri)
 INCLUDE_JIT		= false
 INCLUDE_MTASK		= false
@@ -173,16 +181,13 @@ BUNDLE_PORTS = linux-x86-*
 endif
 
 # Do wildcard expansion of ports listed in BUNDLE_PORTS
-override BUNDLE_PORTS := $(addprefix $(CVM_TOP)/build/, $(BUNDLE_PORTS))
+override BUNDLE_PORTS := \
+	$(addprefix $(CDC_DIR)/build/, $(BUNDLE_PORTS)) \
+	$(addprefix $(CVM_TOP)/build/, $(BUNDLE_PORTS))
 override BUNDLE_PORTS := $(foreach port, $(BUNDLE_PORTS), $(wildcard $(port)))
-override BUNDLE_DEVICE_PORTS := $(notdir $(BUNDLE_PORTS))
 
 # list of all device ports in the form <os>-<cpu>-<device>
-BUNDLE_DEVICE_PORTS = $(foreach port, $(BUNDLE_PORTS), \
-	$(port)					\
-	$(word 1, $(subst -,$(space),$(port)))	\
-	$(word 2, $(subst -,$(space),$(port)))	\
-	$(word 1, $(subst -,$(space),$(port)))-$(word 2, $(subst -,$(space),$(port))))
+BUNDLE_DEVICE_PORTS = $(notdir $(BUNDLE_PORTS))
 
 # list of all OS ports in the form <os>
 BUNDLE_OS_PORTS = \
@@ -228,8 +233,11 @@ BUILDDIR_PATTERNS += \
 	top.mk \
 	defs.mk \
 	rules.mk \
-	jdwp*.mk \
-	hprof.mk
+	*_jdwp*.mk \
+	*_jvmti*.mk \
+	*_hprof.mk \
+	*_jcov.mk \
+	*_nb_profiler.mk
 
 SRCDIR_PATTERNS += \
 	javavm
@@ -237,41 +245,41 @@ SRCDIR_PATTERNS += \
 BUNDLE_INCLUDE_LIST += \
 	src/portlibs \
 	build/portlibs/* \
+	build/share/bundle.mk \
 	build/share/jcc.mk \
 	build/share/*_op.mk \
 	src/share/tools/GenerateCurrencyData \
 	src/share/tools/javazic \
 	src/share/tools/xml \
+	src/share/tools/sha1 \
 	src/share/lib/security \
+	src/share/lib/profiles \
 	$(foreach os,$(BUNDLE_OS_PORTS), \
 		src/$(os)/bin) \
 	$(foreach os,$(BUNDLE_OS_PORTS) share, \
 		src/$(os)/tools/hprof) \
 	$(foreach os,$(BUNDLE_OS_PORTS) share, \
 		src/$(os)/tools/jpda) \
+	$(foreach os,$(BUNDLE_OS_PORTS) share, \
+		src/$(os)/tools/jvmti) \
 	$(foreach os,$(BUNDLE_OS_PORTS), \
 		src/$(os)/lib/tzmappings) \
 	$(foreach os,$(BUNDLE_OS_PORTS), \
 		src/$(os)/lib/content-types.properties)
 
-# need to include special java.security for zaurus
-
-ifeq ($(findstring linux-arm-zaurus,$(BUNDLE_DEVICE_PORTS)),linux-arm-zaurus)
-BUNDLE_INCLUDE_LIST += \
-	src/linux-arm-zaurus/lib/security/java.security
-endif
-
 # For Windows Build
 ifeq ($(findstring win32,$(BUNDLE_OS_PORTS)),win32)
+CVM_INCLUDE_WIN32_HOST_DEFS_MK = true
 BUNDLE_INCLUDE_LIST +=				\
 	build/win32/ppc*_defs.mk \
+	build/win32/wm5*_defs.mk \
 	build/win32/*wince*.mk \
-	build/win32/vc*_defs.mk \
-	build/win32/host_defs.mk 
+	build/win32/vc*_defs.mk
 endif
 
 # For Symbian Build
 ifeq ($(findstring symbian,$(BUNDLE_OS_PORTS)),symbian)
+CVM_INCLUDE_WIN32_HOST_DEFS_MK = true
 BUNDLE_INCLUDE_LIST +=				\
 	build/symbian/fix_project.pl \
 	build/symbian/root.sh \
@@ -279,12 +287,18 @@ BUNDLE_INCLUDE_LIST +=				\
 	src/symbian/lib/cvm_exports*
 endif
 
+ifeq ($(CVM_INCLUDE_WIN32_HOST_DEFS_MK),true)
+BUNDLE_INCLUDE_LIST +=				\
+	build/win32/host_defs.mk 
+endif
+
 # dual stack
 
 ifeq ($(INCLUDE_DUALSTACK), true)
 
 BUNDLE_INCLUDE_LIST += \
-	src/share/lib/dualstack
+	src/share/lib/dualstack \
+	src/share/tools/RomConfProcessor
 
 BUILDDIR_PATTERNS += \
        *_midp.mk
@@ -344,6 +358,22 @@ EXCLUDE_PATTERNS += \
        *win32/native/com/sun/cdc/io/j2me/comm/*
 endif
 
+# jcov suport
+
+ifeq ($(INCLUDE_JCOV), true)
+
+BUNDLE_INCLUDE_LIST += 		\
+	build/share/jcov*.mk	\
+	src/share/tools/jcov
+
+BUNDLE_INCLUDE_LIST += \
+	$(foreach os,$(BUNDLE_OS_PORTS),src/$(os)/tools/jcov)
+
+BUNDLE_INCLUDE_LIST += \
+	$(foreach os,$(BUNDLE_OS_PORTS),build/$(os)/jcov.mk)
+
+endif
+
 # MTask support
 
 ifeq ($(INCLUDE_MTASK), true)
@@ -363,6 +393,16 @@ else
 
 EXCLUDE_PATTERNS += \
 	*mtask* \
+
+endif
+
+# gci
+
+ifeq ($(INCLUDE_GCI), true)
+
+BUILDDIR_PATTERNS += \
+	defs_gci.mk \
+	rules_gci.mk
 
 endif
 
@@ -473,15 +513,16 @@ endif
 # The OSS repository legal directory
 BUNDLE_INCLUDE_LIST += legal
 
-# Location of legal documents in case JAVAME_LEGAL_DIR is not set.
-JAVAME_LEGAL_REPOSITORY = https://phoneme.dev.java.net/svn/phoneme/legal
+JAVAME_LEGAL_DIR ?= $(COMPONENTS_DIR)/legal
 
-# Make sure the "legal" directory is available if set.
-ifneq ($(JAVAME_LEGAL_DIR),,)
-ifneq ($(JAVAME_LEGAL_DIR),$(wildcard $(JAVAME_LEGAL_DIR)))
-$(error JAVAME_LEGAL_DIR must be set to "legal" directory. The respository can be found at https://phoneme.dev.java.net/svn/phoneme/legal.)
-endif
-endif
+# Make sure the "legal" directory is available.
+CHECK_LEGAL_DIR = \
+	if [ ! -d $(JAVAME_LEGAL_DIR) ]; then				\
+	    echo '*** JAVAME_LEGAL_DIR must be set to the "legal"'	\
+	         'directory. The OSS version can be found at'		\
+		 'https://phoneme.dev.java.net/svn/phoneme/legal.';	\
+	    exit 2;							\
+	fi
 
 ########################
 # Build the include list
@@ -521,6 +562,8 @@ FEATURE_LIST += J2ME_CLASSLIB \
 	INCLUDE_JIT \
 	INCLUDE_MTASK \
 	INCLUDE_KNI \
+	INCLUDE_JCOV \
+	INCLUDE_GCI \
 	INCLUDE_DUALSTACK \
 	INCLUDE_COMMCONNECTION
 
@@ -528,19 +571,18 @@ FEATURE_LIST_WITH_VALUES += \
 	$(foreach feature,$(strip $(FEATURE_LIST)), "$(feature)=$($(feature))")
 
 
-ifneq (USE_VERBOSE_MAKE), true)
+ifneq ($(USE_VERBOSE_MAKE), true)
 SVN_QUIET_CHECKOUT = -q
 endif
 
 lib-src: src.zip
 src.zip::
-ifeq (USE_VERBOSE_MAKE), true)
+ifeq ($(USE_VERBOSE_MAKE), true)
 	@echo ">>>FLAGS:"
 	@echo "	SRC_BUNDLE_APPEND_REVISION = $(SRC_BUNDLE_APPEND_REVISION)"
 	@echo "	SRC_BUNDLE_NAME		= $(SRC_BUNDLE_NAME)"
 	@echo "	SRC_BUNDLE_DIRNAME	= $(SRC_BUNDLE_DIRNAME)"
 	@echo "	JAVAME_LEGAL_DIR	= $(JAVAME_LEGAL_DIR)"
-	@echo "	JAVAME_LEGAL_REPOSITORY = $(JAVAME_LEGAL_REPOSITORY)"
 
 	@echo ">>>Making "$@" for the following devices:"
 	@for s in "$(BUNDLE_DEVICE_PORTS)" ; do \
@@ -559,60 +601,54 @@ ifeq (USE_VERBOSE_MAKE), true)
 
 	@echo ">>>Supported features:"
 	@for f in $(FEATURE_LIST_WITH_VALUES); do \
-		formattedF=`echo $$f | sed 's/=/:\t\t/'`; \
+		formattedF=`echo $$f | sed 's/=/:		/'`; \
 		printf "\t%s\n" "$$formattedF" ; \
 	done
 endif
 
 	$(AT)rm -rf $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)
 	$(AT)mkdir -p $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)
-	$(AT)ln -ns $(CVM_TOP)/* $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)
+	$(AT)ln -ns $(CDC_DIR)/* $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)
 	$(AT)rm -rf $(INSTALLDIR)/$(SRC_BUNDLE_NAME).zip
 
-ifneq ($(JAVAME_LEGAL_DIR),)
-	$(AT)ln -ns $(JAVAME_LEGAL_DIR) $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)
-else
-	$(AT)svn checkout $(SVN_QUIET_CHECKOUT) $(JAVAME_LEGAL_REPOSITORY) \
-			  $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)/legal
-endif
+	$(AT)$(CHECK_LEGAL_DIR)
+	$(AT)ln -ns $(JAVAME_LEGAL_DIR) \
+		$(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)/legal
+
 	$(AT)(cd $(INSTALLDIR); \
-	 $(ZIP) -r -q - $(BUNDLE_INCLUDE_LIST) \
-		-x $(EXCLUDE_PATTERNS)) \
-		> $(INSTALLDIR)/$(SRC_BUNDLE_NAME).zip;
+	 $(ZIP) -r -q \
+		$(INSTALLDIR)/$(SRC_BUNDLE_NAME).zip \
+		$(BUNDLE_INCLUDE_LIST) -x $(EXCLUDE_PATTERNS))
 	$(AT)rm -rf $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)
-ifeq (USE_VERBOSE_MAKE), true)
-	@echo "<<<Finished "$@" ..." ;
+
+ifeq ($(USE_CDC_COM),true)
+	$(AT)mkdir -p $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)/build/share
+ifdef CDC_PROJECT
+# copy id_project.mk so it can be added to the zip file
+	$(AT)cp $(CDC_COM_DIR)/projects/$(CDC_PROJECT)/build/share/id_project.mk \
+		$(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)/build/share
+# Add the id_project.mk to the zip file
+	$(AT)(cd $(INSTALLDIR); \
+	      $(ZIP) -r -q \
+		$(INSTALLDIR)/$(SRC_BUNDLE_NAME).zip \
+		$(SRC_BUNDLE_DIRNAME)/build/share/id_project.mk)
+endif
+# copy cdc-com version of defs_qt.mk so it can be added to the zip file
+ifeq ($(findstring defs_qt.mk,$(BUILDDIR_PATTERNS)),defs_qt.mk)
+	$(AT)cp $(CDC_COM_DIR)/build/share/defs_qt.mk \
+		$(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)/build/share
+# Add the commercial defs_qt.mk to the zip file
+	$(AT)(cd $(INSTALLDIR); \
+	      $(ZIP) -r -q \
+		$(INSTALLDIR)/$(SRC_BUNDLE_NAME).zip \
+		$(SRC_BUNDLE_DIRNAME)/build/share/defs_qt.mk)
+endif
+	$(AT)rm -rf $(INSTALLDIR)/$(SRC_BUNDLE_DIRNAME)
 endif
 
-#######
-# JCOV
-#######
-
-#
-# All jcov bundles include these directories
-#
-BUNDLE_JCOV_LIST += 				\
-	build/share/jcov*.mk	\
-	src/share/tools/jcov
-
-# Add every src/<os>/tools/jcov directory
-BUNDLE_JCOV_LIST += \
-	$(foreach os,$(BUNDLE_OS_PORTS),src/$(os)/tools/jcov)
-
-# Add every build/<os>/jcov.mk file
-BUNDLE_JCOV_LIST += \
-	$(foreach os,$(BUNDLE_OS_PORTS),build/$(os)/jcov.mk)
-
-jcov-src: jcov-src.zip
-jcov-src.zip::
-	@echo ">>>Making "$@" ..." ;
-	mkdir -p $(INSTALLDIR)
-	rm -rf $(INSTALLDIR)/jcov-src.zip
-	(cd $(CVM_TOP); \
-	 $(ZIP) -r -q  - $(BUNDLE_JCOV_LIST) -x "*SCCS/*" -x "*/.svn/*") \
-		 > $(INSTALLDIR)/jcov-src.zip;
-	@rm -rf $<;
+ifeq ($(USE_VERBOSE_MAKE), true)
 	@echo "<<<Finished "$@" ..." ;
+endif
 
 #
 # Include any commercial-specific rules and defs

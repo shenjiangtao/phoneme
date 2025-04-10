@@ -1,7 +1,7 @@
 /*
  * @(#)invokeNative_arm.S	1.18 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -24,6 +24,8 @@
  * information or have any questions. 
  *
  */
+
+#include "javavm/include/porting/defs.h"
 #include "javavm/include/asmmacros_cpu.h"
 
 	SET_SECTION_EXEC(invokeNative_arm)
@@ -74,10 +76,10 @@
 /* method returns a word, 2 if the native method returns a */
 /* double word, or -1 if the native method returns an object. */
 
+	ALIGN(4)
+
 	ENTRY(CVMjniInvokeNative)
 ENTRY1(CVMjniInvokeNative)
-
-	ALIGN(4)
 
 /* Arguments: */
 
@@ -105,8 +107,8 @@ ENTRY1(CVMjniInvokeNative)
 #define JSTKPTR v1
 #define CSTKPTR v7
 
-#define RETTYPE v6
-#define SIGBUFF  v5
+#define RETTYPE v5
+#define SIGBUFF  lr
 #define SWITCHBASE v2
 
 #define FuncPtr	ip
@@ -119,7 +121,7 @@ ENTRY1(CVMjniInvokeNative)
 
     /* Set up registers for processing the signature, etc. */
 
-    STMFD   sp!, {SAVESET,lr}    /* IF YOU CHANGE THIS LINE, CHANGE THE MAP BELOW! */
+    stmfd   sp!, {SAVESET,lr}    /* IF YOU CHANGE THIS LINE, CHANGE THE MAP BELOW! */
 
 #define stk1	[fp, #SAVESIZE+4]
 #define stk2	[fp, #SAVESIZE+8]
@@ -176,7 +178,7 @@ LABEL(arg_32)
 	ldr	pc, [SWITCHBASE, SIGBYTE, lsl #2]
 
 LABEL(arg_64)
-	LDMIA	JSTKPTR!, {a3,SIGBYTE}
+	ldmia	JSTKPTR!, {a3,SIGBYTE}
 #ifdef AAPCS
 	/* Round stack up to 8 byte boundary for AAPCS */
 	add	CSTKPTR, CSTKPTR, #4
@@ -228,11 +230,11 @@ LABEL(args_done)
 
 	adr	SWITCHBASE,ret_jumps
 	
-	MOV	lr, pc			/* for the debugger, for now */
+	mov	lr, pc			/* for the debugger, for now */
 	BR_REG(FuncPtr)
 	
 	ldr	a4, stk3		/* pointer to result buffer */
-	MOV	sp, fp
+	mov	sp, fp
 
 	/* thread the return address to the */
 	/* proper code for our return type */
@@ -241,38 +243,38 @@ LABEL(args_done)
 LABEL(ret_obj)
 	str	a1,[a4]
 	mov	a1,#-1	/* -1 indicates object return */
-	LDMFD	sp!, {SAVESET, lr}
+	ldmfd	sp!, {SAVESET, lr}
 	BR_REG(lr)
 	
 LABEL(ret_s32)	
 	str	a1,[a4]
 	mov	a1,#1	/* 1 indicates single-word return */
-	LDMFD	sp!, {SAVESET, lr}
+	ldmfd	sp!, {SAVESET, lr}
 	BR_REG(lr)
 
 LABEL(ret_s64)
 	stmia	a4, {a1,a2}
 	mov	a1,#2	/* 2 indicates double-word return */
-	LDMFD	sp!, {SAVESET, lr}
+	ldmfd	sp!, {SAVESET, lr}
 	BR_REG(lr)
 
-#ifdef CVM_FORCE_HARD_FLOAT	
+#ifdef CVM_ARM_FLOAT_RESULT_IN_FLOAT_REGISTER	
 LABEL(ret_f32)	
 	stfs	f0,[a4]
 	mov	a1,#1	/* 1 indicates single-word return */
-	LDMFD	sp!, {SAVESET, lr}
+	ldmfd	sp!, {SAVESET, lr}
 	BR_REG(lr)
 
 LABEL(ret_f64)
 	stfd	f0,[a4]
 	mov	a1,#2	/* 2 indicates double-word return */
-	LDMFD	sp!, {SAVESET, lr}
+	ldmfd	sp!, {SAVESET, lr}
 	BR_REG(lr)
 #endif
 
 LABEL(ret_void)
 	mov	a1,#0	/* 0 indicates void return */
-	LDMFD	sp!, {SAVESET, lr}
+	ldmfd	sp!, {SAVESET, lr}
 	BR_REG(lr)
 
 LABEL(ret_jumps)		
@@ -284,7 +286,7 @@ LABEL(ret_jumps)
 	WORD(ret_s32)		/* char */
 	WORD(ret_s64)		/* long */
 	WORD(ret_s32)		/* byte */
-#ifdef CVM_FORCE_HARD_FLOAT	
+#ifdef CVM_ARM_FLOAT_RESULT_IN_FLOAT_REGISTER	
 	WORD(ret_f32)		/* float */
 	WORD(ret_f64)		/* double */
 #else

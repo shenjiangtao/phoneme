@@ -1,7 +1,7 @@
 /*
  * @(#)AccessController.c	1.28 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -31,7 +31,7 @@
 #include "javavm/include/globalroots.h"
 #include "generated/offsets/java_lang_Thread.h"
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_security_AccessController_computeContext(CVMExecEnv* ee,
     CVMStackVal32 *arguments, CVMMethodBlock **p_mb)
 {
@@ -62,7 +62,7 @@ CNIjava_security_AccessController_computeContext(CVMExecEnv* ee,
     /* CNI policy: offer a gc-safe checkpoint */
     CVMD_gcSafeCheckPoint(ee, {}, {});
 
-    CVMframeIterate(frame, &iter);
+    CVMframeIterateInit(&iter, frame);
 
     while (CVMframeIterateNext(&iter)) {
 	mb = CVMframeIterateGetMb(&iter);
@@ -141,7 +141,7 @@ CNIjava_security_AccessController_computeContext(CVMExecEnv* ee,
     return CNI_SINGLE;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_security_AccessController_fillInContext(CVMExecEnv* ee,
     CVMStackVal32 *arguments, CVMMethodBlock **p_mb)
 {
@@ -171,7 +171,7 @@ CNIjava_security_AccessController_fillInContext(CVMExecEnv* ee,
     /* CNI policy: offer a gc-safe checkpoint */
     CVMD_gcSafeCheckPoint(ee, {}, {});
 
-    CVMframeIterate(frame, &iter);
+    CVMframeIterateInit(&iter, frame);
 
     while (CVMframeIterateNext(&iter)) {
 	CVMObjectICell *pd;
@@ -231,7 +231,7 @@ CNIjava_security_AccessController_fillInContext(CVMExecEnv* ee,
     return CNI_VOID;
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_security_AccessController_getInheritedAccessControlContext(
     CVMExecEnv* ee, CVMStackVal32 *arguments, CVMMethodBlock **p_mb)
 {

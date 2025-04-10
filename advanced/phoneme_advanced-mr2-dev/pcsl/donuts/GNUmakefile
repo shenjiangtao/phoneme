@@ -1,27 +1,25 @@
 #
-#  
-#
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2009 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License version
-# 2 only, as published by the Free Software Foundation. 
+# 2 only, as published by the Free Software Foundation.
 # 
 # This program is distributed in the hope that it will be useful, but
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License version 2 for more details (a copy is
-# included at /legal/license.txt). 
+# included at /legal/license.txt).
 # 
 # You should have received a copy of the GNU General Public License
 # version 2 along with this work; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
-# 02110-1301 USA 
+# 02110-1301 USA
 # 
 # Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
 # Clara, CA 95054 or visit www.sun.com if you need additional
-# information or have any questions. 
+# information or have any questions.
 #
 ######################################################################
 #
@@ -36,8 +34,7 @@ ifdef PCSL_PLATFORM
 include $(PCSL_DIR)/makefiles/top.gmk
 endif
 
-#
-all: verify $(OUTPUT_OBJ_DIR) $(OUTPUT_LIB_DIR) $(OUTPUT_INC_DIR) $(OUTPUT_BIN_DIR) $(OUTPUT_GEN_DIR) $(OUTPUT_BIN_DIR)/donuts$(EXE)
+all:  $(OUTPUT_BIN_DIR)/donuts$(EXE)
 
 include $(PCSL_DIR)/makefiles/verify.gmk
 
@@ -45,6 +42,7 @@ ifndef DONUTS_FILES
 DONUTS_FILES := $(shell ls \
   $(MEMORY_DIR)/test*.c \
   $(FILE_DIR)/test*.c \
+  $(ESCFILENAMES_DIR)/test*.c \
   $(PRINT_DIR)/test*.c \
   $(NETWORK_SELECT_DIR)/test*.c \
   $(STRING_DIR)/test*.c \
@@ -54,12 +52,13 @@ endif
 ifndef DONUTS_LIBS
 DONUTS_LIBS = $(OUTPUT_LIB_DIR)/libpcsl_print$(LIB_EXT) \
 	      $(OUTPUT_LIB_DIR)/libpcsl_file$(LIB_EXT) \
+	      $(OUTPUT_LIB_DIR)/libpcsl_escfilenames$(LIB_EXT) \
 	      $(OUTPUT_LIB_DIR)/libpcsl_memory$(LIB_EXT) \
 	      $(OUTPUT_LIB_DIR)/libpcsl_string$(LIB_EXT) \
 	      $(OUTPUT_LIB_DIR)/libpcsl_network$(LIB_EXT)
 
 $(DONUTS_LIBS):
-	@cd $(PCSL_DIR); $(MAKE) all
+	$(AT)cd $(PCSL_DIR); $(MAKE) all
 endif
 
 ifndef DONUTS_OBJS
@@ -70,7 +69,7 @@ DONUTS_DIRS=$(sort $(dir $(DONUTS_FILES)))
 vpath %.c $(DONUTS_DIRS)
 
 $(DONUTS_OBJS): $(OUTPUT_OBJ_DIR)/%.o : %.c
-	@$(CC) -I$(OUTPUT_INC_DIR) -I$(DONUTS_DIR) \
+	$(AT)$(CC) -I$(OUTPUT_INC_DIR) -I$(DONUTS_DIR) \
         $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
 
 endif
@@ -80,16 +79,13 @@ endif
 DONUTS_NAME := $(foreach f,$(DONUTS_FILES),$(basename $(notdir $(f))))
 
 $(OUTPUT_GEN_DIR)/donuts_generated.c: $(DONUTS_FILES)
-	@sh donuts.sh $(DONUTS_NAME) > $@
+	$(AT)sh donuts.sh $(DONUTS_NAME) > $@
 
 $(OUTPUT_OBJ_DIR)/donuts_generated.o: $(OUTPUT_GEN_DIR)/donuts_generated.c
-	@$(CC) -I. $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
+	$(AT)$(CC) -I. $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
 
 $(OUTPUT_OBJ_DIR)/donuts.o: donuts.c
-	@$(CC) -I. $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
-
-$(OUTPUT_BIN_DIR) $(OUTPUT_GEN_DIR) $(OUTPUT_OBJ_DIR) $(OUTPUT_LIB_DIR) $(OUTPUT_INC_DIR):
-	@mkdir -p $@
+	$(AT)$(CC) -I. $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
 
 #$(OUTPUT_OBJ_DIR)/testFile.o: $(FILE_DIR)/testFile.c
 #	@$(CC) -I$(DONUTS_SELECT_DIR) -I$(OUTPUT_INC_DIR) $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
@@ -100,11 +96,11 @@ $(OUTPUT_BIN_DIR) $(OUTPUT_GEN_DIR) $(OUTPUT_OBJ_DIR) $(OUTPUT_LIB_DIR) $(OUTPUT
 $(OUTPUT_BIN_DIR)/donuts$(EXE): $(OUTPUT_OBJ_DIR)/donuts.o $(OUTPUT_OBJ_DIR)/donuts_generated.o \
                                 $(DONUTS_LIBS) $(DONUTS_OBJS)
 
-	@$(LD) $(LD_FLAGS) `$(call fixcygpath, $(OUTPUT_OBJ_DIR)/donuts.o $(OUTPUT_OBJ_DIR)/donuts_generated.o $(DONUTS_OBJS))` $(LD_OUTPUT)$@ `$(call fixcygpath, $(DONUTS_LIBS))` $(LIBS)
+	$(AT)$(LD) $(LD_FLAGS) `$(call fixcygpath, $(OUTPUT_OBJ_DIR)/donuts.o $(OUTPUT_OBJ_DIR)/donuts_generated.o $(DONUTS_OBJS))` $(LD_OUTPUT)$@ `$(call fixcygpath, $(DONUTS_LIBS))` $(LIBS)
 
-clean: verify
+clean: verify_for_clean
 	rm -rf $(OUTPUT_OBJ_DIR)/test*.o
 	rm -rf $(OUTPUT_BIN_DIR)/donuts$(EXE)
 	rm -rf $(OUTPUT_GEN_DIR)/donuts_generated.c
 
-.PHONY: all clean verify
+.PHONY: all clean

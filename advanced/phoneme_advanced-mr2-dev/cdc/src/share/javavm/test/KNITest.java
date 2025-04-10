@@ -1,7 +1,7 @@
 /*
  * @(#)KNITest.java	1.7 06/10/17
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -51,19 +51,22 @@ public class KNITest {
 	if (testIntArgs(20,100000,55) != 20*100000+55) {
 	    error("testIntArg()");
 	}
-	if (testFloatArgs(20.0f,100000.0f,55.0f) != 20.0*100000.0+55.0) {
+	if (testFloatArgs(20.03f,  100000.011f,  55.123f) !=
+	                  20.03f * 100000.011f + 55.123f) {
 	    error("testFloatArgs()");
 	}
 	if (testLongArgs(20,100000,55) != 20*100000+55) {
 	    error("testLongArgs()");
 	}
-	if (testDoubleArgs(20.0,100000.0,55.0) != 20.0*100000.0+55.0) {
+	if (testDoubleArgs(20.03d,  100000.011d,  55.123d) !=
+	                   20.03d * 100000.011d + 55.123d) {
 	    error("testDoubleArgs()");
 	}
 	if (testIntLongArgs(20,100000,55) != 20*100000+55) {
 	    error("testIntLongArgs()");
 	}
-	if (testFloatDoubleArgs(20.0d,100000.0f,55.0d) != 20.0*100000.0+55.0) {
+	if (testFloatDoubleArgs(20.03d,  100000.011f,  55.123d) !=
+	                        20.03d * 100000.011f + 55.123d) {
 	    error("testFloatDoubleArgs()");
 	}
 	if (kniTest.testVirtualArg(55) != 2*55) {
@@ -126,6 +129,17 @@ public class KNITest {
         if (newString() != null) {
             error("newString()");
         }
+	
+	String[] strs = (String[]) newStringArray(10);
+	if (strs.length != 10) {
+            error("newStringArray()");
+	}
+
+	KNITest[] arr = (KNITest[]) newObjectArray(KNITest.class, 10);
+	if (arr.length != 10) {
+            error("newObjectArray()");
+	}
+
 	System.out.println("Done!");
     }
 
@@ -159,4 +173,7 @@ public class KNITest {
 						int len);
     public native static String newStringUTF();
     public native static String newString();
+
+    public native static Object newStringArray(int len);
+    public native static Object newObjectArray(Class clazz, int len);
 }

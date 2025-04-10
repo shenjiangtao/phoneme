@@ -1,7 +1,7 @@
 /*
  * @(#)RuntimeConstants.java	1.18 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -63,7 +63,7 @@ public interface RuntimeConstants {
     /* Class File Constants */
     int JAVA_MAGIC                   = 0xcafebabe;
     int JAVA_MIN_SUPPORTED_VERSION   = 45;
-    int JAVA_MAX_SUPPORTED_VERSION   = 48;
+    int JAVA_MAX_SUPPORTED_VERSION   = 50;
     int JAVA_MAX_SUPPORTED_MINOR_VERSION = 0;
 
     /* Generate class file version for 1.1  by default */

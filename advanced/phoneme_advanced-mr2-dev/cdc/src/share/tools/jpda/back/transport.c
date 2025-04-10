@@ -1,7 +1,7 @@
 /*
  * @(#)transport.c	1.35 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -120,7 +120,7 @@ loadTransportLibrary(char *libdir, char *name)
     dbgsysBuildLibName(libname, sizeof(libname), plibdir, name);
     
     /* dlopen (unix) / LoadLibrary (windows) the transport library */
-    handle = dbgsysLoadLibrary(libname, buf, sizeof(buf));
+    handle = dbgsysLoadLibrary(libname);
     return handle;
 }
 

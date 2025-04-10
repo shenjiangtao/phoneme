@@ -1,7 +1,7 @@
 /*
  * @(#)ClassFileConst.java	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -68,7 +68,7 @@ public interface ClassFileConst
     public static final String SIG_PACKAGE = "/";
     public static final int JAVA_MAGIC = 0xcafebabe;
     public static final int JAVA_MIN_SUPPORTED_VERSION = 45;
-    public static final int JAVA_MAX_SUPPORTED_VERSION = 48;
+    public static final int JAVA_MAX_SUPPORTED_VERSION = 50;
     public static final int JAVA_MAX_SUPPORTED_MINOR_VERSION = 0;
     public static final int CONSTANT_UTF8 = 1;
     public static final int CONSTANT_UNICODE = 2;

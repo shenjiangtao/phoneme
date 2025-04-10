@@ -1,7 +1,7 @@
 /*
  * @(#)CVMMethodStats.java	1.5 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -145,7 +145,7 @@ public class CVMMethodStats implements Comparator {
     public void dump(runtime.CCodeWriter out) {
 	int numElements = Math.min(256, tableIdx);
 	out.println();
-	out.println("const CVMUint8 argsInvokerAccess[] = {");
+	out.println("const CVMUint16 argsInvokerAccess[] = {");
 	for (int i = 0; i < numElements; i++) {
 	    out.print("    /* idx="+i+", refcount="+table[i].refcount+" */ ");
 	    out.println(table[i].argsSize + ", "+table[i].invoker+", "+

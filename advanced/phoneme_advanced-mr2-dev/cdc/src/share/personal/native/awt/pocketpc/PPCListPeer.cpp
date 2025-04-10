@@ -1,7 +1,7 @@
 /*
  * @(#)PPCListPeer.cpp	1.14 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -192,9 +192,9 @@ void AwtList::SetMultiSelect(BOOL ms) {
 
     SendMessage(WM_SETFONT, (WPARAM)hFont, (LPARAM)FALSE);
     SendMessage(LB_RESETCONTENT);  
-    for (i = 0; i < nCount; i++) {
-        InsertString(i, strings[i]);
-        delete strings[i];
+    for (int j = 0; j < nCount; j++) {
+        InsertString(j, strings[j]);
+        delete strings[j];
     }
     AdjustHorizontalScrollbar();
     SendMessage(LB_SETCURSEL, nCurSel);

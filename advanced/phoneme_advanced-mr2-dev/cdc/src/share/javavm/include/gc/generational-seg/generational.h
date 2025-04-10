@@ -1,7 +1,7 @@
 /*
  * @(#)generational.h	1.44 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -139,7 +139,7 @@ typedef struct CVMGeneration {
                             CVMGCOptions* gcOpts);
 #endif
 
-#if defined(CVM_DEBUG) || defined(CVM_JVMPI)
+#if defined(CVM_DEBUG) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
     /* Iterate over objects in generation. Return CVM_FALSE
        if scan not completed. Return CVM_TRUE on success. */
     CVMBool       (*iterateGen)(struct CVMGeneration* gen, 

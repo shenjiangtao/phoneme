@@ -1,7 +1,7 @@
 /*
  * @(#)preloader.c	1.113 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -111,32 +111,79 @@ CVMpreloaderLookupFromType0(CVMClassTypeID typeID)
     /* NOTE: The Class instances of the Class and Array types in the
        CVM_ROMClasses[] are sorted in incremental order of typeid values.  The
        only exception is that deep array types (i.e. array types with depth >=
-       7) will be sorted based only on the basetype field of their typeids
+       3) will be sorted based only on the basetype field of their typeids
        (i.e. the depth field is ignored ... hence the masking operation in the
        computation of the index for the deep array case below).  This is what
        makes it possible to access Class instances for Class and Deep array
-       types in CVM_ROMClasses[] by indexing. */
+       types in CVM_ROMClasses[] by indexing. 
+
+       The sorted order looks like this:
+
+             .---------------------------------------.
+             |  Primtive classes                     |
+             |---------------------------------------|
+             |  Regular Loaded classes               | <= e1
+             |  e.g. java.lang.Object                |
+             |                                       |
+             |  Big Array classes                    |
+             |  i.e. depth exceeds or equals the     |
+             |  the value of CVMtypeArrayMask.       |
+             |
+             |---------------------------------------|
+             |  Single Dimension Array classes       | <= e2
+             |  e.g. [I or [Ljava.lang.Object;       |
+             |                                       | <= e3
+             |---------------------------------------|
+             |  Multi Dimension Array classes        |
+             |  e.g. [[I or [[Ljava.lang.Object; or  |
+             |       [[[I, etc.                      |
+             |                                       |
+             '---------------------------------------'
+         
+       In the above illustration, entry e1 is the first entry in the
+       Regular Loaded classes section.  Entry e2 is the first entry in the
+       Single Dimension Array classes section, and entry e3 is the
+       last entry in this same section.
+
+       The Regular Loaded classes section currectly also holds the Big
+       Array classes whose dimension depth exceeds or equals the bits
+       in CVMtypeArrayMask (currently 3).  In the current implemetation
+       the Big Array classes always come at the end of this section after
+       the Regular Loaded classes.
+
+       CVM_firstNonPrimitiveClass to be the index of entry e1,
+       CVM_firstSingleDimensionArrayClass to be the index of entry e2, and
+       CVM_lastSingleDimensionArrayClass to be the index of entry e3. 
+    */
     if ( !CVMtypeidIsArray(typeID)) {
 	const CVMClassBlock * cb;
 	
+        /* If we get here, then we're looking for a normal class i.e. not
+           a primitive class and not an array class.
+           The index should be within the range of regular loaded (or
+           preloaded in this case) classes if its there: */
 	i = typeID-CVMtypeidLastScalar-1;
-	if ( (i >= CVM_firstROMVectorClass) || ( i < CVM_firstROMNonPrimitiveClass) ){
+        if ((i < CVM_firstROMNonPrimitiveClass) ||
+            (i >= CVM_firstROMSingleDimensionArrayClass)) {
 	    return NULL; /* not here! */
 	}
 	cb = CVM_ROMClassblocks[i];
-	CVMassert( CVMcbClassName(cb) == typeID );
+        CVMassert(cb == NULL || CVMcbClassName(cb) == typeID);
 	return (CVMClassBlock*)cb;
     }
 
     if (CVMtypeidIsBigArray(typeID)){
         const CVMClassBlock * cb;
 
+        /* If we get here, then we're looking for a Big Array class.
+           The index should come before the first single dimension array
+           class if it's there: */
         i = (typeID & CVMtypeidBasetypeMask)-CVMtypeidLastScalar-1;
-        if ( i >= CVM_firstROMVectorClass ){
-                return NULL; /* not here! */
+        if (i >= CVM_firstROMSingleDimensionArrayClass) {
+            return NULL; /* not here! */
         }
         cb = CVM_ROMClassblocks[i];
-        CVMassert( CVMcbClassName(cb) == typeID );
+        CVMassert(CVMcbClassName(cb) == typeID);
         return (CVMClassBlock*)cb;
     }
 
@@ -145,25 +192,34 @@ CVMpreloaderLookupFromType0(CVMClassTypeID typeID)
      * array. Choose the appropriate partition of the ROMClasses array
      * and binary search for it.
      */
-    if ( CVMtypeidGetArrayDepth(typeID) == 1 ){
-	lowest = CVM_firstROMVectorClass;
-	highbound= CVM_lastROMVectorClass+1;
+    if (CVMtypeidGetArrayDepth(typeID) == 1) {
+        /* If we get here, we are looking for a single dimension array class.
+           The index should be between the first and last single dimension
+           array class if its there: */
+        lowest = CVM_firstROMSingleDimensionArrayClass;
+        highbound= CVM_lastROMSingleDimensionArrayClass+1;
     } else {
-	lowest = CVM_lastROMVectorClass+1;
+        /* Else, we're looking for a multi-dimension (2 or more but less
+           than the BigArray depth which is currently 4) array class.
+           The index should be between the last single dimension
+           array class and the end of the list if its there: */
+        lowest = CVM_lastROMSingleDimensionArrayClass+1;
 	highbound= CVM_nROMClasses;
     }
 
-    while ( lowest < highbound ){
+    /* Do a binary search to see if the sought array class is there: */
+    while (lowest < highbound) {
 	const CVMClassBlock * cb;
 	int candidateID;
 	i = lowest + (highbound-lowest)/2;
 	cb = CVM_ROMClassblocks[i];
 	candidateID = CVMcbClassName(cb);
-	if ( candidateID == typeID) return (CVMClassBlock*)cb;
-	if ( candidateID < typeID)
-	    lowest = i+1;
-	else
-	    highbound = i;
+        if (candidateID == typeID) return (CVMClassBlock*)cb;
+        if (candidateID < typeID) {
+            lowest = i+1;
+        } else {
+            highbound = i;
+        }
     }
 
     /*
@@ -213,6 +269,9 @@ CVMpreloaderCheckROMClassInitState(CVMExecEnv* ee)
     int i;
     for (i = 0; i < CVM_nROMClasses; ++i) {
 	const CVMClassBlock* cb = CVM_ROMClassblocks[i];
+	if (cb == NULL) {
+	    continue;
+	}
 	CVMassert(CVMcbIsInROM(cb));
 	CVMassert(CVMcbCheckRuntimeFlag(cb, LINKED));
 	CVMassert(CVMcbGetClinitEE(ee, cb) == NULL);
@@ -258,8 +317,10 @@ unpack(CVMMethodBlockImmutable* mbImm,
     CVM_DO_MB_UNPACK_FROM_COMPRESSED(checkedExceptionsOffsetX);
     CVM_DO_MB_UNPACK_FROM_COMPRESSED(codeX.jmd);
     mbImm->argsSizeX = argsInvokerAccess[mbComp->entryIdxX * 3];
-    mbImm->invokerIdxX = argsInvokerAccess[mbComp->entryIdxX * 3 + 1];
-    mbImm->accessFlagsX = argsInvokerAccess[mbComp->entryIdxX * 3 + 2];
+
+    CVMprivateMbImmSetInvokerAndAccessFlags(mbImm,
+        argsInvokerAccess[mbComp->entryIdxX * 3 + 1],
+        argsInvokerAccess[mbComp->entryIdxX * 3 + 2]);
 }
 
 #ifdef CVM_DEBUG_ASSERTS
@@ -373,20 +434,48 @@ CVMpreloaderInit()
      */
     {
 	int i;
+	CVMInt32 randomHash = CVMrandomNext();
 	CVMClassBlock* classcb =
 	    CVM_OBJHDR_CLASS_INIT(CVMsystemClass(java_lang_Class));
-	
-	for (i = 0; i < CVM_nTotalROMClasses; ++i) {
-	    const CVMClassBlock* cb = CVM_ROMClassblocks[i];
-	    struct java_lang_Class ** cbInstanceICell = 
-		(struct java_lang_Class **)CVMcbJavaInstance(cb);
-	    struct java_lang_Class * cbInstance = *cbInstanceICell;
+
+	/* Make sure that the random number generator (RNG) has been
+	   initialized.  We test this my fetching the next random number.
+	   It is not probable that the next random number is identical to the
+	   current one.  If it happens to be, then we call the RNG again for
+	   yet another number.  If we get 5 same numbers consecutively, then
+	   either the RNG is not initialized, or it is not very random at all.
+	   Either case, we will fail the assertion in that case.  We need to
+	   assert this because the initialization of ROMized object hashcodes
+	   below depends on this functionality.
+
+	   NOTE: This assertion is meant to be a warning to the VM engineer
+	         in case some changes are made to the RNG or its initialization
+		 that causes it to be useless for the purpose of initializing
+		 the romized object hashcodes.
+	*/
+	CVMassert((randomHash != CVMrandomNext()) ||
+		  (randomHash != CVMrandomNext()) ||
+		  (randomHash != CVMrandomNext()) ||
+		  (randomHash != CVMrandomNext()));
+
+	for (i = 0; i < CVM_nROMClasses; ++i) {
+	    const CVMClassBlock *cb = CVM_ROMClassblocks[i];
+	    struct java_lang_Class **cbInstanceICell;
+	    struct java_lang_Class *cbInstance;
 	    CVMInt32 hash;
 	    int shift = i & 0x1f;
+
+	    if (cb == NULL) {
+		continue;
+	    }
+
+	    cbInstanceICell = (struct java_lang_Class **)CVMcbJavaInstance(cb);
+	    cbInstance = *cbInstanceICell;
 
 	    hash = ((CVMAddr)cbInstance >> 4) ^ ((CVMAddr)cb >> 5);
 	    hash = (((CVMUint32)hash >> shift) |
 		    ((CVMUint32)hash << (32 - shift)));
+	    hash = hash ^ randomHash;
 
 	    cbInstance->hdr.clas = classcb;
 	    cbInstance->hdr.various32 = CVM_OBJHDR_VARIOUS_INIT(hash);
@@ -400,6 +489,7 @@ CVMpreloaderInit()
      * and construct the matching Java instances
      */
     {
+	CVMInt32 randomHash = CVMrandomNext();
 	struct java_lang_String* strPtr = CVM_ROMStrings;
 	CVMUint32 i, j;
 	CVMUint32 offset = 0;
@@ -421,6 +511,7 @@ CVMpreloaderInit()
 		       ((CVMAddr)cb << ((offset + strLen) & 0x1f));
 		hash = ((CVMUint32)hash << shift) |
 		       ((CVMUint32)hash >> (32 - shift));
+		hash = hash ^ randomHash;
 
 		strPtr->hdr.clas = cb;
 		strPtr->hdr.various32 = CVM_OBJHDR_VARIOUS_INIT(hash);
@@ -532,9 +623,11 @@ CVMpreloaderInit()
      */
     {
 	int i, j;
-	for (i = 0; i < CVM_nTotalROMClasses; ++i) {
+	for (i = 0; i < CVM_nROMClasses; ++i) {
 	    const CVMClassBlock* cb = CVM_ROMClassblocks[i];
-	    if (CVMcbIs(cb, PRIMITIVE) || CVMcbMethodTablePtr(cb) == NULL) {
+	    if (cb == NULL || CVMcbIs(cb, PRIMITIVE) ||
+		CVMcbMethodTablePtr(cb) == NULL)
+	    {
 		continue;
 	    }
 	    for (j = 0; j < CVMcbMethodTableCount(cb); ++j) {
@@ -547,7 +640,7 @@ CVMpreloaderInit()
 		 */
 		if (CVMcbMethodCount(mcb) < 256) {
 		    CVMassert(mb == 
-			      CVMcbMethodSlot(mcb, CVMmbMethodIndex(mb)));
+			      CVMcbMethodSlot(mcb,(short)CVMmbMethodIndex(mb)));
 		}
 	    }
 	}
@@ -572,10 +665,15 @@ CVMpreloaderInit()
 
     	for (i = 0; i < CVM_nROMClasses; ++i) {
 	    const CVMClassBlock* cb 	= CVM_ROMClassblocks[i];
-	    CVMClassBlock* scb 		= CVMcbSuperclass(cb);
+	    CVMClassBlock* scb;
 
-	    if (scb == NULL || cb == NULL || CVMcbIs(cb, INTERFACE) 
-		|| CVMcbMethodTablePtr(scb) == NULL) {
+	    if (cb == NULL || CVMcbIs(cb, INTERFACE)) {
+		continue;
+	    }
+
+	    scb = CVMcbSuperclass(cb);
+
+	    if (scb == NULL || CVMcbMethodTablePtr(scb) == NULL) {
 		continue;
 	    }
 
@@ -629,7 +727,7 @@ CVMpreloaderInit()
 	    }
     	}
     }
-#endif //CVM_JIT_PATCHED_METHOD_INVOCATIONS
+#endif /* CVM_JIT_PATCHED_METHOD_INVOCATIONS */
 }
 
 CVMBool
@@ -639,8 +737,13 @@ CVMpreloaderDisambiguateAllMethods(CVMExecEnv* ee)
 
     for (i = 0; i < CVM_nROMClasses; ++i) {
 	const CVMClassBlock* cb = CVM_ROMClassblocks[i];
-	int nmethods = CVMcbMethodCount(cb);
+	int nmethods;
 	int j;
+
+	if (cb == NULL) {
+	    continue;
+	}
+	nmethods = CVMcbMethodCount(cb);
 	for (j = 0; j < nmethods; j++) {
 	    CVMMethodBlock* mb = CVMcbMethodSlot(cb, j);
 	    if (CVMmbInvokerIdx(mb) < CVM_INVOKE_CNI_METHOD) {
@@ -699,6 +802,9 @@ CVMpreloaderInitInvokeCost()
     
     for (i = 0; i < CVM_nROMClasses; ++i) {
 	const CVMClassBlock* cb = CVM_ROMClassblocks[i];
+	if (cb == NULL) {
+	    continue;
+	}
 	for (j = 0; j < CVMcbMethodCount(cb); ++j) {
 	    CVMMethodBlock *mb = CVMcbMethodSlot(cb, j);
 #ifndef CVM_MTASK
@@ -736,7 +842,7 @@ CVMpreloaderVerifyGCMaps()
 	 * We don't check java_lang_Object, array classes or
 	 * primitive clases.
 	 */
-	if (cb != CVMsystemClass(java_lang_Object) &&
+	if (cb != NULL && cb != CVMsystemClass(java_lang_Object) &&
 	    !CVMisArrayClass(cb) && !CVMcbIs(cb, PRIMITIVE)) {
 	    CVMpreloaderVerifyGCMap(cb);
 	}
@@ -947,7 +1053,6 @@ CVMpreloaderVerifyGCMap(const CVMClassBlock* cb)
  * Iterate over all preloaded classes,
  * and call 'callback' on each class.
  */
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMTI) || defined(CVM_JVMPI)
 void
 CVMpreloaderIterateAllClasses(CVMExecEnv* ee, 
 			      CVMClassCallbackFunc callback,
@@ -955,9 +1060,33 @@ CVMpreloaderIterateAllClasses(CVMExecEnv* ee,
 {
     int i;
     for (i = 0; i < CVM_nROMClasses; ++i) {
-	callback(ee, (CVMClassBlock*)CVM_ROMClassblocks[i], data);
+        if (CVM_ROMClassblocks[i] != NULL) {
+            callback(ee, (CVMClassBlock*)CVM_ROMClassblocks[i], data);
+        }
     }
 
+}
+
+#ifdef CVM_JAVASE_CLASS_HAS_REF_FIELD
+void
+CVMpreloaderScanPreloadedClassObjects(CVMExecEnv* ee,
+                                      CVMGCOptions* gcOpts,
+                                      CVMRefCallbackFunc callback,
+                                      void* data)
+{
+    int i;
+    for (i = 0; i < CVM_nROMClasses; ++i) {
+        const CVMClassBlock *cb = CVM_ROMClassblocks[i];
+        if (cb != NULL) {
+	    CVMObject *obj = *(CVMObject**)CVMcbJavaInstance(cb);
+            CVMobjectWalkRefsWithSpecialHandling(ee, gcOpts, obj,
+                    CVMsystemClass(java_lang_Class), {
+	        if (*refPtr != 0) {
+	            (*callback)(refPtr, data);
+	        }                            
+	    }, callback, data);
+        }
+    }
 }
 #endif
 
@@ -971,7 +1100,7 @@ CVMBool CVMpreloaderIsPreloadedObject(CVMObject *obj)
     CVMBool result = CVM_FALSE;
     struct java_lang_Class *firstClass = &CVM_ROMClasses[0];
     struct java_lang_Class *afterLastClass =
-					&CVM_ROMClasses[CVM_nTotalROMClasses];
+					&CVM_ROMClasses[CVM_nROMClasses];
     struct java_lang_String *firstString = &CVM_ROMStrings[0];
     struct java_lang_String *afterLastString = &CVM_ROMStrings[CVM_nROMStrings];
 
@@ -1025,7 +1154,7 @@ CVMBool CVMpreloaderIsPreloadedObject(CVMObject *obj)
 }
 #endif
 
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
 /* Purpose: Iterate over all preloaded objects and calls Call callback() on
             each preloaded object. */
 /* Returns: CVM_FALSE if exiting due to an abortion (i.e. the callback
@@ -1040,11 +1169,13 @@ CVMpreloaderIteratePreloadedObjects(CVMExecEnv* ee,
     /* Iterate over preloaded classes: */
     for (i = 0; i < CVM_nROMClasses; ++i) {
         const CVMClassBlock *cb = CVM_ROMClassblocks[i];
-        CVMObject *currObj = *(CVMObject **)CVMcbJavaInstance(cb);
-        CVMClassBlock *currCb = CVMobjectGetClass(currObj);
-        CVMUint32  objSize    = CVMobjectSizeGivenClass(currObj, currCb);
-        if (!callback(currObj, currCb, objSize, callbackData)) {
-            return CVM_FALSE;
+        if (cb != NULL) {
+            CVMObject *currObj = *(CVMObject **)CVMcbJavaInstance(cb);
+            CVMClassBlock *currCb = CVMobjectGetClass(currObj);
+            CVMUint32  objSize = CVMobjectSizeGivenClass(currObj, currCb);
+            if (!callback(currObj, currCb, objSize, callbackData)) {
+                return CVM_FALSE;
+            }
         }
     }
 
@@ -1112,11 +1243,13 @@ CVMpreloaderDestroy()
 
     for (i = 0; i < CVM_nROMClasses; ++i) {
 	const CVMClassBlock * cb = CVM_ROMClassblocks[i];
-	CVMtraceClassLoading(("CL: Destroying methods for preloaded class %C (cb=0x%x)\n", cb, cb));
+        if (cb != NULL) {
+            CVMtraceClassLoading(("CL: Destroying methods for preloaded class %C (cb=0x%x)\n", cb, cb));
 #ifdef CVM_JIT
-	CVMclassFreeCompiledMethods(NULL, (CVMClassBlock*)cb);
+            CVMclassFreeCompiledMethods(NULL, (CVMClassBlock*)cb);
 #endif
-	CVMclassFreeJavaMethods(NULL, (CVMClassBlock*)cb, CVM_TRUE);
+            CVMclassFreeJavaMethods(NULL, (CVMClassBlock*)cb, CVM_TRUE);
+        }
     }
 }
 
@@ -1208,29 +1341,24 @@ CVMmemBssWriteNotify(int pid, void *addr, void *pc, CVMMemHandle *h)
 
     if (mamap == NULL) {
         romStringStart = (CVMUint32)CVM_ROMStrings;
-        romStringEnd = (CVMUint32)&CVM_ROMStrings[CVM_nROMStrings] +
-                           sizeof(struct java_lang_String);
+        romStringEnd = (CVMUint32)&CVM_ROMStrings[CVM_nROMStrings];
         staticDataStart = (CVMUint32)CVMpreloaderGetRefStatics();
-        staticDataEnd = (CVMUint32)CVMcbMethods(
-                            CVMsystemClass(java_lang_Class));
+        staticDataEnd =
+            (CVMUint32)CVMcbMethods(CVMsystemClass(java_lang_Class));
         romClassStart = (CVMUint32)CVM_ROMClasses;
-        romClassEnd = (CVMUint32)&CVM_ROMClasses[CVM_nROMClasses] +
-                          sizeof(struct java_lang_Class);
+        romClassEnd = (CVMUint32)&CVM_ROMClasses[CVM_nROMClasses];
         romCBStart = (CVMUint32)CVM_ROMClassBlocks;
-        romCBEnd = (CVMUint32)&CVM_ROMClassBlocks[CVM_nROMClasses] +
-                       sizeof(struct java_lang_String);
+        romCBEnd = (CVMUint32)&CVM_ROMClassBlocks[CVM_nROMClasses];
         romPkgStart = (CVMUint32)CVM_ROMpackages;
-        romPkgEnd = (CVMUint32)(CVM_ROMpackages + CVM_nROMpackages + 1);
+        romPkgEnd = (CVMUint32)(CVM_ROMpackages + CVM_nROMpackages);
         romPkgHashStart = (CVMUint32)CVM_pkgHashtable;
-        romPkgHashEnd = (CVMUint32)(CVM_pkgHashtable + NPACKAGEHASH + 1);
+        romPkgHashEnd = (CVMUint32)(CVM_pkgHashtable + NPACKAGEHASH);
         methodTypeHashStart = (CVMUint32)CVMMethodTypeHash;
-        methodTypeHashEnd = (CVMUint32)(CVMMethodTypeHash +
-                                        NMETHODTYPEHASH + 1);
+        methodTypeHashEnd = (CVMUint32)(CVMMethodTypeHash + NMETHODTYPEHASH);
         memberNameHashStart = (CVMUint32)CVMMemberNameHash;
-        memberNameHashEnd = (CVMUint32)(CVMMemberNameHash +
-                                        NMEMBERNAMEHASH + 1);
-        methodsStart = (CVMUint32)CVMcbMethods(
-                           CVMsystemClass(java_lang_Class));
+        memberNameHashEnd = (CVMUint32)(CVMMemberNameHash + NMEMBERNAMEHASH);
+        methodsStart =
+            (CVMUint32)CVMcbMethods(CVMsystemClass(java_lang_Class));
         mamap = (CVMUint8*)calloc(sizeof(CVMUint8),
                                   (ALIGNEDNEXT(romCBStart) -
                                    ALIGNED(methodsStart)) / 4096);
@@ -1263,21 +1391,21 @@ CVMmemBssWriteNotify(int pid, void *addr, void *pc, CVMMemHandle *h)
     if (waddr < romStringStart ||
         waddr > romStringStart + CVMROMGlobalsSize) {
         CVMassert(CVM_FALSE);
-    } else if (waddr >= romStringStart && waddr <= romStringEnd) {
+    } else if (waddr >= romStringStart && waddr < romStringEnd) {
         sectionName = "Rom String";
         p = (waddr - ALIGNED(romStringStart)) / 4096 - 1;
         if (strmap[p] == 0) {
             strmap[p] = 0x1;
             strdp ++;
         }
-    } else if (waddr >= romClassStart && waddr <= romClassEnd) {
+    } else if (waddr >= romClassStart && waddr < romClassEnd) {
         sectionName = "Rom Class";
         p  = (waddr - ALIGNED(romClassStart)) / 4096 -1;
         if (clmap[p] == 0) {
             clmap[p] = 0x1;
             cldp ++;
         }
-    } else if (waddr >= romCBStart && waddr <= romCBEnd) {
+    } else if (waddr >= romCBStart && waddr < romCBEnd) {
         sectionName = "Rom CB";
         p = (waddr -  ALIGNED(romCBStart)) / 4096 - 1;
         if (cbmap[p] == 0) {
@@ -1298,28 +1426,28 @@ CVMmemBssWriteNotify(int pid, void *addr, void *pc, CVMMemHandle *h)
             mamap[p] = 0x1;
             mdp ++;
         }
-    } else if (waddr >= romPkgStart && waddr <= romPkgEnd) {
+    } else if (waddr >= romPkgStart && waddr < romPkgEnd) {
         sectionName = "Rom Package"; 
         p = (waddr - ALIGNED(romPkgStart)) / 4096 -1;
         if (pkgmap[p] == 0) {
             pkgmap[p] = 0x1;
             pkgdp ++;
         }
-    } else if (waddr >= romPkgHashStart && waddr <= romPkgHashEnd) {
+    } else if (waddr >= romPkgHashStart && waddr < romPkgHashEnd) {
         sectionName = "Package Hash";
         p = (waddr - ALIGNED(romPkgHashStart)) / 4096 - 1;
         if (pkghmap[p] == 0) {
             pkghmap[p] = 0x1;
             pkghdp ++;
         }
-    } else if (waddr >= methodTypeHashStart && waddr <= methodTypeHashEnd) {
+    } else if (waddr >= methodTypeHashStart && waddr < methodTypeHashEnd) {
         sectionName = "Method Type Hash";
         p = (waddr - ALIGNED(methodTypeHashStart)) / 4096 -1;
         if (mthmap[p] == 0) {
             mthmap[p] = 0x1;
             mthdp++;
         }
-    } else if (waddr >= memberNameHashStart && waddr <= memberNameHashEnd) {
+    } else if (waddr >= memberNameHashStart && waddr < memberNameHashEnd) {
         sectionName = "Member Name Hash";
         p = (waddr - ALIGNED(memberNameHashStart)) / 4096 -1;
         if (mnhmap[p] == 0) {

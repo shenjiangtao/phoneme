@@ -1,7 +1,7 @@
 /*
  * @(#)jcov_events.c	1.29 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -597,7 +597,7 @@ void jcov_class_load_event(JVMPI_Event *event) {
 
 void jcov_req_class_load_event(JVMPI_Event *event) {
     jcov_class_t *found_class, class;
-    bin_class_context_t ctx = { 0 };
+    bin_class_context_t ctx = { 0, 0, 0, 0, 0, 0, 0 };
     UINT8 *class_buf = NULL;
     char *tmp;
     Bool res;

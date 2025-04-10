@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -58,8 +58,8 @@ endif
 CVM_SRCDIRS   += \
 	$(CVM_TOP)/src/$(TARGET_OS)-$(TARGET_CPU_FAMILY)/javavm/runtime \
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src/$(TARGET_OS)-$(TARGET_CPU_FAMILY)
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src/$(TARGET_OS)-$(TARGET_CPU_FAMILY)
 
 CVM_TARGETOBJS_SPEED +=	\
 	x86_float_cpu2.o \
@@ -67,5 +67,5 @@ CVM_TARGETOBJS_SPEED +=	\
 CVM_SRCDIRS   += \
 	$(CVM_TOP)/src/win32-x86/javavm/runtime
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src/win32-x86
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src/win32-x86

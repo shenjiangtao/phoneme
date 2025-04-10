@@ -1,7 +1,7 @@
 /*
  * @(#)proc_md.h	1.10 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -27,17 +27,29 @@
 
 /* Windows process id's and threads */
 
+#ifdef WINCE
+#include <Winbase.h>
+#include <Kfuncs.h>
+#else
 #include <process.h>
+#endif
 #include <time.h>
 
-#define MUTEX_T         int
-#define MUTEX_INIT      0
-#define MUTEX_LOCK(x)           /* FIXUP? */
-#define MUTEX_UNLOCK(x)         /* FIXUP? */
+static CRITICAL_SECTION __my_mutex__;
+
+#define MUTEX_T         CRITICAL_SECTION *
+#define MUTEX_INIT    (InitializeCriticalSection(&__my_mutex__), &__my_mutex__)
+
+#define MUTEX_LOCK(x)  EnterCriticalSection(x)
+#define MUTEX_UNLOCK(x) LeaveCriticalSection(x)
 #define GET_THREAD_ID() GetCurrentThreadId()
 #define THREAD_T        unsigned long
 #define PID_T           int
+#ifdef WINCE
+#define GETPID()        GetCurrentProcessId()
+#else
 #define GETPID()        getpid()
+#endif
 #define GETMILLSECS(millisecs) (millisecs=0)
 
 #define popen   _popen

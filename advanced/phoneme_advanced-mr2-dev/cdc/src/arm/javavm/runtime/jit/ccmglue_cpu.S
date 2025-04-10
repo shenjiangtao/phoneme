@@ -1,27 +1,28 @@
 /*
  * @(#)ccmglue_cpu.S	1.41 06/10/29
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -40,6 +41,16 @@
 #include "javavm/include/porting/jit/jit.h"
 #include "javavm/include/sync.h"
 
+        /* Monitor enter/exit code may post an event which will
+         * push a JNI local frame on the stack.  Need to have frame->TOS
+         * consistent with JSP
+         */
+#ifdef CVM_JVMTI
+#define FLUSH_TOS 	str     JSP, [JFP, #OFFSET_CVMFrame_topOfStack]
+#else
+#define FLUSH_TOS
+#endif
+
 /*
  * NOTE: Some linker such as the ARM RVCT (v2.2) linker sorts 
  *	 sections by attributes and section name. To make sure
@@ -57,7 +68,7 @@
 #define MAKE_BRANCH(offset)					\
     ((14 << 28) :OR:			 /* COND_AL */		\
      (5 << 25) :OR:			 /* branch opcode */	\
-     (((offset - 8) >> 2) & 0x00ffffff)) /* branch offset */ 
+     (((offset - 8) >> 2) :AND: 0x00ffffff)) /* branch offset */ 
 #else
 #define MAKE_BRANCH(offset)					\
     ((14 << 28) |			 /* COND_AL */		\
@@ -121,70 +132,45 @@
 #endif
 
 /* do a gc rendezvous */
-	ENTRY ( CVMCCMruntimeGCRendezvousGlue )
+	ENTRY(CVMCCMruntimeGCRendezvousGlue)
 ENTRY1 ( CVMCCMruntimeGCRendezvousGlue )
+	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeGCRendezvous)
+	SET_SIZE(CVMCCMruntimeGCRendezvousGlue)
+
+
+#if defined(CVM_JIT_COPY_CCMCODE_TO_CODECACHE) && defined(CVMJIT_PATCH_BASED_GC_CHECKS)	
+	ENTRY(CVMARMruntimeGCRendezvousAdjustRetAddrGlue)
+ENTRY1 ( CVMARMruntimeGCRendezvousAdjustRetAddrGlue )
 	/* If we are copying to the code cache, then only one instruction
          * was needed to call us, so we want to return to it. Otherwise
          * it may have taken multiple instructions, so the last one is
          * patched with a nop so we can skip it.
          */
-#if defined(CVM_JIT_COPY_CCMCODE_TO_CODECACHE) && defined(CVMJIT_PATCH_BASED_GC_CHECKS)
-	/* If CVM_AOT or CVM_MTASK is enabled, we use trap based gc check
-	 * for precompiled code and patch based gc check for dynamic
-	 * compiled code. For precompiled code, don't adjust the lr since
-	 * they are not using patch based gc check. */
-#ifdef CVM_MTASK
-	/* If lr<CVMJITcodeCacheDecompileStart, it's pre-compiled code.
-	 * Don't adjust lr. */
-	IMPORT(CVMJITcodeCacheDecompileStart)
-	ldr	a2, =CVMJITcodeCacheDecompileStart
-	ldr	a2, [a2]
-	ldr	a2, [a2]
-	cmp	lr, a2
-	blo	gcNoRetAddrAdjust
-#endif
-#ifdef CVM_AOT
-	/* If lr>=CVMJITcodeCacheAOTStart and lr<CVMJITcodeCacheAOTEnd, then
-	 * we are in AOT code. Don't adjust lr. */
-	IMPORT(CVMJITcodeCacheAOTEnd)
-	IMPORT(CVMJITcodeCacheAOTStart)
-	ldr	a2, =CVMJITcodeCacheAOTEnd
-	ldr	a2, [a2]
-	ldr	a2, [a2]
-	cmp	lr, a2
-	blo	gcNoRetAddrAdjust
-	ldr	a2,  =CVMJITcodeCacheAOTStart
-	ldr	a2, [a2]
-	ldr	a2, [a2]
-	cmp	lr, a2
-	bhs	gcNoRetAddrAdjust
-#endif	
 	sub	lr, lr, #4    /* we want to return to the patch point */
-#endif
-	ENTRY ( CVMARMruntimeGCRendezvousNoRetAddrAdjustGlue )
-ENTRY1 ( CVMARMruntimeGCRendezvousNoRetAddrAdjustGlue )
-LABEL(gcNoRetAddrAdjust)
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeGCRendezvous)
+	SET_SIZE(CVMARMruntimeGCRendezvousAdjustRetAddrGlue)
+#endif
 
 /* Throw various well known exceptions */
 
-	ENTRY ( CVMCCMruntimeThrowNullPointerExceptionGlue )
+	ENTRY(CVMCCMruntimeThrowNullPointerExceptionGlue)
 ENTRY1 ( CVMCCMruntimeThrowNullPointerExceptionGlue )
+LABEL(CVMCCMruntimeThrowNullPointerExceptionGlueLocal)
 	IMPORT(java_lang_NullPointerException_Classblock)
 	FIXUP_FRAMES(JFP, {lr}, 1)
-	ldr	a3, =java_lang_NullPointerException_Classblock
+	ldr	a3, SYMBOL(java_lang_NullPointerException_Classblock)
 	mov	a4, #0  /* exception message */
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeThrowClass)
 	SET_SIZE(CVMCCMruntimeThrowNullPointerExceptionGlue)
 
-	ENTRY ( CVMCCMruntimeThrowArrayIndexOutOfBoundsExceptionGlue )
+	ENTRY(CVMCCMruntimeThrowArrayIndexOutOfBoundsExceptionGlue)
 ENTRY1 ( CVMCCMruntimeThrowArrayIndexOutOfBoundsExceptionGlue )
 	IMPORT(java_lang_ArrayIndexOutOfBoundsException_Classblock)
 	FIXUP_FRAMES(JFP, {lr}, 1)
 #ifdef ARMASM_LONG_SYMBOL_NAME_BUG
         ldr	a3, L1
 #else
-	ldr	a3, =java_lang_ArrayIndexOutOfBoundsException_Classblock
+	ldr	a3, SYMBOL(java_lang_ArrayIndexOutOfBoundsException_Classblock)
 #endif
 	mov	a4, #0  /* exception message */
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeThrowClass)
@@ -193,17 +179,20 @@ ENTRY1 ( CVMCCMruntimeThrowArrayIndexOutOfBoundsExceptionGlue )
 L1	DCD	java_lang_ArrayIndexOutOfBoundsException_Classblock
 #endif
 
-	ENTRY ( CVMCCMruntimeThrowDivideByZeroGlue )
+	ENTRY(CVMCCMruntimeThrowDivideByZeroGlue)
 ENTRY1 ( CVMCCMruntimeThrowDivideByZeroGlue )
+LABEL(CVMCCMruntimeThrowDivideByZeroGlueLocal)
 	IMPORT(java_lang_ArithmeticException_Classblock)
 	FIXUP_FRAMES(JFP, {lr}, 1)
-	ldr	a3, =java_lang_ArithmeticException_Classblock
-	ldr	a4, =divideByZeroString /*exception message */
+	adr	a4, divideByZeroString /*exception message */
+	ldr	a3, SYMBOL(java_lang_ArithmeticException_Classblock)
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeThrowClass)
-	SET_SIZE(CVMCCMruntimeThrowDivideByZeroGlue)
+LABEL(divideByZeroString)
+	STRING("/ by zero")
+       	SET_SIZE(CVMCCMruntimeThrowDivideByZeroGlue)
 
 /* Throw an object */
-	ENTRY ( CVMCCMruntimeThrowObjectGlue )
+	ENTRY(CVMCCMruntimeThrowObjectGlue)
 ENTRY1 ( CVMCCMruntimeThrowObjectGlue )
 #define SAVESET {a3, lr}
 	FIXUP_FRAMES(JFP, SAVESET, 2)
@@ -211,7 +200,7 @@ ENTRY1 ( CVMCCMruntimeThrowObjectGlue )
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeThrowObject)
 
 /* do a checkcast */
-	ENTRY ( CVMCCMruntimeCheckCastGlue )
+	ENTRY(CVMCCMruntimeCheckCastGlue)
 ENTRY1 ( CVMCCMruntimeCheckCastGlue )
         /* a1 = object to cast 
 	 * a2 = objectCb #ifdef IAI_CACHEDCONSTANT_INLINING 
@@ -268,7 +257,7 @@ FASTCHECKING1:
 #undef SAVESET
 	CALL_HELPER_AND_PASS_CACHE_ADDR(CVMCCMruntimeCheckCast)
 /* do an instanceof check */
-	ENTRY ( CVMCCMruntimeInstanceOfGlue )
+	ENTRY(CVMCCMruntimeInstanceOfGlue)
 ENTRY1 ( CVMCCMruntimeInstanceOfGlue )
         /* a1 = object to cast 
 	 * a2 = objectCb #ifdef IAI_CACHEDCONSTANT_INLINING 
@@ -329,7 +318,7 @@ FASTCHECKING2:
 	CALL_HELPER_AND_PASS_CACHE_ADDR(CVMCCMruntimeInstanceOf)
 
 /* check reference array assignment capatibility */
-	ENTRY ( CVMCCMruntimeCheckArrayAssignableGlue )
+	ENTRY(CVMCCMruntimeCheckArrayAssignableGlue)
 ENTRY1 ( CVMCCMruntimeCheckArrayAssignableGlue )
         /* a3 = cb of array object (with low bits still set) */
         /* a4 = cb of rhs object (with low bits still set)  */
@@ -340,7 +329,7 @@ ENTRY1 ( CVMCCMruntimeCheckArrayAssignableGlue )
 	cmp	a3, a4		/* check if elemClass(arr) == class(rhs) */
 	moveq	pc, lr
 	IMPORT(java_lang_Object_Classblock)
-	ldr	a1, =java_lang_Object_Classblock
+	ldr	a1, SYMBOL(java_lang_Object_Classblock)
 	cmp	a3, a1		/* check if elemClass(arr) == Object */
 	moveq	pc, lr
 	/* a3 = element cb of array object (with low bits clear) */
@@ -351,7 +340,7 @@ ENTRY1 ( CVMCCMruntimeCheckArrayAssignableGlue )
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeCheckArrayAssignable)
 
 /* run the clinit of a class */
-	ENTRY ( CVMCCMruntimeRunClassInitializerGlue )
+	ENTRY(CVMCCMruntimeRunClassInitializerGlue)
 ENTRY1 ( CVMCCMruntimeRunClassInitializerGlue )
         /* a3 = target cb 
 	 * lr = return address 
@@ -382,7 +371,7 @@ ENTRY1 ( CVMCCMruntimeRunClassInitializerGlue )
 	/* We don't want to patch pre-compiled code through. */
 #ifdef CVM_MTASK
 	IMPORT(CVMJITcodeCacheDecompileStart)
-	ldr	a2, =CVMJITcodeCacheDecompileStart
+	ldr	a2, SYMBOL(CVMJITcodeCacheDecompileStart)
 	ldr	a2, [a2]
 	ldr	a2, [a2]
 	cmp	lr, a2
@@ -391,12 +380,12 @@ ENTRY1 ( CVMCCMruntimeRunClassInitializerGlue )
 #ifdef CVM_AOT
 	IMPORT(CVMJITcodeCacheAOTEnd)
 	IMPORT(CVMJITcodeCacheAOTStart)
-	ldr	a2, =CVMJITcodeCacheAOTEnd
+	ldr	a2, SYMBOL(CVMJITcodeCacheAOTEnd)
 	ldr	a2, [a2]
 	ldr	a2, [a2]
 	cmp	lr, a2
 	bhs	doPatch
-	ldr	a2,  =CVMJITcodeCacheAOTStart
+	ldr	a2,  SYMBOL(CVMJITcodeCacheAOTStart)
 	ldr	a2, [a2]
 	ldr	a2, [a2]
 	cmp	lr, a2
@@ -404,20 +393,21 @@ ENTRY1 ( CVMCCMruntimeRunClassInitializerGlue )
 #endif
 
 LABEL(doPatch)	
-	ldr	a2,  =0xe1a00000   /* get the patch, a nop instruction */
+	ldr	a2,  CONSTANT(0xe1a00000)/* get the patch, a nop instruction */
 	str	a2,  [lr, #-4]     /* apply the patch */
 	/* flush the patched instruction */
 	sub	a1,  lr, #4	  /* begin */
 	add	a2,  a1, #4       /* end */
-	CALL_VM_FUNCTION(CVMJITflushCache)
+	CALL_VM_FUNCTION(CVMflushCache)
 	/* return to the helper */
         ldr	pc,  [JFP, #OFFSET_CVMCompiledFrame_PC]
 	
 /*
  * Resolve a cp entry and run the clinit if necessary
  */
-	ENTRY ( CVMCCMruntimeResolveGlue )
+	ENTRY(CVMCCMruntimeResolveGlue)
 ENTRY1 ( CVMCCMruntimeResolveGlue )
+LABEL(CVMCCMruntimeResolveGlueLocal)
         /* a3 = cpIndex 
 	 * lr = address of cachedConstant, 4 bytes before returnAddress 
 	 * ip = address of ccm helper to call 
@@ -450,53 +440,89 @@ ENTRY1 ( CVMCCMruntimeResolveGlue )
 #else
 #define RESOLVE_PATCH_OFFSET 20
 #endif
-	ldr	a2,  =MAKE_BRANCH(RESOLVE_PATCH_OFFSET) /* get the patch */
+	ldr	a2,  L_MAKEBRANCH_1 /* get the patch */
 	add	lr, lr, #4
 	str	a2,  [lr, #-RESOLVE_PATCH_OFFSET]       /* apply the patch */
 	/* flush the patched instruction */
 	sub	a1,  lr, #RESOLVE_PATCH_OFFSET  /* begin */
 	add	a2,  a1, #4		        /* end */
-	CALL_VM_FUNCTION(CVMJITflushCache)
+ 	CALL_VM_FUNCTION(CVMflushCache)
 	/* return to compiled code */
         ldr	pc,  [JFP, #OFFSET_CVMCompiledFrame_PC]
-	
-#ifdef __RVCT__
-	MACRO
-	res_entry $x
-	LCLS	tmp
-tmp	SETS	"$x.Glue"
-	ENTRY($tmp)
-ENTRY1($tmp)
-	IMPORT  $x
-	ldr     ip, =$x
-	b       CVMCCMruntimeResolveGlue
-	SET_SIZE($tmp)
-	MEND
-#define RES_ENTRY(x) res_entry x
-#else
-#ifdef __STDC__
-#define CONCAT(x,y) x##y
-#else
-#define CONCAT(x,y) x/**/y
-#endif
-#define RES_ENTRY(x) 						\
-	ENTRY(CONCAT(x,Glue));					\
-	IMPORT(CVMCCMruntimeResolveNewClassBlockAndClinit);	\
-	ldr	ip, =x;						\
-	b	CVMCCMruntimeResolveGlue;			\
-	SET_SIZE(CONCAT(x,Glue))
-#endif
+LABEL(L_MAKEBRANCH_1)
+        WORD(MAKE_BRANCH(RESOLVE_PATCH_OFFSET))
 
-	RES_ENTRY(CVMCCMruntimeResolveNewClassBlockAndClinit)
-	RES_ENTRY(CVMCCMruntimeResolveGetstaticFieldBlockAndClinit)
-	RES_ENTRY(CVMCCMruntimeResolvePutstaticFieldBlockAndClinit)
-	RES_ENTRY(CVMCCMruntimeResolveStaticMethodBlockAndClinit)
-	RES_ENTRY(CVMCCMruntimeResolveClassBlock)
-	RES_ENTRY(CVMCCMruntimeResolveArrayClassBlock)
-	RES_ENTRY(CVMCCMruntimeResolveGetfieldFieldOffset)
-	RES_ENTRY(CVMCCMruntimeResolvePutfieldFieldOffset)
-	RES_ENTRY(CVMCCMruntimeResolveSpecialMethodBlock)
-	RES_ENTRY(CVMCCMruntimeResolveMethodBlock)
+        ENTRY(CVMCCMruntimeResolveNewClassBlockAndClinitGlue)
+ENTRY1(CVMCCMruntimeResolveNewClassBlockAndClinitGlue)
+	IMPORT(CVMCCMruntimeResolveNewClassBlockAndClinit)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolveNewClassBlockAndClinit)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolveNewClassBlockAndClinitGlue)
+
+        ENTRY(CVMCCMruntimeResolveGetstaticFieldBlockAndClinitGlue)
+ENTRY1(CVMCCMruntimeResolveGetstaticFieldBlockAndClinitGlue)
+	IMPORT(CVMCCMruntimeResolveGetstaticFieldBlockAndClinit)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolveGetstaticFieldBlockAndClinit)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolveGetstaticFieldBlockAndClinitGlue)
+
+        ENTRY(CVMCCMruntimeResolvePutstaticFieldBlockAndClinitGlue)
+ENTRY1(CVMCCMruntimeResolvePutstaticFieldBlockAndClinitGlue)
+	IMPORT(CVMCCMruntimeResolvePutstaticFieldBlockAndClinit)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolvePutstaticFieldBlockAndClinit)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolvePutstaticFieldBlockAndClinitGlue)
+
+        ENTRY(CVMCCMruntimeResolveStaticMethodBlockAndClinitGlue)
+ENTRY1(CVMCCMruntimeResolveStaticMethodBlockAndClinitGlue)
+	IMPORT(CVMCCMruntimeResolveStaticMethodBlockAndClinit)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolveStaticMethodBlockAndClinit)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolveStaticMethodBlockAndClinitGlue)
+
+        ENTRY(CVMCCMruntimeResolveClassBlockGlue)
+ENTRY1(CVMCCMruntimeResolveClassBlockGlue)
+	IMPORT(CVMCCMruntimeResolveClassBlock)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolveClassBlock)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolveClassBlockGlue)
+
+        ENTRY(CVMCCMruntimeResolveArrayClassBlockGlue)
+ENTRY1(CVMCCMruntimeResolveArrayClassBlockGlue)
+	IMPORT(CVMCCMruntimeResolveArrayClassBlock)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolveArrayClassBlock)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolveArrayClassBlockGlue)
+
+        ENTRY(CVMCCMruntimeResolveGetfieldFieldOffsetGlue)
+ENTRY1(CVMCCMruntimeResolveGetfieldFieldOffsetGlue)
+	IMPORT(CVMCCMruntimeResolveGetfieldFieldOffset)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolveGetfieldFieldOffset)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolveGetfieldFieldOffsetGlue)
+
+        ENTRY(CVMCCMruntimeResolvePutfieldFieldOffsetGlue)
+ENTRY1(CVMCCMruntimeResolvePutfieldFieldOffsetGlue)
+	IMPORT(CVMCCMruntimeResolvePutfieldFieldOffset)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolvePutfieldFieldOffset)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolvePutfieldFieldOffsetGlue)
+
+        ENTRY(CVMCCMruntimeResolveSpecialMethodBlockGlue)
+ENTRY1(CVMCCMruntimeResolveSpecialMethodBlockGlue)
+	IMPORT(CVMCCMruntimeResolveSpecialMethodBlock)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolveSpecialMethodBlock)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolveSpecialMethodBlockGlue)
+
+        ENTRY(CVMCCMruntimeResolveMethodBlockGlue)
+ENTRY1(CVMCCMruntimeResolveMethodBlockGlue)
+	IMPORT(CVMCCMruntimeResolveMethodBlock)
+	ldr     ip, SYMBOL(CVMCCMruntimeResolveMethodBlock)
+	b	CVMCCMruntimeResolveGlueLocal
+        SET_SIZE(CVMCCMruntimeResolveMethodBlockGlue)
+
+
 
 /*
  * Resolve a vtable offset. The protocol here is slight
@@ -518,12 +544,12 @@ ENTRY1($tmp)
  * Otherwise, the helper returned the MB pointer and we return that
  * directly.
  */
-	ENTRY ( CVMCCMruntimeResolveMethodTableOffsetGlue )
+	ENTRY(CVMCCMruntimeResolveMethodTableOffsetGlue)
 ENTRY1 ( CVMCCMruntimeResolveMethodTableOffsetGlue )
 	IMPORT(CVMCCMruntimeResolveMethodTableOffset)
         /* a3 = cpIndex */
 	/* lr = address of instruction following call */
-	ldr	ip, =CVMCCMruntimeResolveMethodTableOffset
+	ldr	ip, SYMBOL(CVMCCMruntimeResolveMethodTableOffset)
 	/* setup remaining arguments and call the helper */
 	mov	a1, sp		/* a1 = ccee */
 	ldr	a2, [sp, #OFFSET_CVMCCExecEnv_ee]	/* a2 = ee */
@@ -549,18 +575,20 @@ ENTRY1 ( CVMCCMruntimeResolveMethodTableOffsetGlue )
 	 * case return code, and around the cachedConstant word.
 	 */
 #define RESOLVE_METHOD_TABLE_PATCH_OFFSET (RESOLVE_PATCH_OFFSET+8)
-	ldr	a2,  =MAKE_BRANCH(RESOLVE_METHOD_TABLE_PATCH_OFFSET)
+	ldr	a2,  L_MAKEBRANCH_2
 	add	lr, lr, #4
 	str	a2,  [lr, #-RESOLVE_METHOD_TABLE_PATCH_OFFSET]
 	/* flush the patched instruction */
 	sub	a1,  lr, #RESOLVE_METHOD_TABLE_PATCH_OFFSET  /* begin */
 	add	a2,  a1, #4		        /* end */
-	CALL_VM_FUNCTION(CVMJITflushCache)
+	CALL_VM_FUNCTION(CVMflushCache)
 	/* return to compiled code */
         ldr	pc,  [JFP, #OFFSET_CVMCompiledFrame_PC]
+LABEL(L_MAKEBRANCH_2)
+        WORD(MAKE_BRANCH(RESOLVE_METHOD_TABLE_PATCH_OFFSET))
 
 	/* lookup an interface mb */
-	ENTRY ( CVMCCMruntimeLookupInterfaceMBGlue )
+	ENTRY(CVMCCMruntimeLookupInterfaceMBGlue)
 ENTRY1 ( CVMCCMruntimeLookupInterfaceMBGlue )
         /* r1 = object to invoke with 
          * r2 = interface mb 
@@ -593,7 +621,10 @@ ENTRY1 ( CVMCCMruntimeLookupInterfaceMBGlue )
         /* If we get here than the guess is within the valid range: */
         add     r3, OINTERFACES, #OFFSET_CVMInterfaces_itable
         mov     GUESS, GUESS, asl #CONSTANT_LOG2_CVMInterfaceTable_SIZE
-        ldr     r3, [r3, GUESS]     /* target ICB = &ointerfaces.itable[guess] */
+        ldr     r3, [r3, GUESS]   /* target ICB = &ointerfaces.itable[guess] */
+
+        /* Free up the GUESS reg (r0) for use below. Save its content first: */
+        str     GUESS, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+0]
 #undef GUESS
 
 #ifdef CVM_METHODBLOCK_HAS_CB
@@ -631,20 +662,21 @@ ENTRY1 ( CVMCCMruntimeLookupInterfaceMBGlue )
 
 #define TARGET_METHODTABLE_INDICES ip
 #define GUESS r0
+        /* Reload the GUESS reg (r0) content from earlier: */
+        ldr     GUESS, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+0]
+
         /* Target methodTableIndices = 
                 ocb->interfacesX.itable[guess].methodTableIndicesX;
-        */
-        ldr     GUESS, [lr, #-4]       /* load guess value */
+        */ 
         add     ip, OINTERFACES, #OFFSET_CVMInterfaces_itable0_intfInfoX
-        mov     GUESS, GUESS, asl #CONSTANT_LOG2_CVMInterfaceTable_SIZE
         ldr     TARGET_METHODTABLE_INDICES, [ip, GUESS]
 #undef GUESS
 #undef OINTERFACES
 
         /* Get the interface mb from the ocb's vtbl: */
         ldr     r0, [OCB, #OFFSET_CVMClassBlock_methodTablePtrX]
-        mov     r3, SOURCE_MB_IDX, asl \
-                    #CONSTANT_LOG2_CVMInterfaceTable_methodTableIndex_SIZE
+        mov     r3, SOURCE_MB_IDX, \
+	            asl #CONSTANT_LOG2_CVMInterfaceTable_methodTableIndex_SIZE
         ldrh	ip, [TARGET_METHODTABLE_INDICES, r3]
 
         /* r0 = ocb->methodTablePtrX[ip]: */
@@ -671,7 +703,7 @@ LABEL(call_lookup_helper)
 /*
  * Entry point for monitorenter.
  */
-	ENTRY ( CVMCCMruntimeMonitorEnterGlue )
+	ENTRY(CVMCCMruntimeMonitorEnterGlue)
 ENTRY1 ( CVMCCMruntimeMonitorEnterGlue )
         /* Arguments: 
          *       r2 = a3 = 'obj' 
@@ -681,12 +713,13 @@ ENTRY1 ( CVMCCMruntimeMonitorEnterGlue )
          *       r5 = v2 = jsp 
          *       sp = ccee 
 	 */
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 
 /*
  * Entry point for monitorexit.
  */
-	ENTRY ( CVMCCMruntimeMonitorExitGlue )
+	ENTRY(CVMCCMruntimeMonitorExitGlue)
 ENTRY1 ( CVMCCMruntimeMonitorExitGlue )
         /* Arguments: 
          *       r2 = a3 = 'obj' 
@@ -696,6 +729,7 @@ ENTRY1 ( CVMCCMruntimeMonitorExitGlue )
          *       r5 = v2 = jsp 
          *       sp = ccee 
 	 */
+        FLUSH_TOS
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 
 /* Support for fastlocking with swap/spinlock based microlocks */
@@ -705,7 +739,7 @@ ENTRY1 ( CVMCCMruntimeMonitorExitGlue )
 /*
  * Entry point for monitorenter.
  */
-	ENTRY ( CVMCCMruntimeMonitorEnterGlue )
+	ENTRY(CVMCCMruntimeMonitorEnterGlue)
 ENTRY1 ( CVMCCMruntimeMonitorEnterGlue )
 
         /* Arguments: 
@@ -742,20 +776,31 @@ ENTRY1 ( CVMCCMruntimeMonitorEnterGlue )
         textrmuw MICROLOCK, W_MICROLOCK, #0
         cmp     OBJ, #0
 #else
-        ldr     MICROLOCK, =CVMobjGlobalMicroLockPtr
+        ldr     MICROLOCK, SYMBOL(CVMobjGlobalMicroLockPtr)
         /* Make sure that the object is not NULL: */
         cmp     OBJ, #0
 	/* Get address of object microlock */
         ldr     MICROLOCK, [MICROLOCK]        
 #endif
-        beq     CVMCCMruntimeThrowNullPointerExceptionGlue
+        beq     SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlueLocal)
         ldr     r3, [MICROLOCK]
 
         /* Acquire the microlock: */
         mov     r3, #CVM_MICROLOCK_LOCKED   /* Swap CVM_MICROLOCK_LOCKED into */
+#ifndef CVM_MP_SAFE
         swp     r3, r3, [MICROLOCK]         /*    the lockWord. */
         cmp     r3, #CVM_MICROLOCK_UNLOCKED /* See if we succeeded. */
         bne     _monenterSlowAcquireMicrolock    /* Branch if failed. */
+#else
+LABEL(_monenterAcquireMicrolockMPSafe)
+	ldrex	r12, [MICROLOCK]
+	cmp	r12, #CVM_MICROLOCK_UNLOCKED  /* is the lock free? */
+	bne	_monenterSlowAcquireMicrolock /* No. Go slow */
+	strex	r12, r3, [MICROLOCK]          /* try acquire the lock */
+	cmp	r12, #0                       /* strex succeed? */
+	bne	_monenterAcquireMicrolockMPSafe /* if strex failed, try again */
+	mcr	p15, 0, r12, c7, c10, 5       /* memory barrier. r12 has 0. */
+#endif
 
         /* The microlock has been acquired: */
 LABEL(_monenterLockObj)
@@ -792,7 +837,11 @@ LABEL(_monenterLockObj)
         str     OBJ, [LOCKREC, #OFFSET_CVMOwnedMonitor_object]
 
         /* Now, r2 (i.e OBJ) is free. */
-
+	
+#ifdef CVM_MP_SAFE
+	mov	r3, #0
+	mcr	p15, 0, r3, c7, c10, 5       /* memory barrier. */
+#endif
         /* Release the microlock: */
         mov     r3, #CVM_MICROLOCK_UNLOCKED
         str     r3, [MICROLOCK]         /* microlock->lockWord = UNLOCKED. */
@@ -858,6 +907,7 @@ LABEL(_monenterRecordNotAvailable)
         /* Load the ccee.  The ee, and obj are already loaded. */
         mov     r0,  sp
         str     lr,  [JFP, #OFFSET_CVMCompiledFrame_PC]
+        FLUSH_TOS
         str     JFP, [a2, #OFFSET_CVMExecEnv_interpreterStack+OFFSET_CVMStack_currentFrame]
         BRANCH_TO_VM_FUNCTION(CVMCCMruntimeMonitorEnter)
 
@@ -870,7 +920,7 @@ LABEL(_monenterRecordNotAvailable)
 /*
  * Entry point for monitorexit.
  */
-	ENTRY ( CVMCCMruntimeMonitorExitGlue )
+	ENTRY(CVMCCMruntimeMonitorExitGlue)
 ENTRY1 ( CVMCCMruntimeMonitorExitGlue )
 
         /* Arguments: 
@@ -905,22 +955,32 @@ ENTRY1 ( CVMCCMruntimeMonitorExitGlue )
         textrmuw MICROLOCK, W_MICROLOCK, #0
         cmp     OBJ, #0
 #else
-        ldr     MICROLOCK, =CVMobjGlobalMicroLockPtr
+        ldr     MICROLOCK, SYMBOL(CVMobjGlobalMicroLockPtr)
         /* Make sure that the object is not NULL: */
         cmp     OBJ, #0
 	/* Get address of object microlock */
         ldr     MICROLOCK, [MICROLOCK]
 #endif
-        beq     CVMCCMruntimeThrowNullPointerExceptionGlue
+        beq     SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlueLocal)
         ldr     r3, [MICROLOCK]
 
 LABEL(_monexitAcquireMicrolock)
 
         mov     r3, #CVM_MICROLOCK_LOCKED   /* Swap CVM_MICROLOCK_LOCKED into */
+#ifndef CVM_MP_SAFE	
         swp     r3, r3, [MICROLOCK]         /*    the lockWord. */
-
         cmp     r3, #CVM_MICROLOCK_UNLOCKED /* See if we succeeded. */
         bne     _monexitSlowAcquireMicrolock    /* Branch if failed. */
+#else
+LABEL(_monexitAcquireMicrolockMPSafe)
+	ldrex	r12, [MICROLOCK]
+	cmp	r12, #CVM_MICROLOCK_UNLOCKED /* is the lock free? */
+	bne	_monexitSlowAcquireMicrolock /* No. Go slow */
+	strex	r12, r3, [MICROLOCK]         /* acquire the lock */
+	cmp	r12, #0		             /* strex succeed? */
+	bne	_monexitAcquireMicrolockMPSafe /* if strex failed, try again */
+	mcr	p15, 0, r12, c7, c10, 5      /* memory barrier. r12 has 0 */
+#endif
 
         /* The microlock has been acquired: */
 LABEL(_monexitUnlockObj)
@@ -958,6 +1018,10 @@ LABEL(_monexitUnlockObj)
 	str	r3, [LOCKREC, #OFFSET_CVMOwnedMonitor_count]
 #endif
 
+#ifdef CVM_MP_SAFE
+	mov	r3, #0
+	mcr	p15, 0, r3, c7, c10, 5       /* memory barrier. */
+#endif
         /* Release the microlock: */
         mov     r3, #CVM_MICROLOCK_UNLOCKED
         str     r3, [MICROLOCK]
@@ -1031,6 +1095,7 @@ LABEL(_monexitFastTryUnlockFailed)
         /* Load the ccee.  The ee, and obj are already loaded. */
         mov     r0, sp
         str     lr,  [JFP, #OFFSET_CVMCompiledFrame_PC]
+        FLUSH_TOS
         str     JFP, [a2, #OFFSET_CVMExecEnv_interpreterStack+OFFSET_CVMStack_currentFrame]
         BRANCH_TO_VM_FUNCTION(CVMCCMruntimeMonitorExit)
 
@@ -1066,6 +1131,7 @@ LABEL(_monexitFastTryUnlockFailed)
         ; If you just want to call the C helper and write very little
         ; assembler code, then just the following line is needed.
         ;
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 
 #endif
@@ -1081,7 +1147,7 @@ LABEL(_monexitFastTryUnlockFailed)
         ; Make sure that the object is not NULL:
         ldr     EE, [sp, #OFFSET_CVMCCExecEnv_ee]
         cmp     OBJ, #0
-        beq     CVMCCMruntimeThrowNullPointerExceptionGlue
+        beq     SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlueLocal)
 
         /* Setup a lock record and assume the object has not been locked
            yet: */
@@ -1241,6 +1307,7 @@ _monenterFastReentryFailed
 _monenterRecordNotAvailable
         /* Let C helper do the hard stuff: */
         /* NOTE: It is expected that the OBJ pointer is already in r2. */
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 
 #undef TEMP
@@ -1271,6 +1338,7 @@ _monenterRecordNotAvailable
         ; If you just want to call the C helper and write very little
         ; assembler code, then just the following line is needed.
         ;
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 
 #endif
@@ -1286,7 +1354,7 @@ _monenterRecordNotAvailable
         ; Make sure that the object is not NULL:
         ldr     EE, [sp, #OFFSET_CVMCCExecEnv_ee]
         cmp     OBJ, #0
-        beq     CVMCCMruntimeThrowNullPointerExceptionGlue
+        beq     SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlueLocal)
 
         /* Check to see if the object is locked with a fastlock: */
         ldr     OWNEDREC, [OBJ, #OFFSET_CVMObjectHeader_various32] /* obits */
@@ -1425,6 +1493,7 @@ _monexitFastTryUnlockFoundPrevLockRecord
 _monexitFastTryUnlockFailed
         /* Let C helper do the hard stuff: */
         /* NOTE: It is expected that the OBJ pointer is already in r2. */
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 
 #undef TEMP
@@ -1438,6 +1507,4 @@ _monexitFastTryUnlockFailed
 #error unsupported CVM_FASTLOCK_TYPE or CVM_MICROLOCK_TYPE
 #endif 
 
-LABEL(divideByZeroString)
-	STRING("/ by zero")
 	POOL

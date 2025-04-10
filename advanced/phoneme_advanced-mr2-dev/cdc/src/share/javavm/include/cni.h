@@ -1,7 +1,7 @@
 /*
  * @(#)cni.h	1.7 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,6 +29,7 @@
 #define _INCLUDED_CNI_H
 
 #include "javavm/include/defs.h"
+#include "javavm/include/porting/jni.h"
 
 /*****************************************************************
  * Support for CNI native methods. 07/13/99 
@@ -150,4 +151,7 @@ typedef enum {
 typedef CNIResultCode CNINativeMethod(CVMExecEnv* ee,
 				      CVMStackVal32* arguments,
 				      CVMMethodBlock** p_mb);
+
+#define CNIEXPORT JNIEXPORT
+
 #endif /* _INCLUDED_CNI_H */

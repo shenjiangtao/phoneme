@@ -1,7 +1,7 @@
 /*
  * @(#)System.c	1.106 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -124,6 +124,9 @@ Java_java_lang_System_initProperties(JNIEnv *env, jclass cla, jobject props)
      */
     PUTPROP(props, "user.language", sprops.language);
     PUTPROP(props, "file.encoding", sprops.encoding);
+#ifdef JAVASE
+    PUTPROP(props, "sun.jnu.encoding", sprops.sun_jnu_encoding);
+#endif
     if (sprops.region) {
         PUTPROP(props, "user.region", sprops.region);
     }
@@ -143,7 +146,34 @@ Java_java_lang_System_initProperties(JNIEnv *env, jclass cla, jobject props)
 
     /* Java2D properties */
     PUTPROP(props, "java.awt.graphicsenv", sprops.graphics_env);
+#ifdef JAVASE
+    PUTPROP_ForPlatformCString(props, "sun.java2d.fontpath", sprops.font_dir);
+    /* Preferences properties */
+    PUTPROP(props, "java.util.prefs.PreferencesFactory", sprops.util_prefs_PreferencesFactory);
+
+    /* data model */
+    if (sizeof(char *) == 4) {
+        sprops.data_model = "32";
+    } else if (sizeof(char *) == 8) {
+        sprops.data_model = "64";
+    } else {
+        sprops.data_model = "unknown";
+    }
+    PUTPROP(props, "sun.arch.data.model", sprops.data_model);
+
+    /* patch level */
+    PUTPROP(props, "sun.os.patch.level", sprops.patch_level);
+
+    if (sprops.country) {
+        PUTPROP(props, "user.country", sprops.country);
+    }
+    if (sprops.variant) {
+        PUTPROP(props, "user.variant", sprops.variant);
+    }
+
+#else
     PUTPROP_ForPlatformCString(props, "java.awt.fonts", sprops.font_dir);
+#endif
 
     PUTPROP_ForPlatformCString(props, "java.io.tmpdir", sprops.tmp_dir);
 
@@ -159,6 +189,14 @@ Java_java_lang_System_initProperties(JNIEnv *env, jclass cla, jobject props)
     PUTPROP(props, "microedition.platform", "j2me");
     PUTPROP(props, "microedition.encoding", "ISO-8859-1");
     PUTPROP(props, "microedition.profiles", "");
+    /*
+     * Using MIDP-compliant format for microedition.locale value
+     * in order to pass JSR-238 TCK.
+     */
+    PUTPROP(props, "microedition.locale", "en-US");
+#ifdef CVM_PROP_MIDP_IMPL
+    PUTPROP(props, "com.sun.midp.implementation", CVM_PROP_MIDP_IMPL);
+#endif
 
     /* Generic Connection Framework (GCF) CommConnection property */
     PUTPROP(props, "microedition.commports", sprops.commports);
@@ -186,7 +224,7 @@ Java_java_lang_System_initCldcMidpProperties(JNIEnv *env, jclass cla,
         PUTPROP(midpProps, "microedition.configuration", "CLDC-1.1");
         PUTPROP(midpProps, "microedition.platform", "j2me");
         PUTPROP(midpProps, "microedition.encoding", "ISO-8859-1");
-        PUTPROP(midpProps, "microedition.profiles", "MIDP-2.0");
+        PUTPROP(midpProps, "microedition.profiles", "MIDP-2.1");
         PUTPROP(midpProps, "microedition.locale", "en-US");
     }
     return midpProps;
@@ -272,3 +310,26 @@ Java_java_lang_System_mapLibraryName(JNIEnv *env, jclass ign, jstring libname)
 
     return (*env)->NewString(env, chars, len);
 }
+
+
+/* 
+ * A useful method if you need to do a println before the VM is
+ * fully initialized in System.out is available. Uncomment this code
+ * and add the prototype to System.java if you want to use it.
+ */
+
+#if 0
+JNIEXPORT void JNICALL
+Java_java_lang_System_println(JNIEnv *env, jclass ign, jstring output)
+{
+    int len;
+    const char* chars;
+    jboolean isCopy;
+    len = (*env)->GetStringLength(env, output);
+    chars = (*env)->GetStringUTFChars(env, output, &isCopy);
+    CVMconsolePrintf("%s\n", chars);
+    if (isCopy) {
+	CVMjniReleaseStringUTFChars(env, output, chars);
+    }
+}
+#endif

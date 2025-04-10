@@ -1,7 +1,7 @@
 /*
  * @(#)Field.c	1.31 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -51,7 +51,7 @@
    native methods changes, much of this code will need to be rewritten
    to run in an CVMD_gcUnsafeExec block. */
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_get(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
 {
@@ -585,7 +585,7 @@ CVMgetPrimitiveField(CVMExecEnv* ee, CVMStackVal32 *arguments,
 
 #endif /* CVM_REFLECT */
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_getBoolean(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				      CVMMethodBlock **p_mb)
 {
@@ -600,7 +600,7 @@ CNIjava_lang_reflect_Field_getBoolean(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_getByte(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				   CVMMethodBlock **p_mb)
 {
@@ -615,7 +615,7 @@ CNIjava_lang_reflect_Field_getByte(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_getChar(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				   CVMMethodBlock **p_mb)
 {
@@ -630,7 +630,7 @@ CNIjava_lang_reflect_Field_getChar(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_getShort(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				    CVMMethodBlock **p_mb)
 {
@@ -645,7 +645,7 @@ CNIjava_lang_reflect_Field_getShort(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_getInt(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				  CVMMethodBlock **p_mb)
 {
@@ -660,7 +660,7 @@ CNIjava_lang_reflect_Field_getInt(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_getLong(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				   CVMMethodBlock **p_mb)
 {
@@ -675,7 +675,7 @@ CNIjava_lang_reflect_Field_getLong(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_getFloat(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				    CVMMethodBlock **p_mb)
 {
@@ -690,7 +690,7 @@ CNIjava_lang_reflect_Field_getFloat(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_getDouble(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				     CVMMethodBlock **p_mb)
 {
@@ -705,7 +705,7 @@ CNIjava_lang_reflect_Field_getDouble(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_set(CVMExecEnv* ee, CVMStackVal32 *arguments,
 			       CVMMethodBlock **p_mb)
 {
@@ -1099,8 +1099,10 @@ CVMsetPrimitiveField(CVMExecEnv* ee, CVMStackVal32 *arguments,
 		  argType == CVM_T_DOUBLE);
     if (argIs64Bit) {
 	CVMmemCopy64(val64.v, &arguments[2].j.raw);
+        val32.i = 0; /* fix compiler warning */
     } else {
 	val32 = arguments[2].j;
+        val64.l = CVMlongConstZero(); /* fix compiler warning */
     }
     
     toType = CVMcbBasicTypeCode(fieldTypeCb);
@@ -1211,7 +1213,7 @@ fail:
 
 #endif
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_setBoolean(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				      CVMMethodBlock **p_mb)
 {
@@ -1226,7 +1228,7 @@ CNIjava_lang_reflect_Field_setBoolean(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_setByte(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				   CVMMethodBlock **p_mb)
 {
@@ -1241,7 +1243,7 @@ CNIjava_lang_reflect_Field_setByte(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_setChar(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				   CVMMethodBlock **p_mb)
 {
@@ -1256,7 +1258,7 @@ CNIjava_lang_reflect_Field_setChar(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_setShort(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				    CVMMethodBlock **p_mb)
 {
@@ -1271,7 +1273,7 @@ CNIjava_lang_reflect_Field_setShort(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_setInt(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				  CVMMethodBlock **p_mb)
 {
@@ -1286,7 +1288,7 @@ CNIjava_lang_reflect_Field_setInt(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_setLong(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				   CVMMethodBlock **p_mb)
 {
@@ -1301,7 +1303,7 @@ CNIjava_lang_reflect_Field_setLong(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_setFloat(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				    CVMMethodBlock **p_mb)
 {
@@ -1316,7 +1318,7 @@ CNIjava_lang_reflect_Field_setFloat(CVMExecEnv* ee, CVMStackVal32 *arguments,
 #endif /* CVM_REFLECT */
 }
 
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_lang_reflect_Field_setDouble(CVMExecEnv* ee, CVMStackVal32 *arguments,
 				     CVMMethodBlock **p_mb)
 {

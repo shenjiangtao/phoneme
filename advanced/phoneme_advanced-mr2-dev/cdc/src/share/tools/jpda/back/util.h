@@ -1,7 +1,7 @@
 /*
  * @(#)util.h   1.95 05/03/08
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -432,6 +432,6 @@ void createLocalRefSpace(JNIEnv *env, jint capacity);
 
 void saveGlobalRef(JNIEnv *env, jobject obj, jobject *pobj);
 void tossGlobalRef(JNIEnv *env, jobject *pobj);
-
+void CVMformatTime(char *format, size_t format_size, time_t t);
 #endif
 

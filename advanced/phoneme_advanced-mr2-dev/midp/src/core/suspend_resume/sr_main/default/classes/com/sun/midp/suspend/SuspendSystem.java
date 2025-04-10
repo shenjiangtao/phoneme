@@ -1,24 +1,24 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
@@ -29,6 +29,7 @@ package com.sun.midp.suspend;
 import com.sun.midp.main.*;
 import com.sun.midp.security.SecurityToken;
 import com.sun.midp.security.Permissions;
+
 import java.util.Vector;
 
 /**
@@ -109,7 +110,7 @@ public class SuspendSystem extends AbstractSubsystem {
         protected synchronized void resumeImpl() {
             midletKilled = false;
             midletPaused = false;
-
+            
             SuspendResumeUI.dismissSuspendAlert();
             alertIfAllMidletsKilled();
 
@@ -163,11 +164,21 @@ public class SuspendSystem extends AbstractSubsystem {
          * @param reason kind of changes that took place, see
          */
         public void midletUpdated(MIDletProxy midlet, int reason) {
+            boolean amsMidlet =
+                (MIDletSuiteUtils.getAmsIsolateId() == midlet.getIsolateId());
+
             if (reason == MIDletProxyListListener.RESOURCES_SUSPENDED) {
-                if (MIDletSuiteUtils.getAmsIsolateId() != midlet.getIsolateId()) {
+                if (!amsMidlet) {
                     midletPaused = true;
                 }
                 removeSuspendDependency(midlet);
+            } else if (reason == MIDletProxyListListener.MIDLET_STATE &&
+                    amsMidlet &&
+                    midlet.getMidletState() == MIDletProxy.MIDLET_ACTIVE) {
+                /* An AMS midlet has been activated, checking if it is a
+                 * result of abnormal midlet termination during suspend.
+                 */
+                alertIfAllMidletsKilled();
             }
         }
 
@@ -185,13 +196,9 @@ public class SuspendSystem extends AbstractSubsystem {
         }
 
         /**
-         * Called from the proxy list to notify of new MIDlet appearance.
+         * Not used. MIDletProxyListListener interface method.
          */
-        public void midletAdded(MIDletProxy midlet) {
-            if (MIDletSuiteUtils.getAmsIsolateId() == midlet.getIsolateId()) {
-                alertIfAllMidletsKilled();
-            }
-        }
+        public void midletAdded(MIDletProxy midlet) {}
 
         /**
          * Not used. MIDletProxyListListener interface method.
@@ -270,4 +277,11 @@ public class SuspendSystem extends AbstractSubsystem {
             }
         }
     }
+
+    /**
+     * Checks if the system was requested to be resumed.
+     *
+     * @return true if the resume request was received, false otherwise
+     */
+    native boolean isResumePending();
 }

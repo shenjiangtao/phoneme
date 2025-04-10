@@ -4,7 +4,7 @@
 
 #ifndef SPLIT_VERIFY_H
 /*
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -136,6 +136,12 @@ CVMBool CVMsplitVerifyClassHasMaps(CVMExecEnv*, CVMClassBlock*);
  * Deletes stack maps.
  * (Future work: rewrite as pointerstackmaps for GC.)
  */
-int CVMsplitVerifyClass(CVMExecEnv*, CVMClassBlock* );
+int CVMsplitVerifyClass(CVMExecEnv*, CVMClassBlock*, CVMBool isRedefine);
+
+/*
+ * Delete all stackmaps when done.
+ */
+void CVMsplitVerifyClassDeleteMaps(CVMClassBlock* cb);
+
 
 #endif /*SPLIT_VERIFY_H */

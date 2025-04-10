@@ -1,7 +1,7 @@
 /*
  * @(#)MulticastSocket.java	1.47 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -163,6 +163,7 @@ class MulticastSocket extends DatagramSocket {
 	// Enable SO_REUSEADDR before binding
 	setReuseAddress(true);
 
+        getImpl().setIsMulticastSocket();
 	if (bindaddr != null) {
 	    bind(bindaddr);
 	}

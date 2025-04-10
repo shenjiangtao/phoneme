@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -21,8 +21,6 @@
 # Clara, CA 95054 or visit www.sun.com if you need additional
 # information or have any questions. 
 #
-# @(#)host_defs.mk	1.10 06/10/24
-#
 
 ifeq ($(HOST_DEVICE), Interix)
 CVM_JAVAC       = javac.exe
@@ -37,7 +35,7 @@ endif
 #
 
 # prefix and postfix for shared libraries
-LIB_PREFIX		= lib
+LIB_PREFIX		=
 LIB_POSTFIX		= $(DEBUG_POSTFIX).dll
 LIB_LINK_POSTFIX	= $(DEBUG_POSTFIX).lib
 
@@ -45,23 +43,19 @@ LIB_LINK_POSTFIX	= $(DEBUG_POSTFIX).lib
 override GENERATEMAKEFILES = false  
 
 #
-# Location of JDK
-#
-JDK_HOME	?= h:/jdk1.3.1_01
-
-#
 # Specify all the host and target tools. 
 # CC and AS are specific in the win32-<cpu>/defs.mk file.
 #
 TARGET_LD		= $(TARGET_LINK)
 TARGET_LINK		= LINK.EXE
-TARGET_AR		= LINK.EXE -lib /nologo
-TARGET_AR_CREATE	= $(TARGET_AR) /out:$(1)
+TARGET_AR		= $(TARGET_LINK) -lib /nologo
+TARGET_AR_CREATE	= $(TARGET_AR) /out:$(call POSIX2HOST, $(1))
 TARGET_AR_UPDATE	= true $(TARGET_AR_CREATE)
+TARGET_RC		= RC.EXE
 
 # Override the default TARGET_CC_VERSION, since it relies on the gcc
 # -dumpversion and -dumpmachine options.
-TARGET_CC_VERSION ?= $(shell $(TARGET_CC) 2>&1 | grep -i version)
+TARGET_CC_VERSION ?= $(shell PATH="$(PATH)"; $(TARGET_CC) 2>&1 | grep -i version)
 
 #
 # Compiler and linker flags
@@ -71,7 +65,7 @@ CCDEPEND	= /FD
 ASM_FLAGS	= $(ASM_ARCH_FLAGS)
 CCFLAGS     	= /nologo /c /W2 $(CC_ARCH_FLAGS)
 ifeq ($(CVM_BUILD_SUBDIR),true)
-CCFLAGS		+= /Fd$(CVM_BUILD_SUBDIR_NAME)/cvm.pdb
+CCFLAGS		+= /Fd$(call POSIX2HOST,$(CVM_BUILD_TOP_ABS))/cvm.pdb
 endif
 CCCFLAGS	=
 ifeq ($(CVM_OPTIMIZED), true)
@@ -92,80 +86,104 @@ CCFLAGS_SPACE     = $(CCFLAGS) /Od -D_DEBUG -DDEBUG
 endif
 
 ifeq ($(CVM_SYMBOLS), true)
-CCFLAGS += /Zi /Yd
+CCFLAGS += /Zi
 endif
 
 ifeq ($(CVM_DEBUG), true)
-DEBUG_LINKFLAGS = /debug
-MT_DLL_FLAGS = /MDd
-MT_EXE_FLAGS = /MTd
-else
-MT_DLL_FLAGS = /MD
-MT_EXE_FLAGS = /MT
+VC_DEBUG_POSTFIX = d
 endif
-MT_FLAGS = $(MT_DLL_FLAGS)
-CCFLAGS += $(MT_FLAGS)
+M_DLL_FLAGS = /MD$(VC_DEBUG_POSTFIX)
+M_EXE_FLAGS = /MT$(VC_DEBUG_POSTFIX)
 
 ifeq ($(CVM_DLL),true)
-CVM_IMPL_LIB	= $(CVM_BUILD_SUBDIR_NAME)/bin/cvmi.lib
-
-ifeq ($CVM_PRELOAD_LIB,true)
-LINKFLAGS	= /implib:$(CVM_IMPL_LIB) /export:jio_snprintf $(SO_LINKFLAGS)
+M_FLAGS = $(M_DLL_FLAGS)
 else
-LINKFLAGS	= /implib:$(CVM_IMPL_LIB) $(SO_LINKFLAGS) /export:jio_snprintf \
-            /export:CVMexpandStack /export:CVMtimeMillis \
-            /export:CVMIDprivate_allocateLocalRootUnsafe /export:CVMglobals \
-            /export:CVMsystemPanic /export:CVMcsRendezvous /export:CVMconsolePrintf
+M_FLAGS = $(M_EXE_FLAGS)
+endif
+CCFLAGS += $(M_FLAGS)
 
+# Setup links flags used for everything we link
+LINKFLAGS = /incremental:no /nologo /map \
+	    $(LINK_ARCH_LIBS) $(LINK_ARCH_FLAGS) $(EXTRA_PROFILING_FLAGS)
+ifeq ($(CVM_SYMBOLS), true)
+LINKFLAGS += /DEBUG
+endif
+
+# Setup exports that other dlls may need.
+LINKCVM_EXPORTS	+= \
+	/export:jio_snprintf  /export:CVMexpandStack /export:CVMtimeMillis \
+	/export:CVMIDprivate_allocateLocalRootUnsafe /export:CVMglobals,DATA \
+	/export:CVMsystemPanic /export:CVMcsRendezvous \
+	/export:CVMconsolePrintf /export:CVMthrowOutOfMemoryError \
+	/export:CVMthrowNoSuchMethodError \
+	/export:CVMthrowIllegalArgumentException
 ifeq ($(CVM_DEBUG), true)
-LINKFLAGS	+= /export:CVMassertHook /export:CVMdumpStack
+LINKCVM_EXPORTS	+= /export:CVMassertHook /export:CVMdumpStack
 endif
 
-endif            
-
-else
-LINKFLAGS	=
-endif
-LINKLIBS = $(WIN_LINKLIBS) $(LINK_ARCH_LIBS) $(LIBPATH)
 LINKLIBS_JCS    =
 
-SO_LINKLIBS	= $(LINKLIBS) $(LIBPATH)
-SO_LINKFLAGS	= \
-	/nologo /map /dll /incremental:yes \
-	$(DEBUG_LINKFLAGS) $(LINK_ARCH_FLAGS) \
+LINKALL_LIBS 	+= $(LINK_ARCH_LIBS) $(LIBPATH)
 
-LINKEXE_LIBS = $(LINKEXE_ARCH_LIBS) $(LIBPATH)
+# setup flags and libs used to link every exe.
+LINKEXE_LIBS	+= $(LINKALL_LIBS)
+LINKEXE_FLAGS	+= $(LINKFLAGS) /fixed:no $(LINKEXE_ENTRY) $(LINKEXE_STACK)
 
-LINKEXE_FLAGS = /nologo $(DEBUG_LINKFLAGS) \
-		/incremental:no $(LINKEXE_ARCH_FLAGS)
+# setup flags used to link every dll
+LINKDLL_LIBS	+= $(LINKALL_LIBS)
+LINKDLL_FLAGS	+= $(LINKFLAGS) /dll 
 
-LINKEXE_CMD	= $(AT)$(TARGET_LINK) $(LINKEXE_FLAGS) /out:$@ $^ \
-			$(LINKEXE_LIBS)
+# setup libs flags and libs for linking cvm, whether it is cvm.exe or cvmi.dll
+LINKCVM_LIBS	+= $(sort $(WIN_LINKLIBS))
+CVM_IMPL_LIB	= $(CVM_BUILD_SUBDIR_NAME)/bin/cvmi.lib
+LINKCVM_FLAGS	= /implib:$(CVM_IMPL_LIB) $(LINKCVM_EXPORTS)
+ifeq ($(CVM_DLL),true)
+LINKCVM_FLAGS	+= $(LINKDLL_FLAGS) $(LINKDLL_BASE)
+LINKCVM_LIBS	+= $(LINKDLL_LIBS)
+else
+LINKCVM_FLAGS	+= $(LINKEXE_FLAGS)
+LINKCVM_LIBS	+= $(LINKEXE_LIBS) $(LINKCVMEXE_LIBS)
+endif
+
+# libs and flags that all shared libraries will want
+SO_LINKLIBS	= $(LINKALL_LIBS) $(CVM_IMPL_LIB)
+SO_LINKFLAGS	= $(LINKDLL_FLAGS)
 
 #
 # commands for running the tools
 #
 
 # compileCCC(flags, objfile, srcfiles)
-compileCCC	= $(AT)$(TARGET_CCC) $(1) /Fo$(call POSIX2HOST,$(2)) \
-		  $(call POSIX2HOST,$(3))
-CCC_CMD_SPEED	= $(call compileCCC,$(CFLAGS_SPEED) $(CCCFLAGS),$@,$<)
-CCC_CMD_SPACE	= $(call compileCCC,$(CFLAGS_SPACE) $(CCCFLAGS),$@,$<)
+compileCCC = $(AT)$(TARGET_CCC) $(1) /Fo$(2) $(call abs2rel,$(3))
 
 # compileCC(flags, objfile, srcfiles)
-compileCC	= $(AT)$(TARGET_CC) $(1) /Fo$(call POSIX2HOST,$(2)) \
-		  $(call POSIX2HOST,$(3))
-CC_CMD_SPEED	= $(call compileCC,$(CFLAGS_SPEED),$@,$<)
-CC_CMD_SPACE	= $(call compileCC,$(CFLAGS_SPACE),$@,$<)
-CC_CMD_LOOP	= $(call compileCC,$(CFLAGS_LOOP), $@,$<)
-CC_CMD_FDLIB	= $(call compileCC,$(CFLAGS_FDLIB),$@,$<)
+compileCC  = $(AT)$(TARGET_CC) $(1) /Fo$(2) $(call abs2rel,$(3))
 
-LINK_CMD	= $(AT)$(TARGET_LINK) $(LINKFLAGS) /out:$(call POSIX2HOST,$@) $^ $(LINKLIBS)
+LINK_MANIFEST = \
+	if [ -f $@.manifest ] ; then \
+	    echo "   Linking in manifest file $(notdir $@.manifest)"; \
+	    mt.exe -nologo -manifest $(call POSIX2HOST,$@).manifest \
+		"-outputresource:$(call POSIX2HOST,$@);\#2" ;\
+	fi;
 
-SO_CC_CMD	= $(AT)$(TARGET_CC) $(SO_CFLAGS) /Fo$(call POSIX2HOST,$@) $(call POSIX2HOST,$<)
-SO_LINK_CMD	= $(AT)$(TARGET_LD) $(SO_LINKFLAGS) /out:$(call POSIX2HOST,$@) $^ $(SO_LINKLIBS)
+# LINK_CMD(objFiles, extraLibs)
+LINK_CMD	= $(AT)\
+	$(eval OUT := $(call POSIX2HOST,$@)) \
+	$(call POSIX2HOST_CMD,$(1)) > $(OUT).lst; \
+	$(TARGET_LINK) $(LINKCVM_FLAGS) /out:$(OUT) @$(OUT).lst $(2); \
+	$(LINK_MANIFEST)
+
+# SO_LINK_CMD(objFiles, extraLibs)
+SO_LINK_CMD	= $(AT)\
+	$(eval OUT := $(call POSIX2HOST,$@)) \
+	$(call POSIX2HOST_CMD,$(1)) > $(OUT).lst; \
+	$(TARGET_LD) $(SO_LINKFLAGS) /out:$(OUT) @$(OUT).lst \
+		$(SO_LINKLIBS) $(2); \
+	$(LINK_MANIFEST)
 
 # Don't let the default compiler compatibility check be done
 # since we are not using gcc
 CVM_DISABLE_COMPILER_CHECK = true
 
+WIN32_QUERY_REG = $(shell REG.EXE QUERY $(1) /v $(2) 2> /dev/null | \
+	awk -F'\t' '/$(2)/ { print $$3 }')

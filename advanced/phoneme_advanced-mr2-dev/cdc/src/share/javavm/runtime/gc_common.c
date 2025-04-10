@@ -1,7 +1,7 @@
 /*
  * @(#)gc_common.c	1.163 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -54,6 +54,10 @@
 #endif
 #ifdef CVM_JIT
 #include "javavm/include/jit/jitcodebuffer.h"
+#endif
+#ifdef CVM_JVMTI
+#include "javavm/include/jvmtiDumper.h"
+#include "javavm/include/jvmtiExport.h"
 #endif
 #ifdef CVM_JVMPI
 #include "javavm/include/jvmpi_impl.h"
@@ -808,7 +812,7 @@ CVMclassScanSystemClassCallback(CVMExecEnv* ee, CVMClassBlock* cb, void* opts)
     CVMClassScanOptions* options = (CVMClassScanOptions*)opts;
     if (CVMcbClassLoader(cb) == NULL) {
 	/* This makes sure a class is not scanned in a cycle */
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
         {
             CVMGCOptions *gcOpts = options->gcOpts;
             if (gcOpts->isProfilingPass) {
@@ -1098,6 +1102,16 @@ CVMgcScanRoots(CVMExecEnv *ee, CVMGCOptions* gcOpts,
 				  callbackData);
 	}
 #endif /* %begin,end lvm */
+
+#ifdef CVM_JAVASE_CLASS_HAS_REF_FIELD
+        /*
+         * Scan ROMized objects.
+         * The java.lang.Class in SE 1.5 and later version has non-static
+         * reference fields.
+         */
+        CVMpreloaderScanPreloadedClassObjects(ee, gcOpts,
+                                              callback, callbackData);
+#endif
     }
 
     {
@@ -1174,7 +1188,7 @@ CVMgcScanRoots(CVMExecEnv *ee, CVMGCOptions* gcOpts,
                     info->data = data;
                 }
                 (*CVMframeScanners[frame->type])(ee, frame, chunk, callback,
-                               &interpreterStackData, gcOpts);
+			        &interpreterStackData, gcOpts);
 		interpreterStackData.prevFrame = frame;
             });
         });
@@ -1218,7 +1232,6 @@ stopTheWorldAndDoAction(CVMExecEnv *ee, void *data,
 		 void (*retryAfterActionCallback)(CVMExecEnv *ee, void *data),
 		 void* retryData);
 
-#ifdef CVM_INSPECTOR
 CVMBool
 CVMgcStopTheWorldAndDoAction(CVMExecEnv *ee, void *data,
                  CVMUint32 (*preActionCallback)(CVMExecEnv *ee, void *data),
@@ -1232,7 +1245,6 @@ CVMgcStopTheWorldAndDoAction(CVMExecEnv *ee, void *data,
     return stopTheWorldAndDoAction(ee, data, preActionCallback, actionCallback,
 	       postActionCallback, retryAfterActionCallback, retryData);
 }
-#endif /* CVM_INSPECTOR */
 
 /* Purpose: Acquire all GC locks, stop all threads, and then call back to do
             action specific work. When the action is done, the world is
@@ -1374,6 +1386,14 @@ CVMgcStopTheWorldAndGCSafePostAction(CVMExecEnv *ee, void *data,
     }
     CVMjvmpiResetGCWasStarted();
 #endif
+#ifdef CVM_JVMTI
+    if (CVMjvmtiShouldPostGarbageCollectionFinish()) {
+        CVMjvmtiPostGCFinishEvent();
+    }
+    if (CVMjvmtiIsEnabled()) {
+        CVMjvmtiTagRehash();
+    }
+#endif
 
     /* After GC is done and before we allow all threads to become unsafe
        again, i.e. here, take this opportunity to scavenge and deflate
@@ -1463,6 +1483,12 @@ stopTheWorldAndGCSafe(CVMExecEnv* ee, CVMUint32 numBytes,
         CVMjvmpiSetGCWasStarted();
     }
 #endif
+#ifdef CVM_JVMTI
+    /* Ditto above JVMPI comment, except for JVMTI  */
+    if (CVMjvmtiShouldPostGarbageCollectionStart()) {
+	CVMjvmtiPostGCStartEvent();
+    }
+#endif
 
     /* Go stop the world and do GC: */
     /* 
@@ -1545,6 +1571,14 @@ CVMgcRunGC(CVMExecEnv* ee)
 {
     /* Do a full-scale GC */
     (void)stopTheWorldAndGCSafe(ee, ~0, NULL, NULL); 
+}
+
+/* Purpose: Do a synchronous GC cycle. */
+void
+CVMgcRunGCMin(CVMExecEnv* ee)
+{
+    /* Do a small-scale GC - young-gen only typically */
+    (void)stopTheWorldAndGCSafe(ee, 1, NULL, NULL); 
 }
 
 /*
@@ -1631,11 +1665,9 @@ void CVMgcLockerUnlock(CVMGCLocker *self, CVMExecEnv *current_ee)
     }
 }
 
-#endif /* defined(CVM_INSPECTOR) || defined(CVM_JVMPI) */
+#endif /* defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI) */
 
 /*===========================================================================*/
-
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
 
 /*
  * Scan objects in contiguous range, and do per-object callback in support
@@ -1667,8 +1699,6 @@ CVMgcScanObjectRange(CVMExecEnv* ee, CVMUint32* base, CVMUint32* top,
     CVMassert(curr == top); /* This had better be exact */
     return CVM_TRUE; /* Complete scan DONE. */
 }
-
-#endif /* defined(CVM_INSPECTOR) || defined(CVM_JVMPI) */
 
 #ifdef CVM_JVMPI
 

@@ -1,7 +1,7 @@
 /*
  * @(#)Shutdown.c	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -33,7 +33,11 @@
 
 
 JNIEXPORT void JNICALL
+#if JAVASE > 15
+Java_java_lang_Shutdown_halt0(JNIEnv *env, jclass ignored, jint code)
+#else
 Java_java_lang_Shutdown_halt(JNIEnv *env, jclass ignored, jint code)
+#endif
 {
     JVM_Halt(code);
 }

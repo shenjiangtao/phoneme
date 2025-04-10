@@ -1,27 +1,27 @@
 /*
  *  
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -61,6 +61,12 @@ static unsigned char STRING_ENCODING_USASCII;
 static unsigned char STRING_ENCODING_UTF8;
 
 /* Binary skin file data array pointers */
+/*
+ * These buffers may contain the following types of values:
+ * - unsigned values for data length and encoding
+ * - US-ASCII characters in the range 0..127
+ * - UTF-8 octets in the range 0..255
+ */
 static unsigned char* gsSkinFileDataStart = NULL;
 static unsigned char* gsSkinFileDataEnd = NULL;
 static unsigned char* gsSkinFileDataPos = NULL;
@@ -77,7 +83,7 @@ static unsigned char* gsSkinFileDataPos = NULL;
     }
 
 KNIEXPORT KNI_RETURNTYPE_VOID
-KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_shareResourcePool) {
+KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResourcesImpl_shareResourcePool) {
 
 #if ENABLE_MULTIPLE_ISOLATES    
     KNI_StartHandles(1);
@@ -99,7 +105,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_shareResourcePool) 
 }
 
 KNIEXPORT KNI_RETURNTYPE_VOID
-KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_shareSkinData) {
+KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResourcesImpl_shareSkinData) {
 
 #if ENABLE_MULTIPLE_ISOLATES    
     KNI_StartHandles(1);
@@ -121,7 +127,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_shareSkinData) {
 }
 
 KNIEXPORT KNI_RETURNTYPE_OBJECT
-KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_getSharedResourcePool) {
+KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResourcesImpl_getSharedResourcePool) {
     
 #if ENABLE_MULTIPLE_ISOLATES
     KNI_StartHandles(1);
@@ -139,7 +145,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_getSharedResourcePo
 }
 
 KNIEXPORT KNI_RETURNTYPE_OBJECT
-KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_getSharedSkinData) {
+KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResourcesImpl_getSharedSkinData) {
     
 #if ENABLE_MULTIPLE_ISOLATES
     KNI_StartHandles(1);
@@ -157,7 +163,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_getSharedSkinData) 
 }
                                                                                                         
 KNIEXPORT KNI_RETURNTYPE_BOOLEAN
-KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_ifLoadAllResources) {
+KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResourcesImpl_ifLoadAllResources0) {
     
 #if ENABLE_MULTIPLE_ISOLATES
     /* 
@@ -200,7 +206,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_LoadedSkinData_finalize) {
 }
 
 KNIEXPORT KNI_RETURNTYPE_INT
-KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_getRomizedImageDataArrayPtr) {
+KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResourcesImpl_getRomizedImageDataArrayPtr) {
     jint imageId = KNI_GetParameterAsInt(1);
     
     unsigned char* imageData;
@@ -210,7 +216,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_getRomizedImageData
 }
 
 KNIEXPORT KNI_RETURNTYPE_INT
-KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_getRomizedImageDataArrayLength) {
+KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResourcesImpl_getRomizedImageDataArrayLength) {
     jint imageId = KNI_GetParameterAsInt(1);
     
     unsigned char* imageData;
@@ -221,96 +227,108 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_SkinResources_getRomizedImageData
 
 KNIEXPORT KNI_RETURNTYPE_VOID
 KNIDECL(com_sun_midp_chameleon_skins_resources_LoadedSkinData_beginReadingSkinFile) {
-    char* errorStr = NULL;
-    int fileHandle = -1;
-    int fileSize;
-    int bytesRead;
-    jfieldID fid;
+    const unsigned char* skin_description = lfj_get_skin_description();
 
-    KNI_StartHandles(2);
-    KNI_DeclareHandle(classHandle);
+    if (skin_description != NULL) {
+        gsSkinFileDataStart = gsSkinFileDataPos =
+            (unsigned char*)skin_description;
+        gsSkinFileDataEnd = gsSkinFileDataStart +
+            lfj_get_skin_description_size();
+    } else {
+        char* errorStr = NULL;
+        int fileHandle = -1;
+        int fileSize;
+        int bytesRead;
+        jfieldID fid;
 
-    KNI_GetClassPointer(classHandle); 
+        KNI_StartHandles(2);
+        KNI_DeclareHandle(classHandle);
 
-    fid = KNI_GetStaticFieldID(classHandle, "STRING_ENCODING_USASCII", "B"); 
-    STRING_ENCODING_USASCII = (unsigned char)
-        KNI_GetStaticByteField(classHandle, fid);
+        KNI_GetClassPointer(classHandle);
 
-    fid = KNI_GetStaticFieldID(classHandle, "STRING_ENCODING_UTF8", "B"); 
-    STRING_ENCODING_UTF8 = (unsigned char)
-        KNI_GetStaticByteField(classHandle, fid);
-        
-    GET_PARAMETER_AS_PCSL_STRING(1, fileName);
+        fid = KNI_GetStaticFieldID(classHandle, "STRING_ENCODING_USASCII", "B");
+        STRING_ENCODING_USASCII = (unsigned char)
+            KNI_GetStaticByteField(classHandle, fid);
 
-    do {
+        fid = KNI_GetStaticFieldID(classHandle, "STRING_ENCODING_UTF8", "B");
+        STRING_ENCODING_UTF8 = (unsigned char)
+            KNI_GetStaticByteField(classHandle, fid);
+
+        GET_PARAMETER_AS_PCSL_STRING(1, fileName);
+
+        do {
+            /*
+             * Open skin file
+             */
+            fileHandle = storage_open(&errorStr, &fileName, OPEN_READ);
+            if (errorStr != NULL) {
+                KNI_ThrowNew(midpIOException, errorStr);
+                storageFreeError(errorStr);
+                break;
+            }
+
+            /*
+             * Obtain file size
+             */
+            fileSize = storageSizeOf(&errorStr, fileHandle);
+            if (errorStr != NULL) {
+                KNI_ThrowNew(midpIOException, errorStr);
+                storageFreeError(errorStr);
+                break;
+            }
+
+            /*
+             * Read whole file into heap memory
+             */
+            gsSkinFileDataStart = (unsigned char*)midpMalloc(fileSize);
+            if (gsSkinFileDataStart == NULL) {
+                KNI_ThrowNew(midpOutOfMemoryError, NULL);
+                break;
+            }
+
+            bytesRead = storageRead(&errorStr, fileHandle,
+                    (char*)gsSkinFileDataStart, fileSize);
+            if (errorStr != NULL) {
+                KNI_ThrowNew(midpIOException, errorStr);
+                storageFreeError(errorStr);
+                midpFree(gsSkinFileDataStart);
+                gsSkinFileDataStart = NULL;
+                break;
+            }
+            if (bytesRead != fileSize) {
+                KNI_ThrowNew(midpIOException, "Failed to read whole file");
+                midpFree(gsSkinFileDataStart);
+                gsSkinFileDataStart = NULL;
+                break;
+            }
+
+            gsSkinFileDataPos = gsSkinFileDataStart;
+            gsSkinFileDataEnd = gsSkinFileDataStart + fileSize;
+
+        } while (0);
+
+        RELEASE_PCSL_STRING_PARAMETER;
+
         /*
-         * Open skin file
+         * Close skin file
          */
-        fileHandle = storage_open(&errorStr, &fileName, OPEN_READ);
-        if (errorStr != NULL) {
-            KNI_ThrowNew(midpIOException, errorStr);
-            storageFreeError(errorStr);
-            break;
+        if (fileHandle != -1) {
+            storageClose(&errorStr, fileHandle);
         }
 
-        /*
-         * Obtain file size
-         */
-        fileSize = storageSizeOf(&errorStr, fileHandle);
-        if (errorStr != NULL) {
-            KNI_ThrowNew(midpIOException, errorStr);
-            storageFreeError(errorStr);
-            break;
-        }
-
-        /*
-         * Read whole file into heap memory
-         */
-        gsSkinFileDataStart = (unsigned char*)midpMalloc(fileSize);
-        if (gsSkinFileDataStart == NULL) {
-            KNI_ThrowNew(midpOutOfMemoryError, NULL);
-            break;
-        }
-
-        bytesRead = storageRead(&errorStr, fileHandle, 
-                gsSkinFileDataStart, fileSize);
-        if (errorStr != NULL) {
-            KNI_ThrowNew(midpIOException, errorStr);
-            storageFreeError(errorStr);
-            midpFree(gsSkinFileDataStart);
-            gsSkinFileDataStart = NULL;
-            break;
-        }
-        if (bytesRead != fileSize) {
-            KNI_ThrowNew(midpIOException, "Failed to read whole file");
-            midpFree(gsSkinFileDataStart);
-            gsSkinFileDataStart = NULL;
-            break;
-        }
-
-        gsSkinFileDataPos = gsSkinFileDataStart;
-        gsSkinFileDataEnd = gsSkinFileDataStart + fileSize;
-
-    } while (0);
-
-    RELEASE_PCSL_STRING_PARAMETER;
-
-    /*
-     * Close skin file
-     */
-    if (fileHandle != -1) {
-        storageClose(&errorStr, fileHandle);
+        KNI_EndHandles();
     }
 
-    KNI_EndHandles();
     KNI_ReturnVoid();
 }
 
 KNIEXPORT KNI_RETURNTYPE_VOID
 KNIDECL(com_sun_midp_chameleon_skins_resources_LoadedSkinData_finishReadingSkinFile) {
 
-    /* free memory allocated for skin data file */
-    midpFree(gsSkinFileDataStart);
+    if (lfj_get_skin_description_size() < 0) {
+        /* skin data file was not romized, so free memory allocated for it */
+        midpFree(gsSkinFileDataStart);
+    }
 
     gsSkinFileDataStart = NULL;
     gsSkinFileDataPos = NULL;
@@ -335,7 +353,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_LoadedSkinData_readByteArray) {
             break;
         }
 
-        KNI_SetRawArrayRegion(returnArray, 0, arrayLength, gsSkinFileDataPos);
+        KNI_SetRawArrayRegion(returnArray, 0, arrayLength, (jbyte*)gsSkinFileDataPos);
         gsSkinFileDataPos += arrayLength;
 
     } while (0);
@@ -374,7 +392,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_LoadedSkinData_readIntArray) {
         /*
          * And finally read data into it
          */
-        KNI_SetRawArrayRegion(returnArray, 0, totalBytes, gsSkinFileDataPos);
+        KNI_SetRawArrayRegion(returnArray, 0, totalBytes, (jbyte*)gsSkinFileDataPos);
         gsSkinFileDataPos += totalBytes;
 
     } while (0);
@@ -458,7 +476,7 @@ KNIDECL(com_sun_midp_chameleon_skins_resources_LoadedSkinData_readStringArray) {
                 /* and create string from it */
                 KNI_NewString(stringChars, stringLength, stringHandle);
             } else if (encoding == STRING_ENCODING_UTF8) {
-                KNI_NewStringUTF(gsSkinFileDataPos, stringHandle);
+                KNI_NewStringUTF((char*)gsSkinFileDataPos, stringHandle);
             } else {
                 KNI_ThrowNew(midpIllegalStateException, 
                         "Illegal skin string encoding");

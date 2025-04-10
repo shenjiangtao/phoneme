@@ -1,7 +1,7 @@
 /*
  * @(#)JavaAPILister.java	1.11	06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -113,7 +113,8 @@ public class JavaAPILister extends LinkerUtil {
 		rdr.readFile(fileName, classesProcessed);
 	    }
 	} catch ( IOException e ){
-	    System.out.println(Localizer.getString("javacodecompact.could_not_read_file", fileName));
+	    System.out.println(Localizer.getString(
+                "javacodecompact.could_not_read_file", fileName));
 	    e.printStackTrace();
 	    return false;
 	}
@@ -396,9 +397,18 @@ public class JavaAPILister extends LinkerUtil {
 	boolean classIsFinal;
 	int     permissionMask;
 	ClassMemberInfo cma[];
+
+        if (verbosity > 0){
+            String s = (methods) ? "methods" : "fields";
+            System.out.println("Collect " + s +
+                               " for " + thisClass.className);
+	}
 	// if this class has already been seen,
 	// don't go looking at it again.
 	if (classesAlreadySeen.contains(thisClass)){
+            if (verbosity > 0){
+                System.err.println(thisClass.className + "has already seen.");
+	    }
 	    return;
 	}
 	classesAlreadySeen.addElement(thisClass);
@@ -428,10 +438,11 @@ public class JavaAPILister extends LinkerUtil {
 		    continue;
 		if (!leafClass){
 		    // this is a superclass or interface.
-		    if (cm.isStaticMember()){
+		    /* Bug 6589171. 
+                    if (cm.isStaticMember()){
 			// subclasses don't inherit our statics
 			continue;
-		    }
+		    }*/
 		    if (cm.name.string.equals("<init>")){
 			// subclasses don't inherit our constructors
 			continue;
@@ -469,21 +480,27 @@ public class JavaAPILister extends LinkerUtil {
 		if (doPrint){
 		    // we want to include this one on the list.
 		    components.add(cm);
+                    if (verbosity > 0){
+                        System.out.println("\tFound member:  " + cm);
+	            }
 		}
 	    }
 	}
 
-	// look at superclass
 	String otherName;
 	ClassInfo otherClass;
 	ClassConstant superConstant = thisClass.superClass;
-	if (superConstant != null){
-	    // recurse into superclass
-	    otherName = superConstant.name.string;
-	    if ((otherClass = ClassTable.lookupClass(otherName, apiloader))
-		!= null){
-		collectClassComponents(components, otherClass,
-		    classesAlreadySeen, methods, classIsFinal, false);
+
+	// look at superclass
+        if ((thisClass.access & Const.ACC_INTERFACE) == 0) {
+	    if (superConstant != null){
+	        // recurse into superclass
+	        otherName = superConstant.name.string;
+	        if ((otherClass = ClassTable.lookupClass(otherName, apiloader))
+		    != null){
+		    collectClassComponents(components, otherClass,
+		        classesAlreadySeen, methods, classIsFinal, false);
+	        }
 	    }
 	}
 
@@ -628,38 +645,43 @@ public class JavaAPILister extends LinkerUtil {
 	    }
         }
 
-        /* write ClassRestrictions data struct */
+        /* write CVMClassRestrictions data struct */
         out.println("\n/* The dual stack member filter. */");
-        out.println("struct ClassRestrictionElement cre[] = {");
-        for (i = 0; i < nClasses; i++) {
-            thisClass = (ClassInfo)sortedClasses.get(i);
-            cvmClass = (CVMClass)sortedCVMClasses.get(i);
-            cName = cvmClass.getNativeName();
-            /* class typeid */
-            out.print("{0x" + Integer.toHexString(cvmClass.classid()) + ", ");
-            /* number of methods */
-            out.print(thisClass.methodtable.length + ", ");
-            /* number of fields */
-            out.print(thisClass.fieldtable.length + ", ");
-            /* method table */
-            if (thisClass.methodtable.length == 0) {
-                out.print("NULL /* " + cName + "_m */, ");
-	    } else {
-                out.print(cName + "_m, ");
+	if (nClasses != 0) {
+	    out.println("struct CVMClassRestrictionElement cre[] = {");
+	    for (i = 0; i < nClasses; i++) {
+		thisClass = (ClassInfo)sortedClasses.get(i);
+		cvmClass = (CVMClass)sortedCVMClasses.get(i);
+		cName = cvmClass.getNativeName();
+		/* class typeid */
+                out.print("{0x" + Integer.toHexString(cvmClass.getClassId()) +
+                          ", ");
+		/* number of methods */
+		out.print(thisClass.methodtable.length + ", ");
+		/* number of fields */
+		out.print(thisClass.fieldtable.length + ", ");
+		/* method table */
+		if (thisClass.methodtable.length == 0) {
+		    out.print("NULL /* " + cName + "_m */, ");
+		} else {
+		    out.print(cName + "_m, ");
+		}
+		/* field table */
+		if (thisClass.fieldtable.length == 0) {
+		    out.println("NULL /* " + cName + "_f */},");
+		} else {
+		    out.println(cName + "_f},");
+		}
 	    }
-            /* field table */
-            if (thisClass.fieldtable.length == 0) {
-                out.println("NULL /* " + cName + "_f */},");
-	    } else {
-                out.println(cName + "_f},");
-	    }
+	    out.println("};");
+	    
+	    /* write CVMClassRestrictions data struct */
+	    out.print("const struct CVMClassRestrictions CVMdualStackMemberFilter = {");
+	    out.print(nClasses + ", ");
+	    out.println("cre};");
+	} else {
+	    out.println("const struct CVMClassRestrictions CVMdualStackMemberFilter = {0, NULL};");
 	}
-        out.println("};");
-
-        /* write ClassRestrictions data struct */
-        out.print("const struct ClassRestrictions CVMdualStackMemberFilter = {");
-        out.print(nClasses + ", ");
-        out.println("cre};");
 
         out.flush();
     }
@@ -777,11 +799,11 @@ public class JavaAPILister extends LinkerUtil {
                 return false;
 	    }
             cvmClass = (CVMClass)cdcClass.vmClass;
-            id = cvmClass.classid();
+            id = cvmClass.getClassId();
             nSortedClasses = sortedCVMClasses.size();
 
             for (j = 0; j < nSortedClasses; j++) {
-                if (id < ((CVMClass)sortedCVMClasses.get(j)).classid()) {
+                if (id < ((CVMClass)sortedCVMClasses.get(j)).getClassId()) {
                     break; /* found location */
 		}
             }

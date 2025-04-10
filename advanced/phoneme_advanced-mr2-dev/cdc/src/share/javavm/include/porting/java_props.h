@@ -1,7 +1,7 @@
 /*
  * @(#)java_props.h	1.18 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -61,7 +61,19 @@ typedef struct {
     const char *cpu_endian;            /* endianness of platform */
     const char *commports;	       /* comma-delimited list of available
 					  comm (serial) ports */
-    
+
+#ifdef JAVASE    
+    const char *util_prefs_PreferencesFactory; /* system's Preferences Factory */
+
+    const char *data_model;           /* 32 or 64 bit data model */
+ 
+    const char *patch_level;          /* patches/service packs installed */
+
+    const char *country;
+    const char *variant;
+    const char *sun_jnu_encoding;
+#endif
+
 } java_props_t;
 
 /*

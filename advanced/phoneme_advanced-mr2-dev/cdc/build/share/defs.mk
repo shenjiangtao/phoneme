@@ -1,7 +1,6 @@
 #
-# @(#)defs.mk	1.515 06/10/31
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -32,14 +31,13 @@ empty:=
 comma:= ,
 space:= $(empty) $(empty)
 
-ABSPATH = $(shell cd $(1); echo `pwd`)
-
 #
 # Setup HOST_OS, HOST_CPU_FAMILY, and HOST_DEVICE. These are used
 # to assist in locating the proper tools to use.
 #
 
-UNAME_OS 	?= $(shell uname -s)
+UNAME_OS	?= $(shell uname -s)
+UNAME_OS	:= $(UNAME_OS)
 
 # Solaris host support
 ifeq ($(UNAME_OS), SunOS)
@@ -99,6 +97,8 @@ TOOL_WHICH	?= PATH="$(PATH)" whence "$(1)"
 USE_INTERIX	?= true
 endif
 
+HOST_CPU_FAMILY := $(HOST_CPU_FAMILY)
+
 ifeq ($(HOST_OS),)
 $(error Invalid host. "$(UNAME_OS)" not recognized.)
 endif
@@ -143,11 +143,11 @@ endif
 # Use bash on win32, since the Cygwin sh doesn't work for us.
 #
 ifeq ($(HOST_DEVICE), cygwin)
-SHELL	= bash
+SHELL	= bash -e
 endif
 
 ifeq ($(HOST_DEVICE), Interix)
-SHELL	= ksh
+SHELL	= ksh -e
 endif
 
 #
@@ -158,33 +158,48 @@ endif
 CVM_HOST 	?= $(HOST_CPU_FAMILY)-$(HOST_DEVICE)-$(HOST_OS)
 CVM_TARGET	= $(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)
 
-# COMPONENTS_DIR is the directory that all the components are located in,
-# such as midp, pcsl, and jump. It is used for providing default locations
-# for directories like MIDP_DIR and JUMP_DIR. It must be an absolute path.
-ifndef COMPONENTS_DIR
-COMPONENTS_DIR     := $(call ABSPATH, ../../..)
-endif
+# EVAL_SUPPORTED is true if this version of gnumake supports
+# the eval function. 
+$(eval EVAL_SUPPORTED=true)
 
 # Set overriding values:
 
 # Figure out if this is a CDC 1.0 source base or not
-ifeq ($(wildcard ../share/defs_zoneinfo.mk),)
+ifeq ($(wildcard $(CDC_DIR)/build/share/defs_zoneinfo.mk),)
 	override CDC_10 = true
 else
 	override CDC_10 = false
 endif
 
+CVM_JVMDI               ?= false
 # For backwards compatibility of sorts, we migrate CVM_JVMDI to CVM_JVMTI
 CVM_JVMTI               ?= $(CVM_JVMDI)
+CVM_JVMTI_ROM           ?= $(CVM_JVMTI)
+CVM_JVMTI_IOVEC         ?= false
 
 # We need to check this here because the CVM_JVMTI option overrides many
 # others that follows through CVM_DEBUG:
 ifeq ($(CVM_JVMTI), true)
-        override CVM_DEBUG_CLASSINFO = true
-        override CVM_JAVAC_DEBUG = true
+	override CVM_DEBUG_CLASSINFO = true
+ifeq ($(CVM_JVMTI_ROM), true)
+	override CVM_JAVAC_DEBUG = true
+endif 
 	override CVM_AGENTLIB = true
 	override CVM_XRUN = true
         override CVM_THREAD_SUSPENSION = true
+endif
+
+ifeq ($(CVM_JVMTI_IOVEC), true)
+ifneq ($(findstring true,$(CVM_JVMTI)$(CVM_JVMPI)), true)
+$(error CVM_JVMTI must be set to 'true' if CVM_JVMTI_IOVEC is 'true')
+endif
+endif
+
+ifeq ($(CVM_JVMTI_ROM), true)
+ifneq ($(CVM_JVMTI), true)
+$(error CVM_JVMTI must be set to 'true' if CVM_JVMTI_ROM is 'true')
+endif
+	override CVM_JAVAC_DEBUG=true
 endif
 
 ifeq ($(CVM_CLASSLIB_JCOV), true)
@@ -202,7 +217,14 @@ endif
 # NOTE: These options are officially supported and are documented in
 #       docs/guide/build.html:
 
+# CVM_DEBUG must be true or false, or the build will fail.
 CVM_DEBUG		?= false
+ifneq ($(CVM_DEBUG),true)
+ifneq ($(CVM_DEBUG),false)
+$(error CVM_DEBUG must be true or false: CVM_DEBUG=$(CVM_DEBUG))
+endif
+endif
+
 CVM_TRACE		?= $(CVM_DEBUG)
 ifeq ($(CVM_TRACE),true)
 override CVM_DEBUG_DUMPSTACK	= true
@@ -210,6 +232,7 @@ endif
 ifeq ($(CVM_VERIFY_HEAP),true)
 override CVM_DEBUG_ASSERTS = true
 endif
+
 CVM_DEBUG_ASSERTS	?= $(CVM_DEBUG)
 CVM_DEBUG_CLASSINFO	?= $(CVM_DEBUG)
 CVM_DEBUG_DUMPSTACK	?= $(CVM_DEBUG)
@@ -218,7 +241,7 @@ CVM_INSPECTOR		?= $(CVM_DEBUG)
 CVM_JAVAC_DEBUG		?= $(CVM_DEBUG)
 CVM_VERIFY_HEAP		?= false
 CVM_JIT                 ?= false
-CVM_JVMTI               ?= false
+CVM_JVMTI_ROM		?= false
 CVM_JVMPI               ?= false
 CVM_JVMPI_TRACE_INSTRUCTION ?= $(CVM_JVMPI)
 CVM_THREAD_SUSPENSION   ?= false
@@ -245,20 +268,21 @@ else
 CVM_OPTIMIZED		?= true
 endif
 
-CVM_PRELOAD_TEST        ?= false
-CVM_PRELOAD_LIB         ?= $(CVM_PRELOAD_TEST)
-CVM_STATICLINK_LIBS	= $(CVM_PRELOAD_LIB)
 CVM_SYMBOLS             ?= $(CVM_DEBUG)
 CVM_PRODUCT             ?= premium
+
+ifeq ($(CVM_PRELOAD_LIB), true)
+	override CVM_CREATE_RTJAR = false
+endif
 
 # CVM_TERSEOUTPUT is now deprecated in favor of USE_VERBOSE_MAKE.
 # They have opposite meanings. We look at CVM_TERSEOUTPUT here to set
 # USE_VERBOSE_MAKE properly for backwards compatibility. This is the
 # only place where CVM_TERSEOUTPUT can be checked
 ifeq ($(CVM_TERSEOUTPUT),false)
-USE_VERBOSE_MAKE	?= true
+USE_VERBOSE_MAKE	= true
 else
-USE_VERBOSE_MAKE	?= false
+USE_VERBOSE_MAKE	= false
 endif
 
 # %begin lvm
@@ -268,20 +292,41 @@ CVM_LVM                 ?= false
 CVM_CSTACKANALYSIS	?= false
 CVM_TIMESTAMPING	?= true
 CVM_INCLUDE_COMMCONNECTION ?= false
-CVM_INCLUDE_MIDP	?= false
-CVM_INCLUDE_JUMP	?= false
-ifeq ($(CVM_INCLUDE_MIDP), true)
+USE_MIDP	?= false
+USE_JUMP	?= false
+USE_GCI         ?= false
+
+# Some makefiles still reference CVM_INCLUDE_MIDP and CVM_INCLUDE_JUMP,
+# so give them proper values until they are cleaned up.
+CVM_INCLUDE_MIDP ?= $(USE_MIDP)
+CVM_INCLUDE_JUMP ?= $(USE_JUMP)
+
+ifeq ($(USE_MIDP), true)
   override CVM_KNI        = true
   override CVM_DUAL_STACK = true
 else
   CVM_KNI                 ?= false
-  ifeq ($(CVM_INCLUDE_JUMP), true)
+  ifeq ($(USE_JUMP), true)
     override CVM_DUAL_STACK = true
   else
     CVM_DUAL_STACK          ?= false
   endif
 endif
-CVM_SPLIT_VERIFY	?= false
+
+# We must use the split verifier for cldc/midp classes 
+ifeq ($(CVM_DUAL_STACK), true)
+    override CVM_SPLIT_VERIFY = true
+else
+    CVM_SPLIT_VERIFY ?= true
+endif
+
+# We must use J2ME_CLASSLIB=foundation in order to support CVM_DUAL_STACK=true
+ifeq ($(CVM_DUAL_STACK), true)
+ifeq ($(J2ME_CLASSLIB), cdc)
+$(error Must use J2ME_CLASSLIB=foundation because CVM_DUAL_STACK=true requires foundation)
+endif
+endif
+
 
 CVM_JIT_REGISTER_LOCALS	?= true
 CVM_JIT_USE_FP_HARDWARE ?= false
@@ -290,7 +335,6 @@ CVM_JIT_USE_FP_HARDWARE ?= false
 # NOTE: CVM_INTERPRETER_LOOP can be set to "Split", "Aligned", or "Standard"
 
 CVM_CLASSLOADING	?= true
-CVM_NO_LOSSY_OPCODES    ?= $(CVM_JVMTI)
 CVM_REFLECT		?= true
 CVM_SERIALIZATION	?= true
 CVM_DYNAMIC_LINKING	?= true
@@ -322,9 +366,82 @@ CVM_BUILD_SUBDIR  ?= false
 CVM_USE_MEM_MGR		?= false
 CVM_MP_SAFE		?= false
 
+CVM_CREATE_RTJAR	?= false
+
 # AOT is only supported for Romized build.
 ifeq ($(CVM_AOT), true)
-override CVM_PRELOAD_LIB = true
+	override CVM_PRELOAD_LIB = true
+endif
+
+ifneq ($(CVM_CLASSLOADING), true)
+        override CVM_PRELOAD_LIB = true
+endif
+
+ifdef CVM_ALLOW_UNRESOLVED
+    $(error Internal flag CVM_ALLOW_UNRESOLVED should not be set)
+endif
+ifdef CVM_PRELOAD_FULL_CLOSURE
+    $(error Internal flag CVM_PRELOAD_FULL_CLOSURE should not be set)
+endif
+ifdef CVM_PRELOAD_ALL
+    $(error Internal flag CVM_PRELOAD_ALL should not be set)
+endif
+ifdef CVM_PRELOAD_SET
+    ifdef CVM_PRELOAD_TEST
+        $(error Do not set both CVM_PRELOAD_SET and CVM_PRELOAD_TEST)
+    endif
+    ifdef CVM_PRELOAD_LIB
+        $(error Do not set both CVM_PRELOAD_SET and CVM_PRELOAD_LIB)
+    endif
+    CVM_FLAGS += CVM_PRELOAD_SET
+endif
+
+ifdef CVM_PRELOAD_TEST
+CVM_PRELOAD_LIB = $(CVM_PRELOAD_TEST)
+endif
+
+ifdef CVM_PRELOAD_LIB
+    CVM_FLAGS += CVM_PRELOAD_LIB
+    ifeq ($(CVM_PRELOAD_LIB), false)
+        ifeq ($(CVM_PRELOAD_TEST), true)
+            $(error CVM_PRELOAD_LIB=false is incompatible with \
+                CVM_PRELOAD_TEST=true)
+        else
+            CVM_PRELOAD_SET = minfull
+        endif
+    else
+        ifeq ($(CVM_PRELOAD_TEST), true)
+            CVM_PRELOAD_SET = libtestfull
+        else
+            CVM_PRELOAD_SET = libfull
+        endif
+    endif
+endif
+
+CVM_PRELOAD_SET        ?= minfull
+CVM_PRELOAD_ALL         = false
+
+ifeq ($(patsubst %full,true,$(CVM_PRELOAD_SET)), true)
+    CVM_PRELOAD_FULL_CLOSURE = true
+    ifeq ($(patsubst lib%,true,$(CVM_PRELOAD_SET)), true)
+        CVM_PRELOAD_ALL = true
+    endif
+else
+    CVM_PRELOAD_FULL_CLOSURE = false
+endif
+
+ifeq ($(CVM_PRELOAD_SET), libtestfull)
+    CVM_PRELOAD_TEST = true
+endif
+
+CVM_STATICLINK_LIBS   = $(CVM_PRELOAD_ALL)
+override CVM_PRELOAD_LIB = $(CVM_PRELOAD_ALL)
+
+ifeq ($(CVM_PRELOAD_ALL), true)
+	override CVM_CREATE_RTJAR = false
+endif
+
+ifeq ($(CVM_AOT), true)
 override CVM_JIT         = true
 endif
 
@@ -351,25 +468,37 @@ LIB_POSTFIX = $(DEBUG_POSTFIX).so
 #
 # All build directories relative to CVM_BUILD_TOP
 #
-CVM_TOP       := ../..
-CVM_BUILD_TOP := $(CVM_TOP)/build/$(CVM_TARGET)/$(CVM_BUILD_SUBDIR_NAME)
+CVM_BUILD_TOP := $(CDC_DEVICE_COMPONENT_DIR)/build/$(CVM_TARGET)/$(CVM_BUILD_SUBDIR_NAME)
 CVM_LIBDIR    := $(CVM_BUILD_TOP)/lib
 
-CVM_TOP_ABS	  := $(call ABSPATH,$(CVM_TOP))
-CVM_BUILD_TOP_ABS := $(CVM_TOP_ABS)/build/$(CVM_TARGET)/$(CVM_BUILD_SUBDIR_NAME)
+CVM_BUILD_TOP_ABS := $(call ABSPATH,$(CVM_BUILD_TOP))
 CVM_LIBDIR_ABS    := $(CVM_BUILD_TOP_ABS)/lib
+
+PROFILE_DIR       ?= $(CDC_DIR)
+
+# locate the tools component
+export TOOLS_DIR ?= $(COMPONENTS_DIR)/tools
+ifeq ($(wildcard $(TOOLS_DIR)/tools.gmk),)
+$(error TOOLS_DIR must point to the shared tools directory: $(TOOLS_DIR))
+endif
+
+# include tools component makefile. Don't do this until after HOST_OS is setup
+TOOLS_OUTPUT_DIR=$(CVM_BUILD_TOP)/tools.output
+include $(TOOLS_DIR)/tools.gmk
 
 # Optional Package names
 ifneq ($(strip $(OPT_PKGS)),)
   ifeq ($(OPT_PKGS), all)
     OPT_PKGS_DEFS_FILES := $(wildcard ../share/defs_*_pkg.mk)
-    OPT_PKGS_LIST  := $(patsubst ../share/defs_%_pkg.mk,%,$(OPT_PKGS_DEFS_FILES))
+    OPT_PKGS_LIST  := $(patsubst ../share/defs_%_pkg.mk,%,\
+                        $(OPT_PKGS_DEFS_FILES))
     OPT_PKGS_NAME  := _$(subst $(space),_,$(strip $(OPT_PKGS_LIST)))
   else
     OPT_PKGS_LIST  := $(subst $(comma),$(space),$(OPT_PKGS))
     OPT_PKGS_NAME  := $(subst $(space),,_$(subst $(comma),_,$(OPT_PKGS)))
     OPT_PKGS_DEFS_FILES := $(foreach PKG,$(OPT_PKGS_LIST),\
-      $(firstword $(value $(shell echo ${patsubst %,%_DIR,${PKG}} | tr '[:lower:]' '[:upper:]')) ../..)/build/share/defs_$(PKG)_pkg.mk)
+      $(firstword $(value $(shell echo ${patsubst %,%_DIR,${PKG}} | \
+      tr '[:lower:]' '[:upper:]')) ../..)/build/share/defs_$(PKG)_pkg.mk)
   endif
   OPT_PKGS_RULES_FILES := $(subst /defs_,/rules_,$(OPT_PKGS_DEFS_FILES))
   OPT_PKGS_ID_FILES := $(subst /defs_,/id_,$(OPT_PKGS_DEFS_FILES))
@@ -380,12 +509,18 @@ endif
 #
 # Include id makefiles.
 #
-include ../share/id_$(J2ME_CLASSLIB).mk
+include $(PROFILE_DIR)/build/share/id_$(J2ME_CLASSLIB).mk
 ifneq ($(J2ME_PLATFORM),)
--include ../share/id_$(J2ME_PLATFORM).mk
+-include $(PROFILE_DIR)/build/share/id_$(J2ME_PLATFORM).mk
 endif 
 # This is for identifying binary products, like Personal Profile for Zaurus
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/id_$(J2ME_CLASSLIB).mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/id_$(J2ME_CLASSLIB).mk
+
+ifeq ($(CVM_CREATE_RTJAR),true)
+CVM_RT_JAR_NAME		= "rt.jar"
+CVM_RT_JAR		= $(CVM_LIBDIR_ABS)/rt.jar
+CVM_RTJARS_DIR		= $(CVM_BUILD_TOP_ABS)/rtjars
+endif
 
 #
 # The version values referenced here are setup in the profile id.mk files.
@@ -425,6 +560,7 @@ CVM_PROP_JAVA_SPEC_NAME		= "$(J2ME_PROFILE_NAME) Specification"
 CVM_PROP_JAVA_SPEC_VERSION	= "$(J2ME_PROFILE_SPEC_VERSION)"
 CVM_PROP_JAVA_SPEC_VENDOR	= "Sun Microsystems Inc."
 CVM_PROP_JAVA_CLASS_VERSION	= "47.0"
+CVM_PROP_COM_SUN_PACKAGE_SPEC_VERSION = "1.4.2"
 #   used in src/share/javavm/runtime/jvm.c
 CVM_PROP_JAVA_VM_NAME		= "$(CVM_BUILD_NAME)"
 CVM_PROP_JAVA_VM_VERSION 	= "$(CVM_BUILD_VERSION_STRING)"
@@ -438,10 +574,19 @@ CVM_PROP_JAVA_VM_VENDOR		= "Sun Microsystems Inc."
 CVM_PROP_JAVA_VM_SPEC_NAME	= "Java Virtual Machine Specification"
 CVM_PROP_JAVA_VM_SPEC_VERSION	= "1.0"
 CVM_PROP_JAVA_VM_SPEC_VENDOR	= "Sun Microsystems Inc."
+
 #   used in src/$(CVM_TARGET)/javavm/runtime/java_props_md.c
-CVM_CLASSLIB_JAR_NAME		= "$(J2ME_CLASSLIB)$(OPT_PKGS_NAME).jar"
+CVM_CLASSLIB_JAR_NAME	       ?= "$(J2ME_CLASSLIB)$(OPT_PKGS_NAME).jar"
+
 #   used in src/share/javavm/runtime/utils.c
-CVM_JARFILES			= CVM_CLASSLIB_JAR_NAME
+ifneq ($(CVM_PRELOAD_LIB),true)
+ifneq ($(CVM_CREATE_RTJAR), true)
+CVM_JARFILES	+= CVM_CLASSLIB_JAR_NAME,
+else
+CVM_JARFILES	+= $(CVM_RT_JAR_NAME),
+CVM_RTJARS_LIST += $(LIB_CLASSESJAR)
+endif
+endif
 
 ifneq ($(OPT_PKGS_ID_FILES),)
 -include $(OPT_PKGS_ID_FILES)
@@ -459,6 +604,7 @@ CVM_BUILD_DEF_VARS += \
 	CVM_PROP_JAVA_SPEC_VENDOR \
 	\
 	CVM_PROP_JAVA_CLASS_VERSION \
+	CVM_PROP_COM_SUN_PACKAGE_SPEC_VERSION \
 	\
 	CVM_PROP_JAVA_VM_NAME \
 	CVM_PROP_JAVA_VM_VERSION \
@@ -478,7 +624,15 @@ CVM_BUILD_DEF_VARS += \
 # be put into. Add in the optional package name.
 #
 LIB_CLASSESDIR	= $(CVM_BUILD_TOP)/$(J2ME_CLASSLIB)$(OPT_PKGS_NAME)_classes
-LIB_CLASSESJAR	= $(CVM_LIBDIR)/$(J2ME_CLASSLIB)$(OPT_PKGS_NAME).jar
+ifneq ($(CVM_CREATE_RTJAR),true)
+LIB_CLASSESJAR ?= $(CVM_LIBDIR_ABS)/$(J2ME_CLASSLIB)$(OPT_PKGS_NAME).jar
+else
+LIB_CLASSESJAR = $(CVM_RTJARS_DIR)/$(J2ME_CLASSLIB)$(OPT_PKGS_NAME).jar
+endif
+
+export CVM_RESOURCES_DIR ?= $(CVM_BUILD_TOP)/resources
+export CVM_RESOURCES_JAR_FILENAME ?= resources.jar
+export CVM_RESOURCES_JAR ?= $(CVM_LIBDIR_ABS)/$(CVM_RESOURCES_JAR_FILENAME)
 
 #
 # command line flags
@@ -528,9 +682,8 @@ endif
 ifeq ($(CVM_CLASSLOADING), true)
 	CVM_DEFINES      += -DCVM_CLASSLOADING
 	CVM_DYNAMIC_LINKING = true
-else
-        override CVM_PRELOAD_LIB = true
 endif
+
 # If reflection is explicitly stated to be false by the user, don't
 # allow serialization into the build to override that later
 ifneq ($(CVM_REFLECT), true)
@@ -552,7 +705,6 @@ endif
 ifeq ($(CVM_JVMTI), true)
 	CVM_DEFINES      += -DCVM_JVMTI
 	CVM_DYNAMIC_LINKING = true
-	override CVM_NO_LOSSY_OPCODES = true
 endif
 ifeq ($(CVM_JVMPI), true)
         CVM_DEFINES      += -DCVM_JVMPI
@@ -560,8 +712,10 @@ ifeq ($(CVM_JVMPI), true)
 else
         override CVM_JVMPI_TRACE_INSTRUCTION = false
 endif
+ifeq ($(CVM_JVMTI_IOVEC), true)
+	CVM_DEFINES      += -DCVM_JVMTI_IOVEC
+endif
 ifeq ($(CVM_JVMPI_TRACE_INSTRUCTION), true)
-	override CVM_NO_LOSSY_OPCODES = true
         override CVM_NO_CODE_COMPACTION = true
         CVM_DEFINES      += -DCVM_JVMPI_TRACE_INSTRUCTION
 endif
@@ -571,9 +725,6 @@ ifeq ($(CVM_THREAD_SUSPENSION), true)
 	CVM_DEFINES      += -DCVM_THREAD_SUSPENSION
 endif
 
-ifeq ($(CVM_NO_LOSSY_OPCODES), true)
-	CVM_DEFINES      += -DCVM_NO_LOSSY_OPCODES
-endif
 ifeq ($(CVM_INSTRUCTION_COUNTING), true)
 	CVM_DEFINES      += -DCVM_INSTRUCTION_COUNTING
 endif
@@ -691,6 +842,27 @@ ifeq ($(CVM_STATICLINK_LIBS), true)
 	CVM_DEFINES   += -DCVM_STATICLINK_LIBS
 endif
 
+ifeq ($(CVM_STATICLINK_TOOLS), true)
+	CVM_DEFINES   += -DCVM_STATICLINK_TOOLS
+endif
+
+# Keep ant quiet unless a verbose build is requested. Note, you can set
+# CVM_ANT_OPTIONS=-v or CVM_ANT_OPTIONS=-d on the command line to make
+# ant much more verbose.
+ifneq ($(USE_VERBOSE_MAKE), true)
+CVM_ANT_OPTIONS		+= -q
+endif
+
+# Set USE_VERBOSE_JAVAC=true to get a verbose dump on how javac is compiling
+# the Java classes.
+ifeq ($(USE_VERBOSE_JAVAC), true)
+JAVAC_OPTIONS      	+= -verbose
+endif
+
+ifneq ($(CVM_DEBUG), true)
+CVM_ANT_OPTIONS         += -Ddebug=false
+endif
+
 ifeq ($(CDC_10),true)
 CVM_DEFINES += -DCDC_10
 endif
@@ -723,13 +895,14 @@ CVM_FLAGS += \
 	CVM_DEBUG_ASSERTS \
 	CVM_VERIFY_HEAP \
 	CVM_CLASSLOADING \
-	CVM_NO_LOSSY_OPCODES \
 	CVM_INSTRUCTION_COUNTING \
 	CVM_GCCHOICE \
 	CVM_NO_CODE_COMPACTION \
 	CVM_XRUN \
 	CVM_AGENTLIB \
 	CVM_JVMTI \
+	CVM_JVMTI_ROM \
+	CVM_JVMTI_IOVEC \
 	CVM_JVMPI \
 	CVM_JVMPI_TRACE_INSTRUCTION \
 	CVM_THREAD_SUSPENSION \
@@ -738,15 +911,16 @@ CVM_FLAGS += \
 	CVM_REFLECT \
 	CVM_SERIALIZATION \
 	CVM_STATICLINK_LIBS \
-	CVM_PRELOAD_LIB \
-	CVM_PRELOAD_TEST \
+	CVM_STATICLINK_TOOLS \
 	CVM_DYNAMIC_LINKING \
 	CVM_TEST_GC \
 	CVM_TEST_GENERATION_GC \
 	CVM_TIMESTAMPING \
 	CVM_INCLUDE_COMMCONNECTION \
-	CVM_INCLUDE_MIDP \
-	CVM_INCLUDE_JUMP \
+	USE_MIDP \
+	USE_JUMP \
+	USE_GCI \
+	USE_CDC_COM \
 	CVM_DUAL_STACK \
 	CVM_SPLIT_VERIFY \
 	CVM_KNI \
@@ -773,7 +947,8 @@ CVM_FLAGS += \
 	CVM_MP_SAFE \
 	CVM_USE_NATIVE_TOOLS \
 	CVM_MTASK \
-	CVM_AOT
+	CVM_AOT \
+	CVM_CREATE_RTJAR
 
 # %begin lvm
 CVM_FLAGS += \
@@ -786,20 +961,19 @@ CVM_DEFAULT_CLEANUP_ACTION 	= \
 CVM_HOST_CLEANUP_ACTION 	= \
 	rm -rf $(CVM_JCS_BUILDDIR)
 CVM_JAVAC_DEBUG_CLEANUP_ACTION 	= \
-	rm -rf .*classes *_classes .*.list \
+	rm -rf $(CVM_BUILD_TOP)/.*classes \
+	       $(CVM_BUILD_TOP)/*_classes $(CVM_BUILD_TOP)/.*.list \
 	       $(CVM_BUILDTIME_CLASSESDIR) $(CVM_BUILDTIME_CLASSESZIP) \
 	       $(CVM_TEST_CLASSESDIR) $(CVM_TEST_CLASSESZIP) \
 	       $(CVM_DEMO_CLASSESDIR) $(CVM_DEMO_CLASSESJAR)
 CVM_DEBUG_CLASSINFO_CLEANUP_ACTION  = \
-	rm -rf $(CVM_OBJDIR) $(CVM_ROMJAVA_CPATTERN)*
-CVM_NO_LOSSY_OPCODES_CLEANUP_ACTION = \
 	rm -rf $(CVM_OBJDIR) $(CVM_ROMJAVA_CPATTERN)*
 CVM_CLASSLOADING_CLEANUP_ACTION     = \
 	rm -rf $(CVM_OBJDIR) $(CVM_ROMJAVA_CPATTERN)* \
 	       $(CVM_BUILDTIME_CLASSESZIP) \
 		.buildtimeclasses
 CVM_INSTRUCTION_COUNTING_CLEANUP_ACTION = \
-        rm -f $(CVM_OBJDIR)/opcodes.o $(CVM_OBJDIR)/executejava*.o \
+        rm -f $(CVM_OBJDIR)/*opcodes.o $(CVM_OBJDIR)/executejava*.o \
 	     $(CVM_OBJDIR)/jni_impl.o
 CVM_GCCHOICE_CLEANUP_ACTION 	= \
 	mkdir -p $(CVM_DERIVEDROOT)/javavm/include/; \
@@ -817,7 +991,7 @@ CVM_SERIALIZATION_CLEANUP_ACTION = \
 	$(CVM_JAVAC_DEBUG_CLEANUP_ACTION) \
 	$(CVM_OBJDIR)/jvm.o $(CVM_ROMJAVA_CPATTERN)*
 
-CVM_PRELOAD_LIB_CLEANUP_ACTION = \
+CVM_PRELOAD_SET_CLEANUP_ACTION = \
 	rm -rf $(CVM_ROMJAVA_CPATTERN)* \
 	$(DEFAULTLOCALELIST_JAVA) \
 	$(CVM_BUILDTIME_CLASSESDIR) \
@@ -827,12 +1001,8 @@ CVM_PRELOAD_LIB_CLEANUP_ACTION = \
 CVM_STATICLINK_LIBS_CLEANUP_ACTION = \
 	rm -rf $(CVM_LIBDIR) $(CVM_BINDIR)
 
-CVM_PRELOAD_TEST_CLEANUP_ACTION = \
-	rm -rf $(CVM_ROMJAVA_CPATTERN)* \
-	$(CVM_BUILDTIME_CLASSESDIR) \
-	$(CVM_BUILDTIME_CLASSESZIP) .buildtimeclasses \
-	$(CVM_TEST_CLASSESDIR) \
-	$(CVM_TEST_CLASSESZIP)
+CVM_STATICLINK_TOOLS_CLEANUP_ACTION = \
+	rm -rf $(CVM_LIBDIR) $(CVM_BINDIR)
 
 CVM_DYNAMIC_LINKING_CLEANUP_ACTION = \
 	rm -f $(CVM_OBJDIR)/jvm.o $(CVM_OBJDIR)/jni_impl.o \
@@ -875,11 +1045,15 @@ CVM_OPTIMIZED_CLEANUP_ACTION 		= $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_SYMBOLS_CLEANUP_ACTION 		= $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_DEBUG_STACKTRACES_CLEANUP_ACTION 	= $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_DEBUG_DUMPSTACK_CLEANUP_ACTION 	= $(CVM_DEFAULT_CLEANUP_ACTION)
-CVM_INSPECTOR_CLEANUP_ACTION	 	= $(CVM_DEBUG_CLASSINFO_CLEANUP_ACTION)
+CVM_INSPECTOR_CLEANUP_ACTION	 	= \
+	$(CVM_JAVAC_DEBUG_CLEANUP_ACTION) \
+	$(CVM_DEBUG_CLASSINFO_CLEANUP_ACTION)
 CVM_VERIFY_HEAP_CLEANUP_ACTION 		= $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_XRUN_CLEANUP_ACTION			= $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_AGENTLIB_CLEANUP_ACTION		= $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_JVMTI_CLEANUP_ACTION		= $(CVM_DEFAULT_CLEANUP_ACTION)
+CVM_JVMTI_ROM_CLEANUP_ACTION		= $(CVM_DEFAULT_CLEANUP_ACTION)
+CVM_JVMTI_IOVEC_CLEANUP_ACTION		= $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_JVMPI_CLEANUP_ACTION                = \
         $(CVM_DEFAULT_CLEANUP_ACTION)     \
         $(CVM_DEBUG_CLASSINFO_CLEANUP_ACTION)
@@ -909,12 +1083,15 @@ CVM_TRACE_JIT_CLEANUP_ACTION           = $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_INCLUDE_COMMCONNECTION_CLEANUP_ACTION        = \
 	$(CVM_DEFAULT_CLEANUP_ACTION)    \
 	$(CVM_JAVAC_DEBUG_CLEANUP_ACTION)
-CVM_INCLUDE_MIDP_CLEANUP_ACTION        = \
+USE_MIDP_CLEANUP_ACTION        = \
 	$(CVM_DEFAULT_CLEANUP_ACTION)    \
 	$(CVM_JAVAC_DEBUG_CLEANUP_ACTION)
-CVM_INCLUDE_JUMP_CLEANUP_ACTION        = \
+USE_JUMP_CLEANUP_ACTION        = \
 	$(CVM_DEFAULT_CLEANUP_ACTION)    \
 	$(CVM_JAVAC_DEBUG_CLEANUP_ACTION)
+USE_GCI_CLEANUP_ACTION         = \
+        $(CVM_DEFAULT_CLEANUP_ACTION)    \
+        $(CVM_JAVAC_DEBUG_CLEANUP_ACTION)
 CVM_DUAL_STACK_CLEANUP_ACTION          = $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_SPLIT_VERIFY_CLEANUP_ACTION        = $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_KNI_CLEANUP_ACTION                 = $(CVM_DEFAULT_CLEANUP_ACTION)
@@ -939,8 +1116,9 @@ CVM_USE_NATIVE_TOOLS_CLEANUP_ACTION    = $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_USE_CVM_MEMALIGN_CLEANUP_ACTION    = $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_USE_MEM_MGR_CLEANUP_ACTION         = $(CVM_DEFAULT_CLEANUP_ACTION)
 CVM_MP_SAFE_CLEANUP_ACTION	       = $(CVM_DEFAULT_CLEANUP_ACTION)
-CVM_MTASK_CLEANUP_ACTION                = $(CVM_DEFAULT_CLEANUP_ACTION)
-CVM_AOT_CLEANUP_ACTION                = $(CVM_DEFAULT_CLEANUP_ACTION)
+CVM_MTASK_CLEANUP_ACTION               = $(CVM_DEFAULT_CLEANUP_ACTION)
+CVM_AOT_CLEANUP_ACTION                 = $(CVM_DEFAULT_CLEANUP_ACTION)
+CVM_CREATE_RTJAR_CLEANUP_ACTION	       = rm -rf $(CVM_RT_JAR)
 
 #
 # Wipe out objects and classes when J2ME_CLASSLIB changes.
@@ -1019,7 +1197,7 @@ endif
 # Object and data files needed for dual stack support
 #
 ifeq ($(CVM_DUAL_STACK), true)
-ifeq ($(CVM_INCLUDE_MIDP), true)
+ifeq ($(USE_MIDP), true)
     # The MIDP version include all CLDC classes plus 8 additional
     # javax/micro/microeditional/io/* classes.
     CVM_MIDPDIR           = $(CVM_TOP)/src/share/lib/dualstack/midp
@@ -1030,7 +1208,9 @@ endif
 	MemberFilter.o      \
 	$(CVM_ROM_MEMBER_FILTER)
     CVM_MIDPFILTERCONFIG  = $(CVM_LIBDIR)/MIDPFilterConfig.txt
-    CVM_MIDPCLASSLIST     = $(CVM_LIBDIR)/MIDPPermittedClasses.txt
+    CVM_MIDPCLASSLISTNAME = MIDPPermittedClasses.txt
+    CVM_MIDPCLASSLIST     = $(CVM_LIBDIR)/$(CVM_MIDPCLASSLISTNAME)
+    CVM_MIDPCLASSLIST_FILES += $(CVM_MIDPDIR)/MIDPPermittedClasses.txt
     CVM_MIDPFILTERCONFIGINPUT = $(CVM_MIDPDIR)/MIDPFilterConfig.txt
 
 #
@@ -1054,6 +1234,19 @@ else
 # filter data.
 CVM_JCC_APILISTER_OPTIONS	+= -listapi:minput=$(CVM_MIDPFILTERCONFIGINPUT)
 endif
+
+# MIDP package checker class
+MIDP_PKG_CHECKER = MIDPPkgChecker.java
+GENERATED_CLASSES + = sun.misc.MIDPPkgChecker
+
+CVM_BUILDTIME_CLASSES_min += \
+	sun.misc.MIDPPkgChecker
+
+# The rom.config file used to generate the MIDPPkgChecker class
+ROMGEN_INCLUDE_PATHS += \
+	$(CDC_DIR)/build/share
+ROMGEN_CFG_FILES += rom.config \
+	cdc_rom.cfg
 endif
 
 #
@@ -1070,18 +1263,21 @@ endif
 ifeq ($(CVM_KNI), true)
     CVM_SHAREOBJS_SPACE += \
 	kni_impl.o \
-	KNITest.o  \
 	sni_impl.o
     CVM_TEST_CLASSES += KNITest
+ifeq ($(CVM_PRELOAD_TEST),true)
+    CVM_SHAREOBJS_SPACE += \
+	KNITest.o
     CVM_SRCDIRS += $(CVM_TESTCLASSES_SRCDIR)
     CVM_CNI_CLASSES += KNITest
+endif
 endif
 
 #
 # Directories
 #
 CVM_JCSDIR               = $(CVM_BUILD_TOP)/jcs
-CVM_OBJDIR               = $(CVM_BUILD_TOP)/obj
+CVM_OBJDIR               := $(call abs2rel,$(CVM_BUILD_TOP)/obj)
 CVM_BINDIR               = $(CVM_BUILD_TOP)/bin
 CVM_DERIVEDROOT          = $(CVM_BUILD_TOP)/generated
 CVM_BUILDTIME_CLASSESDIR = $(CVM_BUILD_TOP)/btclasses
@@ -1092,8 +1288,6 @@ CVM_SHAREROOT  		 = $(CVM_TOP)/src/share
 
 # Full path for current build directory
 CDC_CUR_DIR	:= $(call ABSPATH,.)
-# Full path for the cdc component directory
-export CDC_DIR	:= $(CVM_TOP_ABS)
 # directory where cdc build is located.
 export CDC_DIST_DIR := $(CVM_BUILD_TOP_ABS)
 # Directory where javadocs, source bundles, and binary bundle get installed.
@@ -1114,8 +1308,11 @@ BINARY_BUNDLE_NAME	= \
 	$(BUNDLE_PRODUCT_NAME)-$(BUNDLE_VERSION)-$(BUNDLE_TARGET)-bin
 BINARY_BUNDLE_DIRNAME	= $(BINARY_BUNDLE_NAME)
 
-# Location of legal documents in case JAVAME_LEGAL_DIR is not set.
-JAVAME_LEGAL_REPOSITORY = https://phoneme.dev.java.net/svn/phoneme/legal
+DEVICE_BUNDLE_NAME	= \
+	$(BUNDLE_PRODUCT_NAME)-$(BUNDLE_VERSION)-$(BUNDLE_TARGET)-dev
+DEVICE_BUNDLE_DIRNAME	= $(DEVICE_BUNDLE_NAME)
+
+JAVAME_LEGAL_DIR ?= $(COMPONENTS_DIR)/legal
 
 # Add the svn revison number to BINARY_BUNDLE_NAME and BINARY_BUNDLE_DIRNAME
 # if requested.
@@ -1131,6 +1328,8 @@ endif
 # BINARY_BUNDLE_NAME, and we don't want the revision number in there twice.
 override BINARY_BUNDLE_DIRNAME := $(BINARY_BUNDLE_DIRNAME)-rev$(REVISION_NUMBER)
 override BINARY_BUNDLE_NAME := $(BINARY_BUNDLE_NAME)-rev$(REVISION_NUMBER)
+override DEVICE_BUNDLE_DIRNAME := $(DEVICE_BUNDLE_DIRNAME)-rev$(REVISION_NUMBER)
+override DEVICE_BUNDLE_NAME := $(DEVICE_BUNDLE_NAME)-rev$(REVISION_NUMBER)
 endif
 
 
@@ -1140,12 +1339,13 @@ endif
 
 CVM_TESTCLASSES_SRCDIR    = $(CVM_SHAREROOT)/javavm/test
 CVM_CLDCCLASSES_SRCDIR    = $(CVM_SHAREROOT)/classes/cldc
+CVM_VMIMPLCLASSES_SRCDIR  = $(CVM_SHAREROOT)/javavm/classes
 CVM_SHAREDCLASSES_SRCDIR  = $(CVM_SHAREROOT)/classes
 CVM_TARGETCLASSES_SRCDIR  = $(CVM_TARGETROOT)/classes
 
-CVM_BUILDTIME_CLASSESZIP = $(CVM_BUILD_TOP)/btclasses.zip
-CVM_TEST_CLASSESZIP      = $(CVM_BUILD_TOP)/testclasses.zip
-CVM_DEMO_CLASSESJAR	 = $(CVM_BUILD_TOP)/democlasses.jar
+CVM_BUILDTIME_CLASSESZIP = $(CVM_BUILD_TOP_ABS)/btclasses.zip
+CVM_TEST_CLASSESZIP      = $(CVM_BUILD_TOP_ABS)/testclasses.zip
+CVM_DEMO_CLASSESJAR	 = $(CVM_BUILD_TOP_ABS)/democlasses.jar
 
 # Security properties and policy files
 DO_SECURITY_PROVIDER_FILTERING = false
@@ -1162,7 +1362,7 @@ DEFAULTLOCALELIST_JAVA = \
     $(CVM_DERIVEDROOT)/classes/sun/misc/DefaultLocaleList.java
 
 ifeq ($(CVM_TEST_GC), true)
-include ../share/testgc.mk
+include $(CDC_DIR)/build/share/testgc.mk
 endif
 
 ifeq ($(CVM_TEST_GENERATION_GC), true)
@@ -1207,7 +1407,7 @@ CVM_SRCDIRS += \
 	$(CVM_SHAREROOT)/javavm/runtime/jit
 endif
 
-# This combiles all the native sourcepaths for the vpath search:
+# This combines all the native sourcepaths for the vpath search:
 # NOTE: PROFILE_SRCDIRS_NATIVE is for profile specific native source files.
 #       CVM_SRCDIR is for VM specific and base configuration native source
 #       files.
@@ -1247,6 +1447,11 @@ CVM_BUILDDIRS  += \
 	$(LIB_CLASSESDIR)
 endif
 
+ifeq ($(CVM_CREATE_RTJAR),true)
+CVM_BUILDDIRS  += \
+	$(CVM_RTJARS_DIR)
+endif
+
 ifeq ($(CVM_JIT), true)
 CVM_BUILDDIRS  += \
 	$(CVM_DERIVEDROOT)/javavm/runtime/jit \
@@ -1260,6 +1465,7 @@ endif
 CVM_INCLUDE_DIRS  += \
 	$(CVM_SHAREROOT) \
 	$(CVM_BUILD_TOP) \
+	. \
 
 #
 # These are for the convenience of external code like
@@ -1329,7 +1535,7 @@ endif
 # The following tests make up a LOT of classes. Make sure we are not
 # preloading them.
 #
-ifneq ($(CVM_PRELOAD_LIB), true)
+ifneq ($(CVM_PRELOAD_TEST), true)
 CVM_TEST_CLASSES += \
 	ClassLink \
 	ClassisSubclassOf
@@ -1369,11 +1575,24 @@ CVM_CNI_CLASSES += sun.io.ByteToCharISO8859_1 \
 
 ifeq ($(CVM_JVMPI), true)
 CVM_CNI_CLASSES += sun.misc.CVMJVMPI
+CVM_BUILDTIME_CLASSES += \
+	sun.misc.CVMJVMPI
+endif
+
+ifeq ($(CVM_JVMTI), true)
+CVM_CNI_CLASSES += sun.misc.CVMJVMTI
+CVM_BUILDTIME_CLASSES += \
+	sun.misc.CVMJVMTI
 endif
 
 ifeq ($(CVM_INSPECTOR), true)
 CVM_TEST_CLASSES += \
 	cvmsh
+
+ifneq ($(J2ME_CLASSLIB), cdc)
+CVM_TEST_CLASSES += \
+	cvmclient
+endif
 
 CVM_BUILDTIME_CLASSES += \
 	sun.misc.VMInspector
@@ -1393,6 +1612,7 @@ CVM_OFFSETS_CLASSES += \
 	java.lang.StackTraceElement \
 	java.lang.Class \
 	java.lang.Thread \
+	java.lang.ThreadGroup \
 	java.lang.Boolean \
 	java.lang.Byte \
 	java.lang.Character \
@@ -1402,13 +1622,14 @@ CVM_OFFSETS_CLASSES += \
 	java.lang.Float \
 	java.lang.Double \
 	java.lang.ref.Reference \
-	java.util.AbstractList \
-	java.util.Vector \
 	sun.io.ByteToCharConverter \
 	sun.io.CharToByteConverter \
 	sun.io.CharToByteISO8859_1 \
 	java.lang.StringBuffer \
 	java.lang.AssertionStatusDirectives
+
+CVM_OFFSETS_CLASSES += \
+	java.net.URLClassLoader
 
 ifeq ($(CVM_CLASSLOADING), true)
 CVM_OFFSETS_CLASSES += \
@@ -1420,13 +1641,7 @@ ifeq ($(CVM_REFLECT), true)
 		java.lang.reflect.AccessibleObject \
 		java.lang.reflect.Constructor \
 		java.lang.reflect.Field \
-		java.lang.reflect.InvocationTargetException \
 		java.lang.reflect.Method
-endif
-
-ifeq ($(CVM_JVMPI), true)
-CVM_OFFSETS_CLASSES += \
-        java.lang.ThreadGroup
 endif
 
 #
@@ -1484,7 +1699,6 @@ MATHOBJS = \
 	w_atan2.o \
 	w_exp.o \
 	w_fmod.o \
-	w_gamma.o \
 	w_log.o \
 	w_pow.o \
 	w_remainder.o \
@@ -1528,6 +1742,7 @@ X_MATHOBJS += \
 	w_acosh.o \
 	w_atanh.o \
 	w_cosh.o \
+	w_gamma.o \
 	w_gamma_r.o \
 	w_hypot.o \
 	w_j0.o \
@@ -1667,6 +1882,7 @@ CVM_SHAREOBJS_SPACE += \
 	localroots.o \
 	opcodelen.o \
 	opcodes.o \
+	gen_opcodes.o \
 	packages.o \
 	preloader.o \
 	reflect.o \
@@ -1705,9 +1921,7 @@ CVM_SHAREOBJS_SPACE += \
 	Method.o \
 	Proxy.o \
 	Constructor.o \
-	FileDescriptor.o \
 	FileInputStream.o \
-	FileOutputStream.o \
 	ObjectInputStream.o \
 	ObjectStreamClass.o \
 	ObjectOutputStream.o \
@@ -1716,9 +1930,14 @@ CVM_SHAREOBJS_SPACE += \
 	ResourceBundle.o \
 	String.o \
 	Inflater.o \
-	Version.o \
 	Vector.o \
 	StringBuffer.o
+
+ifneq ($(USE_JAVASE),true)
+CVM_SHAREOBJS_SPACE += \
+	FileDescriptor.o \
+	FileOutputStream.o
+endif
 
 ifeq ($(CDC_10),true)
 CVM_SHAREOBJS_SPACE += \
@@ -1753,10 +1972,13 @@ endif
 
 ifeq ($(CVM_JVMTI), true)
 CVM_SHAREOBJS_SPACE += \
+	executejava_standard_jvmti.o \
 	jvmtiCapabilities.o \
 	jvmtiEnv.o \
 	jvmtiExport.o \
 	jvmti_jni.o \
+	jvmtiDumper.o \
+	CVMJVMTI.o  \
 	bag.o
 endif
 
@@ -1829,16 +2051,20 @@ CVM_FILESEP	= /
 ifeq ($(CDC_10),true)
 # Some platforms don't have a tzmappings file. They should override
 # CVM_TZDATAFILE be empty in this case.
-CVM_TZDIR      = $(CVM_TOP)/src/$(TARGET_OS)/lib
+CVM_TZDIR      = $(CDC_OS_COMPONENT_DIR)/src/$(TARGET_OS)/lib
 CVM_TZDATAFILE = $(CVM_LIBDIR)/tzmappings
 endif
 
 # mime content properties file
-CVM_MIMEDIR	 = $(CVM_TOP)/src/$(TARGET_OS)/lib
+CVM_MIMEDIR	 = $(CDC_OS_COMPONENT_DIR)/src/$(TARGET_OS)/lib
 CVM_MIMEDATAFILE = $(CVM_LIBDIR)/content-types.properties
 
 # Name of the cvm binary
-CVM    = cvm
+ifeq ($(CVM_BUILD_SO),true)
+CVM             = $(LIB_PREFIX)cvm$(LIB_POSTFIX)
+else
+CVM             = cvm
+endif
 
 ##############################################################
 # Locate the tools.
@@ -1997,6 +2223,7 @@ endif
 BISON		?= $(CVM_HOST_TOOLS_PREFIX)bison
 ZIP             ?= zip
 UNZIP           ?= unzip
+CVM_ANT         ?= ant
 
 #######################################################################
 # Build tool options:
@@ -2010,24 +2237,66 @@ UNZIP           ?= unzip
 # Compiler and linker flags
 #
 
+GET_GCC_VERSION := $(shell $(TARGET_CC) -dumpversion  2> /dev/null)
+GET_GCC_VERSION := $(subst ., ,$(GET_GCC_VERSION))
+GCC_MAJOR_VERSION := $(firstword $(GET_GCC_VERSION))
+GCC_MINOR_VERSION := $(word 2, $(GET_GCC_VERSION))
+
+# don't enable extra gcc warnings if using gcc version 2.x
+# enable -fwrapv for 3.4 and later
+
+GCC_BOUNDARIES := $(shell awk \
+    'END { \
+             if (M < 3) { \
+                 printf "v2.x"; \
+             } else if (M * 1000 + N >= 3004) { \
+                 printf "v3.4.x"; \
+             } \
+         }' \
+    M=$(GCC_MAJOR_VERSION) N=$(GCC_MINOR_VERSION) < /dev/null)
+
+ifeq ($(GCC_BOUNDARIES), v2.x)
+USE_EXTRA_GCC_WARNINGS ?= false
+USE_FWRAPV = false
+endif
+ifeq ($(GCC_BOUNDARIES), v3.4.x)
+USE_FWRAPV = true
+endif
+
+USE_EXTRA_GCC_WARNINGS ?= true
+ifeq ($(USE_EXTRA_GCC_WARNINGS),true)
+EXTRA_CC_WARNINGS ?= -W -Wno-unused-parameter -Wno-sign-compare
+endif
+
+ifeq ($(USE_FWRAPV), true)
+GCC_VERSION_SPECIFIC_FLAGS += -fwrapv
+endif
+
 # for creating gnumake .d files
 CCDEPEND   	= -MM
 
-ASM_FLAGS	= -c -fno-common $(ASM_ARCH_FLAGS)
-CCFLAGS     	= -c -fno-common -Wall -fno-strict-aliasing $(CC_ARCH_FLAGS)
+# CVM_EXTRA_XXX_FLAGS usually come from the make command line
+ASM_FLAGS	= -c -fno-common $(ASM_ARCH_FLAGS) $(CVM_EXTRA_ASM_FLAGS)
+CCFLAGS     	= -c -fno-common -Wall \
+			$(EXTRA_CC_WARNINGS) \
+			-fno-strict-aliasing \
+			$(GCC_VERSION_SPECIFIC_FLAGS) \
+			$(CC_ARCH_FLAGS) \
+			$(CVM_EXTRA_CC_FLAGS)
 CCCFLAGS 	= -fno-rtti
 ifeq ($(CVM_OPTIMIZED), true)
-CCFLAGS_SPEED	= $(CCFLAGS) -O4
-CCFLAGS_SPACE	= $(CCFLAGS) -O2
-else
-CCFLAGS_SPEED	= $(CCFLAGS)
-CCFLAGS_SPACE	= $(CCFLAGS)
+CCFLAGS_SPEED_OPTIONS ?= -O4 
+CCFLAGS_SPACE_OPTIONS ?= -O2 
 endif
+CCFLAGS_SPEED	= $(CCFLAGS_SPEED_OPTIONS) $(CCFLAGS)
+CCFLAGS_SPACE	= $(CCFLAGS_SPACE_OPTIONS) $(CCFLAGS)
+
 CCFLAGS_LOOP	= $(CCFLAGS_SPEED) $(CC_ARCH_FLAGS_LOOP)
 CCFLAGS_FDLIB 	= $(CCFLAGS_SPEED) $(CC_ARCH_FLAGS_FDLIB)
 
 ifeq ($(CVM_SYMBOLS), true)
 CCFLAGS		+= -g
+ASM_FLAGS	+= -g
 endif
 
 ifeq ($(CVM_GPROF), true)
@@ -2043,18 +2312,9 @@ ifeq ($(CVM_GCOV), true)
 CCFLAGS   	+= -fprofile-arcs -ftest-coverage
 endif
 
-# PROFILE_INCLUDE_DIRS is a list of profiles specific directories that defines
-# the profile specific include path.  This path should be searched for include
-# files before searching the base configuration include path.
-# CVM_INCLUDE_DIRS is a list of directories that defines the base configuration
-# include path. 
-# This list needs to be converted to a list of compiler parameters, with paths
-# in host form:
-CVM_INCLUDES    += \
-	$(foreach dir,$(PROFILE_INCLUDE_DIRS),-I$(call POSIX2HOST,$(dir))) \
-	$(foreach dir,$(CVM_INCLUDE_DIRS),-I$(call POSIX2HOST,$(dir)))
-
-CPPFLAGS 	+= $(CVM_DEFINES) $(CVM_INCLUDES)
+# Note, ALL_INCLUDE_FLAGS flags is setup in rules.mk so
+# abs2rel only needs to be called on it once.
+CPPFLAGS 	+= $(CVM_DEFINES) $(ALL_INCLUDE_FLAGS)
 CFLAGS_SPEED   	= $(CFLAGS) $(CCFLAGS_SPEED) $(CPPFLAGS)
 CFLAGS_SPACE   	= $(CFLAGS) $(CCFLAGS_SPACE) $(CPPFLAGS)
 CFLAGS_LOOP    	= $(CFLAGS) $(CCFLAGS_LOOP)  $(CPPFLAGS)
@@ -2072,20 +2332,39 @@ SO_LINKFLAGS 	= $(LINKFLAGS) -shared
 #
 # commands for running the tools
 #
-ASM_CMD 	= $(AT)$(TARGET_AS) $(ASM_FLAGS) -D_ASM $(CPPFLAGS) -o $@ $<
-CCC_CMD_SPEED	= $(AT)$(TARGET_CCC) $(CFLAGS_SPEED) $(CCCFLAGS) -o $@ $<
-CCC_CMD_SPACE	= $(AT)$(TARGET_CCC) $(CFLAGS_SPACE) $(CCCFLAGS) -o $@ $<
-CC_CMD_SPEED	= $(AT)$(TARGET_CC) $(CFLAGS_SPEED) -o $@ $<
-CC_CMD_SPACE	= $(AT)$(TARGET_CC) $(CFLAGS_SPACE) -o $@ $<
-CC_CMD_LOOP	= $(AT)$(TARGET_CC) $(CFLAGS_LOOP) -o $@ $<
-CC_CMD_FDLIB	= $(AT)$(TARGET_CC) $(CFLAGS_FDLIB) -o $@ $<
-LINK_CMD	= $(AT)$(TARGET_LD)  $(LINKFLAGS) -o $@ $^ $(LINKLIBS)
+ASM_CMD 	= $(AT)$(TARGET_AS) $(ASM_FLAGS) -D_ASM $(CPPFLAGS) \
+			-o $@ $(call abs2rel,$<)
+
+# compileCCC(flags, objfile, srcfiles)
+compileCCC      = $(AT)$(TARGET_CCC) $(1) -o $(2) $(call abs2rel,$(3))
+CCC_CMD_SPEED   = $(call compileCCC,$(CFLAGS_SPEED) $(CCCFLAGS),$@,$<)
+CCC_CMD_SPACE   = $(call compileCCC,$(CFLAGS_SPACE) $(CCCFLAGS),$@,$<)
+
+# compileCC(flags, objfile, srcfiles)
+compileCC       = $(AT)$(TARGET_CC) $(1) -o $(2) $(call abs2rel,$(3))
+CC_CMD_SPEED    = $(call compileCC,$(CFLAGS_SPEED),$@,$<)
+CC_CMD_SPACE	= $(call compileCC,$(CFLAGS_SPACE),$@,$<)
+CC_CMD_LOOP	= $(call compileCC,$(CFLAGS_LOOP) ,$@,$<)
+CC_CMD_FDLIB	= $(call compileCC,$(CFLAGS_FDLIB),$@,$<)
+
+# LINK_CMD(objFiles, extraLibs)
+LINK_CMD	= $(AT)$(TARGET_LD) $(LINKFLAGS) -o $@ $(1) $(LINKLIBS) $(2)
 SO_ASM_CMD 	= $(ASM_CMD)
-SO_CC_CMD   	= $(AT)$(TARGET_CC) $(SO_CFLAGS) -o $@ $<
-SO_LINK_CMD 	= $(AT)$(TARGET_LD) $(SO_LINKFLAGS) -o $@ $^
+SO_CC_CMD	= $(call compileCC,$(SO_CFLAGS),$@,$<)
+
+# SO_LINK_CMD(objFiles, extraLibs)
+SO_LINK_CMD 	= $(AT)$(TARGET_LD) $(SO_LINKFLAGS) -o $@ $(1) $(2)
 JAVAC_CMD	= $(CVM_JAVAC) $(JAVAC_OPTIONS)
 JAR_CMD		= $(CVM_JAR)
 JAVA_CMD	= $(CVM_JAVA)
+
+# CVM_LINK_CMD(objFiles, extraLibs)
+ifeq ($(CVM_BUILD_SO),true)
+CVM_LINK_CMD   = $(call SO_LINK_CMD, $(1), $(2))
+else
+CVM_LINK_CMD   = $(call LINK_CMD, $(1), $(2))
+endif
+
 
 #
 # Standard classpath for libclasses compilation
@@ -2101,18 +2380,10 @@ JAVA_CLASSPATH += $(LIB_CLASSESDIR)
 # set in the global flags. We should consider doing the separation
 # of the defs from the building of the object file lists.
 #
--include ../$(TARGET_CPU_FAMILY)/defs.mk
--include ../$(TARGET_OS)/defs.mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)/defs.mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs.mk
-
-export TOOLS_DIR ?= $(COMPONENTS_DIR)/tools
-ifeq ($(wildcard $(TOOLS_DIR)/tools.gmk),)
-$(error TOOLS_DIR must point to the shared tools directory: $(TOOLS_DIR))
-endif
-
-# Include external shared tools
-include $(TOOLS_DIR)/tools.gmk
+-include $(CDC_CPU_COMPONENT_DIR)/build/$(TARGET_CPU_FAMILY)/defs.mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs.mk
+-include $(CDC_OSCPU_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)/defs.mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs.mk
 
 # Root directory for unittests reports
 REPORTS_DIR ?= $(call POSIX2HOST,$(CDC_DIST_DIR)/reports)

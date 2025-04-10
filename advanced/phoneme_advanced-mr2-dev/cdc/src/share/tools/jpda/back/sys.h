@@ -1,7 +1,7 @@
 /*
  * @(#)sys.h	1.13 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -35,11 +35,12 @@
 #define SYS_NORESOURCE -6
 #define SYS_INUSE      -7
 
+#include "sys_md.h"
+
 /* Implemented in linker_md.c */
 
 void	dbgsysBuildLibName(char *, int, char *, char *);
-int     dbgsysBuildFunName(char *, int, int, int);
-void *  dbgsysLoadLibrary(const char *, char *err_buf, int err_buflen);
+void *  dbgsysLoadLibrary(const char *);
 void    dbgsysUnloadLibrary(void *);
 void *  dbgsysFindLibraryEntry(void *, const char *);
 

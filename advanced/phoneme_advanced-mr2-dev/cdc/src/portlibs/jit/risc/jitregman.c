@@ -1,7 +1,7 @@
 /*
  * @(#)jitregman.c	1.167 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -792,7 +792,13 @@ reloadConstant32(
     }
     CVMJITsetSymbolName((con, rp->name));
 #endif
+    /* Unmark the resource and ask codegen to load the constant
+     * to the register.  After the constant is loaded mark the resource
+     * as containing a constant.
+     */
+    rp->flags &= ~CVMRMConstant32;
     (rx->constantLoader32)(con, rp->regno, rp->constant);
+    rp->flags |= CVMRMConstant32;
 }
 
 /*
@@ -1288,20 +1294,18 @@ ensureInRegister(CVMJITRMContext* con,
  * get their own table, associateResourceWithConstant32()
  * also needs to be updated.
  */
-static CVMRMResource*
-findResourceConstant32(CVMJITRMContext* con,
+CVMRMResource*
+CVMRMfindResourceConstant32(CVMJITRMContext* con,
 		       CVMInt32 constant)
 {
     CVMRMResource* rp;
     
     for (rp = con->resourceList; rp != NULL; rp = rp->next) {
-	if (CVMRMisConstant(rp)) {
-	    if (rp->constant == constant) {
-		return rp;
-	    }
+	if (CVMRMisConstant(rp) && rp->constant == constant) {
+            break;
 	}
     }
-    return NULL;
+    return rp;
 }
 
 /*
@@ -1313,7 +1317,7 @@ associateResourceWithConstant32(CVMJITRMContext* con,
 				CVMRMResource* rp,
 				CVMInt32 constant)
 {
-    CVMassert(findResourceConstant32(con, constant) != NULL);
+    CVMassert(CVMRMfindResourceConstant32(con, constant) != NULL);
 }
 
 /*
@@ -1334,7 +1338,7 @@ CVMRMbindResourceForConstant32(
     } else 
 #endif
     {
-        rp = findResourceConstant32(con, constant); 
+        rp = CVMRMfindResourceConstant32(con, constant); 
     }  
     if (rp != NULL) {
 	CVMassert(CVMRMisConstant(rp));
@@ -1358,6 +1362,39 @@ CVMRMbindResourceForConstant32(
     }
     return rp;
 }
+
+#ifdef CVM_JIT_USE_FP_HARDWARE
+
+CVMRMResource*
+CVMRMfindResourceConstant32InRegister(CVMJITRMContext* con,
+		       CVMInt32 constant)
+{
+    CVMRMResource* rp = CVMRMfindResourceConstant32(con, constant);
+    if (rp != NULL && rp->regno == -1) {
+	rp = NULL;
+    }    
+    return rp;
+}
+
+static CVMBool isNonNaN(const CVMInt32 imm32) {
+    enum { NaNmask = 0x7F800000 };
+    return imm32 && (imm32 & NaNmask) != NaNmask;
+}
+
+CVMRMResource *
+CVMRMfindResourceForNonNaNConstant(CVMJITRMContext* con)
+{
+    CVMRMResource* rp;
+    
+    for (rp = con->resourceList; rp != NULL; rp = rp->next) {
+	if (CVMRMisConstant(rp) && rp->regno != -1 && isNonNaN(rp->constant)) {
+            break;
+	}
+    }
+    return rp;
+}
+
+#endif
 
 /*
  * Create a resource for a 32-bit constant and load the constant
@@ -1694,6 +1731,7 @@ CVMRMpinResource0(
     CVMJITpopCodegenComment(cc, comment);
     regNo = findAvailableRegister(con, target, avoid,
 				  pref, strict, rp->nregs);
+				  
     CVMassert(regNo != -1);
     pinToRegister(con, rp, regNo);
     reloadRegister(cc, con, rp);
@@ -2116,7 +2154,7 @@ RMbeginBlock(CVMJITRMContext* con, CVMJITIRBlock* b){
     con->phiPinnedRegisters = 0;
 
     /* By default there are no restrictions on register allocation. */
-    con->sandboxRegSet = CVMCPU_ALL_SET;
+    con->sandboxRegSet = RM_ANY_SET;
     memset(con->reg2res, 0,
 	sizeof(CVMRMResource *) * (RM_MAX_INTERESTING_REG + 1));
     memset(con->local2res, 0,
@@ -2126,7 +2164,7 @@ RMbeginBlock(CVMJITRMContext* con, CVMJITIRBlock* b){
 static void
 RMapplyRegSandboxRestriction(CVMJITRMContext* con, CVMJITIRBlock* b)
 {
-    CVMassert(con->sandboxRegSet == CVMCPU_ALL_SET);
+    CVMassert(con->sandboxRegSet == RM_ANY_SET);
     if (b->sandboxRegSet != 0) {
         con->sandboxRegSet = b->sandboxRegSet;
     }
@@ -2159,7 +2197,7 @@ CVMRMbeginBlock(CVMJITCompilationContext* con, CVMJITIRBlock* b)
     } else if (CVMJITirblockIsExcHandler(b)){
 	CVMtraceJITCodegen((
             "\tL%d:\t%d:\t@ entry point for exception handler\n",
-	    b->blockID, CVMJITcbufGetLogicalPC(con)));
+            CVMJITirblockGetBlockID(b), CVMJITcbufGetLogicalPC(con)));
 	b->logicalAddress = CVMJITcbufGetLogicalPC(con);
 	/* Must always write a stackmap at the top of each exception handler.*/
 	CVMJITcaptureStackmap(con, 0);
@@ -2170,12 +2208,12 @@ CVMRMbeginBlock(CVMJITCompilationContext* con, CVMJITIRBlock* b)
 	    /* Start of method. Need to preload locals explicitly. */
 	    CVMtraceJITCodegen((
                 "\tL%d:\t%d:\t@ entry point for first block\n",
-		b->blockID, CVMJITcbufGetLogicalPC(con)));
+                CVMJITirblockGetBlockID(b), CVMJITcbufGetLogicalPC(con)));
 	    CVMRMpinAllIncomingLocals(con, b, CVM_TRUE);
 	    CVMRMunpinAllIncomingLocals(con, b);
 	} else {
 	    CVMtraceJITCodegen(("\tL%d:\t%d:\t@ entry point for branches\n",
-				b->blockID, CVMJITcbufGetLogicalPC(con)));
+                CVMJITirblockGetBlockID(b), CVMJITcbufGetLogicalPC(con)));
 #ifdef CVM_JIT_REGISTER_LOCALS
 	    /* Locals already loaded. Bind them. */
 	    CVMRMbindAllIncomingLocalNodes(con, b);
@@ -2285,7 +2323,7 @@ CVMRMgetRegSandboxResources(CVMJITRMContext* con,
     for (i = 0; i < numOfRegs; i++) {
         CVMRMResource* rp = CVMRMgetResource(con, target, avoid, 1);
         CVMtraceJITCodegen((":::::Reserve reg(%d) for block ID: %d\n",
-                            CVMRMgetRegisterNumber(rp), b->blockID));
+            CVMRMgetRegisterNumber(rp), CVMJITirblockGetBlockID(b)));
         b->sandboxRegSet |= rp->rmask;
         sandboxRes->num++;
         sandboxRes->res[i] = rp;
@@ -2314,10 +2352,10 @@ CVMRMremoveRegSandboxRestriction(CVMJITRMContext* con, CVMJITIRBlock* b)
 {
     if (b->sandboxRegSet != 0) {
         CVMtraceJITCodegen((":::::Revoke register usage restriction\n"));
-        con->sandboxRegSet = CVMCPU_ALL_SET;
+        con->sandboxRegSet = RM_ANY_SET;
         b->sandboxRegSet = 0;
     }
-    CVMassert(con->sandboxRegSet == CVMCPU_ALL_SET);
+    CVMassert(con->sandboxRegSet == RM_ANY_SET);
 }
 
 /*

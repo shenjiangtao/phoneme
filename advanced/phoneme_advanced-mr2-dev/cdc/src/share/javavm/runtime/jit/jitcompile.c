@@ -1,27 +1,28 @@
 /*
  * @(#)jitcompile.c	1.148 06/10/13
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -188,12 +189,10 @@ void CVMJITassertMiscJITAssumptions(void)
 	      offsetof(CVMMethodBlock, immutX.methodTableIndexX));
     CVMassert(OFFSET_CVMMethodBlock_argsSizeX ==
 	      offsetof(CVMMethodBlock, immutX.argsSizeX));
-    CVMassert(OFFSET_CVMMethodBlock_invokerIdxX ==
-	      offsetof(CVMMethodBlock, immutX.invokerIdxX));
-    CVMassert(OFFSET_CVMMethodBlock_accessFlagsX ==
-	      offsetof(CVMMethodBlock, immutX.accessFlagsX));
     CVMassert(OFFSET_CVMMethodBlock_methodIndexX ==
 	      offsetof(CVMMethodBlock, immutX.methodIndexX));
+    CVMassert(OFFSET_CVMMethodBlock_invokerAndAccessFlagsX ==
+	      offsetof(CVMMethodBlock, immutX.invokerAndAccessFlagsX));
     CVMassert(OFFSET_CVMMethodBlock_codeX ==
 	      offsetof(CVMMethodBlock, immutX.codeX));
     CVMassert(CONSTANT_CVMMethodBlock_size == sizeof(CVMMethodBlock));
@@ -500,6 +499,28 @@ CVMJITcompileMethod(CVMExecEnv *ee, CVMMethodBlock* mb)
     CVMJITdebugInitCompilation(ee, mb);
 #endif
 
+#ifdef CVM_AOT
+    /* AOT requires ROMization. If we are doing AOT compilation,
+     * we better make sure the method is a ROMized method.
+     */
+    if (CVMglobals.jit.isPrecompiling) {
+        if (!CVMcbIsInROM(CVMmbClassBlock(mb))) {
+	    CVMconsolePrintf("CANNOT AOT NON-ROMIZED %C.%M\n",
+                              CVMmbClassBlock(mb), mb);
+            CVMglobals.jit.aotCompileFailed = CVM_TRUE;
+            retVal = CVMJIT_SUCCESS;
+            goto done;
+        }
+    }
+#endif
+
+#ifdef CVM_JVMTI
+    if (CVMjvmtiIsInDebugMode() || CVMjvmtiMbIsObsolete(mb)) {
+	retVal = CVMJIT_CANNOT_COMPILE;
+	CVMJITsetErrorMessage(&con, "Debugger connected or obsolete method");
+	goto done;
+    }
+#endif
     /* Check if mb is not compilable */
     if (isBadMethod(ee, mb)) {
 	retVal = CVMJIT_CANNOT_COMPILE;
@@ -555,6 +576,8 @@ CVMJITcompileMethod(CVMExecEnv *ee, CVMMethodBlock* mb)
 		(((CVMAddr)CVMJITcbufGetPhysicalPC(&con) +
 		  sizeof(CVMAddr) - 1) &
 		 ~(sizeof(CVMAddr) - 1));
+
+            CVMassert(CVMglobals.jit.pmiEnabled);
 
 	    CVMJITcbufGetPhysicalPC(&con) =
 		(CVMUint8*)&callees[numCallees + 1];
@@ -648,6 +671,7 @@ CVMJITcompileMethod(CVMExecEnv *ee, CVMMethodBlock* mb)
 
 #ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
 	    if (con.callees != NULL) {
+                CVMassert(CVMglobals.jit.pmiEnabled);
 	    	cmd->calleesOffsetX =
 		    (CVMUint32*)con.callees - (CVMUint32 *)cmd;
 	    } else {
@@ -657,10 +681,6 @@ CVMJITcompileMethod(CVMExecEnv *ee, CVMMethodBlock* mb)
 	    CVMassert(CVMcmdCallees(cmd) == con.callees);
 #endif
 
-#if  defined(CVM_AOT) || defined(CVM_MTASK)
-            /* AOT/warmup compilation use trap based GC */
-            if (!CVMglobals.jit.isPrecompiling)
-#endif
 #ifdef CVMJIT_PATCH_BASED_GC_CHECKS
 	    {
 	        if (con.gcCheckPcs != NULL) {
@@ -732,6 +752,12 @@ CVMJITcompileMethod(CVMExecEnv *ee, CVMMethodBlock* mb)
 		CVMjvmpiPostCompiledMethodLoadEvent(ee, mb);
 	    }
 #endif
+	    /* IAI-07: Notify JVMTI of compilation. */
+#ifdef CVM_JVMTI
+	    if (CVMjvmtiShouldPostCompiledMethodLoad()) {
+		CVMjvmtiPostCompiledMethodLoadEvent(ee, mb);
+	    }
+#endif
 	    CVMtraceJITStatus(("JS: COMPILED: size=%d startPC=0x%x %C.%M\n",
 			       CVMcmdCodeBufSize(cmd), startPC,
 			       CVMmbClassBlock(mb), mb));
@@ -791,6 +817,7 @@ CVMJITcompileMethod(CVMExecEnv *ee, CVMMethodBlock* mb)
 	 */
 	CVMUint32 numCallees = (CVMUint32)con.callees[0];
 	CVMUint32 i;
+        CVMassert(CVMglobals.jit.pmiEnabled);
 	for (i = 1; i <= numCallees; i++) {
 	    CVMMethodBlock* calleeMb = con.callees[i];
 	    /* Remove records. */ 
@@ -1028,7 +1055,10 @@ CVMJITdecompileMethod(CVMExecEnv* ee, CVMMethodBlock* mb)
 		       CVMmbClassBlock(mb), mb));
 
 #ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
-    CVMJITPMIhandleDecompilation(mb);
+    /* If the ee is NULL then the vm is shutting down */
+    if (ee != NULL) {
+        CVMJITPMIhandleDecompilation(mb);
+    }
 #endif
 
     /* The ee is NULL during VM shutdown, in which case jitLock is gone. */
@@ -1055,6 +1085,12 @@ CVMJITdecompileMethod(CVMExecEnv* ee, CVMMethodBlock* mb)
 #ifdef CVM_JVMPI
     if (ee != NULL && CVMjvmpiEventCompiledMethodUnloadIsEnabled()) {
         CVMjvmpiPostCompiledMethodUnloadEvent(ee, mb);
+    }
+#endif
+    /* IAI-07: Notify JVMTI of decompilation. */
+#ifdef CVM_JVMTI
+    if (ee != NULL && CVMjvmtiShouldPostCompiledMethodUnload()) {
+        CVMjvmtiPostCompiledMethodUnloadEvent(ee, mb);
     }
 #endif
 }

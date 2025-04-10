@@ -1,7 +1,7 @@
 /*
  * @(#)commonRef.c	1.24 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -449,7 +449,7 @@ commonRef_idToRef(JNIEnv *env, jlong id)
                 jobject lref;
                 
                 lref = JNI_FUNC_PTR(env,NewLocalRef)(env, node->ref);
-                if ( lref == NULL ) {
+                if ( lref == NULL || JNI_FUNC_PTR(env,IsSameObject)(env, lref, NULL)) {
                     /* Object was GC'd shortly after we found the node */
                     deleteNodeByID(env, node->seqNum, ALL_REFS);
                 } else {

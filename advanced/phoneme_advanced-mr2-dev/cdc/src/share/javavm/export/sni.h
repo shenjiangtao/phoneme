@@ -1,7 +1,7 @@
 /*
  * @(#)sni.h	1.2 06/10/10 10:03:30
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -92,8 +92,10 @@ SNI_NewArrayImpl(CVMExecEnv* ee, jint type, jint size, jarray arrayHandle);
  *
  *     fooArray = new Foo[10];
  */
-KNIEXPORT void SNI_NewObjectArray(jclass elementType, jint size,
-                                  jarray arrayHandle);
+KNIEXPORT void
+SNI_NewObjectArrayImpl(CVMExecEnv* ee,
+                       jclass elementType, jint size,
+                       jarray arrayHandle);
 
 #define SNI_NewObjectArray(elementType, size, arrayHandle) \
     SNI_NewObjectArrayImpl(_ee, elementType, size, arrayHandle)

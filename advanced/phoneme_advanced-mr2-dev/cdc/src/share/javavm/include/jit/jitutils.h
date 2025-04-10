@@ -1,7 +1,7 @@
 /*
  * @(#)jitutils.h	1.71 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -112,7 +112,8 @@ CVMJITstackInit(CVMJITCompilationContext* con, CVMJITStack* stack,
 #define CVMJITstackResetCnt(con, stack) ((stack)->todoIdx = 0)
 
 #define CVMJITstackSetCount(con, stack, newTopIndex) \
-    (CVMassert(newTopIndex >= 0), ((stack)->todoIdx = newTopIndex))
+    (CVMassert(newTopIndex <= (stack)->todoIdxMax), \
+     ((stack)->todoIdx = newTopIndex))
 
 /*************************************
  * CVMJITGrowableArray

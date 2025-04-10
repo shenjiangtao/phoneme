@@ -1,7 +1,7 @@
 /*
  * @(#)threads_md.c	1.19 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -25,6 +25,7 @@
  *
  */
 
+#include "javavm/include/porting/float.h"	/* for setFPMode() */
 #include "javavm/include/porting/threads.h"
 #include "javavm/include/porting/sync.h"
 #include <thread.h>
@@ -64,6 +65,7 @@ CVMthreadResume(CVMThreadID *t)
 
 #include <sys/resource.h>
 
+
 CVMBool
 CVMthreadAttach(CVMThreadID *self, CVMBool orphan)
 {
@@ -95,6 +97,10 @@ CVMthreadAttach(CVMThreadID *self, CVMBool orphan)
 	}
 	self->stackTop = (char *)stack.ss_sp - stackSize;
     }
+#ifdef CVM_JVMTI
+    self->lwp_id = _lwp_self();
+#endif
+    setFPMode();
     return POSIXthreadAttach(self, orphan);
 }
 

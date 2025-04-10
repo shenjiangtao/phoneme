@@ -1,33 +1,38 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 package com.sun.midp.main;
 
 import com.sun.cldc.isolate.Isolate;
+import com.sun.midp.io.j2me.pipe.Protocol;
+import com.sun.midp.links.Link;
+import com.sun.midp.links.LinkPortal;
 import com.sun.midp.security.Permissions;
+import com.sun.midp.services.SystemServiceLinkPortal;
+import com.sun.midp.configurator.Constants;
 
 /**
  * The first class loaded in an application Isolate by the MIDP AMS to
@@ -56,6 +61,28 @@ public class AppIsolateMIDletSuiteLoader extends CldcMIDletSuiteLoader {
         this.midletDisplayName = args[2];
         this.args = new String[] {args[3], args[4], args[5]};
         this.externalAppId = Integer.parseInt(args[6]);
+
+        if (args.length > 7) {
+            int debugMode = Integer.parseInt(args[7]);
+
+            if (debugMode != Constants.MIDP_NO_DEBUG) {
+                currentIsolate = Isolate.currentIsolate();
+                currentIsolate.attachDebugger();
+            }
+
+            if (debugMode == Constants.MIDP_DEBUG_SUSPEND) {
+                // wait for a connection from debugger
+                // this is probably unnecessary because JavaDebugger on CLDC
+                // side waits for the connection anyway
+                while (!currentIsolate.isDebuggerConnected()) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (Exception e) {
+                        // ignore
+                    }
+                }
+            }
+        }
     }
 
     /** Inits suite loader instance */
@@ -89,6 +116,12 @@ public class AppIsolateMIDletSuiteLoader extends CldcMIDletSuiteLoader {
 
         AmsUtil.initClassInAppIsolate(
             midletExecuteEventProducer);
+
+        initLinks();
+
+        com.sun.midp.io.j2me.pipe.Protocol.initUserContext();
+
+        com.sun.midp.theme.ThemeConnectionTunnel.init();
     }
 
     /** Restricts suite access to internal API */
@@ -134,7 +167,7 @@ public class AppIsolateMIDletSuiteLoader extends CldcMIDletSuiteLoader {
      * Initializes internal security, and starts the MIDlet.
      *
      * @param args arg[0] the suite ID, arg[1] the class name of the MIDlet,
-     *              arg[2] the name of the MIDlet to display,
+     *             arg[2] the name of the MIDlet to display,
      *             arg[3] optional MIDlet arg 0, arg[4] optional MIDlet arg 1,
      *             arg[5] optional MIDlet arg 2
      */
@@ -144,7 +177,7 @@ public class AppIsolateMIDletSuiteLoader extends CldcMIDletSuiteLoader {
             if (inUse) {
                 throw new IllegalStateException();
             }
-            
+           
             inUse = true;
             new AppIsolateMIDletSuiteLoader(args).runMIDletSuite();
         } catch (Throwable t) {
@@ -171,4 +204,15 @@ public class AppIsolateMIDletSuiteLoader extends CldcMIDletSuiteLoader {
      * @param t the Throwable that caused the fatal error
      */
     private static native void handleFatalError(Throwable t);
+    
+    /**
+     * Installs initial set of links for this isolate
+     */
+    private void initLinks() {
+        Link[] myLinks = LinkPortal.getLinks();
+        
+        if (myLinks.length == 2) {
+            SystemServiceLinkPortal.linksObtained(myLinks);
+        }
+    }
 }

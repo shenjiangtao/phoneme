@@ -1,27 +1,27 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /**
@@ -115,6 +115,13 @@
 #include <midpString.h>
 #include <suitestore_common.h>
 
+#include <midp_constants_data.h> /* to include the debug option values */
+/*
+ * Possible debug options are:
+ * MIDP_NO_DEBUG, MIDP_DEBUG_SUSPEND, MIDP_DEBUG_NO_SUSPEND.
+ * See share/constants.xml.
+ */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -127,6 +134,8 @@ extern "C" {
  */
 /** the system is shutting down */
 #define MIDP_SHUTDOWN_STATUS 1
+/** the system was initialized properly. Used for slave mode */
+#define MIDP_RUNNING_STATUS 0
 /** single error code for various errors */
 #define MIDP_ERROR_STATUS (-1)
 /** the MIDlet suite was not found */
@@ -134,39 +143,35 @@ extern "C" {
 /** @} */
 
 /**
- * @name Debug option values
- * Debug option values to be passed as the <var>debugOption</var> parameter
- * to the <var>midp_run_midlet_with_args_cp</var> function.
- * When compiled with ENABLE_JAVA_DEBUGGER,
- * these values identify command line options passed to the JVM.
- * @see midp_run_midlet_with_args_cp
- * @{
- */
-/** no debug */
-#define MIDP_NO_DEBUG 0
-/** debug: suspend the VM until the debugger sends a continue command */
-#define MIDP_DEBUG_SUSPEND 1
-/** debug: do not wait for the debugger */
-#define MIDP_DEBUG_NO_SUSPEND 2
-/** @} */
-
-/**
  * The public MIDP initialization function. If not running from the MIDP
- * home directory, midpSetHomeDir should be called first with the
+ * home directory, midpSetAppDir should be called first with the
  * directory of the MIDP system. The functions must be called before any
- * other MIDP function except midpSetHomeDir.
+ * other MIDP function except midpSetAppDir.
  */
 int midpInitialize();
 
 /**
  * Sets the home directory for MIDP if needed.
  * So the suites and other MIDP persistent
- * state can be found. Only had an effect when called before any
- * other method except midpInitialize is called.
- *
+ * state can be found. Only had an effect when called before 
+ * any other method except midpInitialize is called.
+ * If not called directory specified by midpSetConfigDir will 
+ * be used.
  * @param dir home directory of MIDP
  */
-void midpSetHomeDir(const char* dir);
+void midpSetAppDir(const char* dir);
+
+/**
+ * Sets the config directory for MIDP if needed.
+ * In this directory static data as images and 
+ * configuration files are located. If not called
+ * directory specified by midpSetAppDir will be used.
+ * Only had an effect when called before any
+ * other method except midpInitialize is called.
+ *
+ * @param dir config directory of MIDP
+ */
+void midpSetConfigDir(const char* dir);
 
 /**
  * Runs the given MIDlet from the specified MIDlet suite with the

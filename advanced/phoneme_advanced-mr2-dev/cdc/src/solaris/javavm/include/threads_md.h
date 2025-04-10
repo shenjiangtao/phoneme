@@ -1,7 +1,7 @@
 /*
  * @(#)threads_md.h	1.41 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -37,6 +37,9 @@
 #include <synch.h>
 #include <setjmp.h>
 #include "javavm/include/porting/sync.h"
+#ifdef CVM_JVMTI
+#include <sys/lwp.h>
+#endif
 
 struct CVMThreadID {
     union {
@@ -62,6 +65,9 @@ struct CVMThreadID {
     SOLARISBoostLock *thread_lock;
     SOLARISBoostLock *next_thread_lock;
 #endif
+#endif
+#ifdef CVM_JVMTI
+    lwpid_t lwp_id;
 #endif
 };
 

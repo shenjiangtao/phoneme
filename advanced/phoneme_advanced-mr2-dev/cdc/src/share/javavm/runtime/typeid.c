@@ -1,7 +1,7 @@
 /*
  * @(#)typeid.c	1.114 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -231,7 +231,7 @@ static void conditionalPutstring(
  * Initialize the type Id system
  * Register some well-known typeID's 
  */
-void
+CVMBool
 CVMtypeidInit( CVMExecEnv *ee )
 {
     CVMglobals.typeIDscalarSegmentSize = INITIAL_SEGMENT_SIZE;
@@ -251,7 +251,27 @@ CVMtypeidInit( CVMExecEnv *ee )
     CVMglobals.printlnTid =
 	CVMtypeidLookupMethodIDFromNameAndSig(ee, "println", 
 					   "(Ljava/lang/String;)V");
+    CVMglobals.getCauseTid =
+	CVMtypeidLookupMethodIDFromNameAndSig(ee, "getCause", 
+                                              "()Ljava/lang/Throwable;");
 #endif
+#ifdef CVM_DUAL_STACK
+    {
+        const char *midpImplLoaderName = 
+            "sun/misc/MIDPImplementationClassLoader";
+        const char *midletLoaderName = 
+            "sun/misc/MIDletClassLoader";
+        CVMglobals.midpImplClassLoaderTid = CVMtypeidNewClassID(
+            ee, midpImplLoaderName, strlen(midpImplLoaderName));
+        CVMglobals.midletClassLoaderTid = CVMtypeidNewClassID(
+            ee, midletLoaderName, strlen(midletLoaderName));
+        if (CVMglobals.midpImplClassLoaderTid == CVM_TYPEID_ERROR ||
+            CVMglobals.midletClassLoaderTid == CVM_TYPEID_ERROR) {
+            return CVM_FALSE;
+        }
+    }
+#endif
+    return CVM_TRUE;
 }
 
 /*

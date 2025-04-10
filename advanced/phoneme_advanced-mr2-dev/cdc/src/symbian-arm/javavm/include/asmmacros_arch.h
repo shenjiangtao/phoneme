@@ -1,7 +1,7 @@
 /*
  * @(#)asmmacros_arch.h	1.6 05/01/13
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -32,6 +32,10 @@
 #undef  POUND
 #define POUND #
 
+#define ARM /* empty */
+
+#define PRESERVE8 /* empty */
+
 #define SET_SECTION_EXEC(x)
 
 #define SET_SECTION_EXEC_WRITE
@@ -54,15 +58,28 @@
 #define WORD(x)			\
 	.word x
 
+#define BYTE(x)			\
+	.byte x
+
 #define STRING(s)		\
 	.string s
+
+#define EQUIV(this, that)	\
+	.equiv this, that
 
 #define POOL			\
 	.pool
 
+#define END /* empty */
+
 #define IMPORT(x)
 
 #else /* __RVCT__ */
+
+#define ARM /* ARM */
+
+#define PRESERVE8 PRESERVE8
+
 #define SET_SECTION_EXEC(x)	  \
 	AREA    x, CODE, READONLY
 
@@ -80,18 +97,25 @@
 #define SET_SIZE(x)
 
 #define ALIGN(n)		\
-	ALIGN n
+	ALIGN 1 :SHL: (n)
 
 #define WORD(x)			\
 	DCD x
 
+#define BYTE(x)			\
+	DCB x
 
 #define STRING(s)		\
 	DCB s, 0
 
+#define EQUIV(this, that)	\
+	this EQU that
+
 #define POOL
 
 #define IMPORT(x)       IMPORT x
+
+#define END END
 
 #endif /* __RVCT__ */
 

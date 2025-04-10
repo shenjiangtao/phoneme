@@ -1,7 +1,5 @@
 /*
- * @(#)VMInspector.c	1.4 06/10/10
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -45,6 +43,8 @@
 #include "generated/jni/sun_misc_VMInspector.h"
 
 /*
+    public static native void exit(int status);
+
     public static native boolean enableGC();
     public static native boolean disableGC();
     public static native boolean gcIsDisabled();
@@ -59,6 +59,8 @@
     public static native void dumpClassReferences(long cbAddr);
     public static native void dumpClassBlocks(String classname);
 
+    // System info utilities:
+    public static native void dumpSysInfo();
     public static native void dumpHeapSimple();
     public static native void dumpHeapVerbose();
     public static native void dumpHeapStats();
@@ -83,8 +85,15 @@
 
     // Thread utilities:
     public static native void listAllThreads();
+    public static native void dumpAllThreads();
     public static native void dumpStack(long eeAddr);
 */
+
+JNIEXPORT void JNICALL 
+Java_sun_misc_VMInspector_exit(JNIEnv *env, jclass cls, jint status)
+{
+    CVMexit(status);
+}
 
 JNIEXPORT jboolean JNICALL 
 Java_sun_misc_VMInspector_enableGC(JNIEnv *env, jclass cls)
@@ -143,6 +152,26 @@ Java_sun_misc_VMInspector_addrToObject(JNIEnv *env, jclass cls, jlong objAddr)
     return retVal;
 }
 
+JNIEXPORT jlong JNICALL 
+Java_sun_misc_VMInspector_objectToAddr(JNIEnv *env, jclass cls,
+				       jobject obj)
+{
+    CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
+    CVMObject *directObj;
+
+    if (!CVMgcIsDisabled()) {
+        CVMthrowIllegalStateException(ee, NULL);
+        return 0;
+    }
+
+    CVMD_gcUnsafeExec(ee, {
+	directObj = CVMID_icellDirect(ee, obj);
+    });
+
+    return CVMvoidPtr2Long(directObj);
+}
+
+
 
 /* NOTE: CVMdumpObject() already enforces that GC is disabled.  Hence we don't
    have to worry about the object pointer moving. */
@@ -188,6 +217,14 @@ Java_sun_misc_VMInspector_dumpClassBlocks(JNIEnv *env, jclass cls,
     classnameStr = (*env)->GetStringUTFChars(env, classname, &isCopy);
     CVMdumpClassBlocks(classnameStr);
     (*env)->ReleaseStringUTFChars(env, classname, classnameStr);
+}
+
+JNIEXPORT void JNICALL 
+Java_sun_misc_VMInspector_dumpSysInfo(JNIEnv *env, jclass cls)
+{
+    CVMconsolePrintf("***======================================\n");
+    CVMdumpSysInfo();
+    CVMconsolePrintf("***======================================\n");
 }
 
 JNIEXPORT void JNICALL 
@@ -302,7 +339,9 @@ Java_sun_misc_VMInspector_listAllThreads(JNIEnv *env, jclass cls)
 
     CVMconsolePrintf("List of all threads:\n");
     CVM_WALK_ALL_THREADS(ee, threadEE, {
-        CVMconsolePrintf("   ee %p\n", threadEE);
+       CVMconsolePrintf("    Thread %d: ee 0x%x priority %d tick %d\n",
+			threadEE->threadID, threadEE, threadEE->priority,
+			threadEE->tickCount);
 	numberOfThreads++;
     });
     if (numberOfThreads == 0) {
@@ -313,10 +352,69 @@ Java_sun_misc_VMInspector_listAllThreads(JNIEnv *env, jclass cls)
 }
 
 JNIEXPORT void JNICALL 
+Java_sun_misc_VMInspector_dumpAllThreads(JNIEnv *env, jclass cls)
+{
+    CVMExecEnv *ee = CVMgetEE();
+    CVMUint32 numberOfThreads = 0;
+
+    if (!CVMsysMutexTryLock(ee, &CVMglobals.threadLock)) {
+        CVMconsolePrintf("Cannot acquire needed locks without blocking -- "
+                         "another thread already owns the thread lock!\n");
+        return;
+    }
+
+    CVMconsolePrintf("\nStart thread dump:\n");
+    CVMconsolePrintf("***======================================\n");
+    CVM_WALK_ALL_THREADS(ee, threadEE, {
+       CVMconsolePrintf("Thread %d: ee 0x%x priority %d tick %d\n",
+			threadEE->threadID, threadEE, threadEE->priority,
+			threadEE->tickCount);
+       CVMdumpStack(&threadEE->interpreterStack,0,0,0);
+       CVMconsolePrintf("***======================================\n");
+	numberOfThreads++;
+    });
+    if (numberOfThreads == 0) {
+        CVMconsolePrintf("   none\n");
+    }
+    CVMconsolePrintf("End thread dump\n\n");
+
+    CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
+}
+
+JNIEXPORT void JNICALL 
 Java_sun_misc_VMInspector_dumpStack(JNIEnv *env, jclass cls, jlong eeAddr)
 {
+    CVMExecEnv *ee = CVMgetEE();
     CVMExecEnv *targetEE = (CVMExecEnv *)CVMlong2VoidPtr(eeAddr);
+    CVMBool eeFound = CVM_FALSE;
+
+    if (!CVMsysMutexTryLock(ee, &CVMglobals.threadLock)) {
+        CVMconsolePrintf("Cannot acquire needed locks without blocking -- "
+                         "another thread already owns the thread lock!\n");
+        return;
+    }
+
+    if (ee == targetEE) {
+	eeFound = CVM_TRUE;
+    } else {
+	CVM_WALK_ALL_THREADS(ee, threadEE, {
+	    if (threadEE == targetEE) {
+	        eeFound = CVM_TRUE;
+            }
+	});
+    }
+
+    if (!eeFound) {
+	CVMconsolePrintf("Cannot dump stack: ee 0x%x is not a thread\n",
+			 targetEE);
+	CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
+	return;
+    }
+
+    CVMconsolePrintf("Stack for thread EE 0x%x:\n", targetEE);
     CVMdumpStack(&targetEE->interpreterStack,0,0,0);
+
+    CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
 }
 
 #endif /* CVM_INSPECTOR */

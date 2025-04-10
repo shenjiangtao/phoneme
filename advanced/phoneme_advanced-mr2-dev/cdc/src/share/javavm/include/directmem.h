@@ -1,7 +1,7 @@
 /*
  * @(#)directmem.h	1.57 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -677,8 +677,24 @@
 
 #define CVMD_fieldReadRef(o_, off_, item_)     \
     CVMDprivate_typedRead(o_, off_, item_, Ref, CVMObject*)
+#ifndef CVM_JAVASE_CLASS_HAS_REF_FIELD
 #define CVMD_fieldWriteRef(o_, off_, item_)    \
     CVMDprivate_typedWrite(o_, off_, item_, Ref, CVMObject*)
+#else
+/*
+ * If the object is in ROM then we cannot mark the cardtable. For JAVA
+ * SE 1.5 and 1.6, there are reference fields in java.lang.Class.
+ */
+#define CVMD_fieldWriteRef(o_, off_, item_)    \
+    {									 \
+	CVMObject* volatile *fieldLoc_ = 				 \
+	    (CVMObject* volatile *)CVMDprivate_fieldLoc32(o_, off_);	 \
+        if (!CVMobjectIsInROM(o_)) {					 \
+	    CVMgcimplWriteBarrierRef((o_), (fieldLoc_), (item_));	 \
+        }                                                                \
+        *fieldLoc_ = (item_);						 \
+    }
+#endif
 
 #define CVMD_fieldReadInt(o_, off_, item_)     \
     CVMDprivate_typedRead(o_, off_, item_, Int, CVMJavaInt)
@@ -879,12 +895,13 @@
  * saveAction_      save state for GC
  */
 #define CVMD_gcSafeCheckPoint(ee_, saveAction_, restoreAction_)	\
-    {								\
-	if (CVMD_gcSafeCheckRequest(ee_)) {			\
-	    saveAction_;					\
-	    CVMD_gcRendezvous(ee_, CVM_TRUE);			\
-	    restoreAction_;					\
-	}							\
+    {                                                           \
+        CVMthreadSchedHook(CVMexecEnv2threadID(ee_));           \
+        if (CVMD_gcSafeCheckRequest(ee_)) {                     \
+            saveAction_;                                        \
+            CVMD_gcRendezvous(ee_, CVM_TRUE);                   \
+            restoreAction_;                                     \
+        }                                                       \
     }
 
 /*
@@ -896,17 +913,18 @@
  *                 taking a long time.
  */
 
-#define CVMD_gcSafeExec(ee_, safeAction_)				\
-    {									\
-	CVMDprivate_gcSafe(ee_);					\
-	if (CVMD_gcSafeCheckRequest(ee_)) {	       			\
-	    CVMD_gcRendezvous(ee_, CVM_FALSE);				\
-	}								\
-	safeAction_;							\
-	CVMDprivate_gcUnsafe(ee_);					\
-	if (CVMD_gcSafeCheckRequest(ee_)) {	       			\
-	    CVMD_gcRendezvous(ee_, CVM_TRUE);				\
-	}								\
+#define CVMD_gcSafeExec(ee_, safeAction_)                               \
+    {                                                                   \
+        CVMthreadSchedHook(CVMexecEnv2threadID(ee_));                   \
+        CVMDprivate_gcSafe(ee_);                                        \
+        if (CVMD_gcSafeCheckRequest(ee_)) {                             \
+            CVMD_gcRendezvous(ee_, CVM_FALSE);                          \
+        }                                                               \
+        safeAction_;                                                    \
+        CVMDprivate_gcUnsafe(ee_);                                      \
+        if (CVMD_gcSafeCheckRequest(ee_)) {                             \
+            CVMD_gcRendezvous(ee_, CVM_TRUE);                           \
+        }                                                               \
     }
 
 /*
@@ -917,17 +935,18 @@
  * unsafeAction_   gc-unsafe action.
  */
 
-#define CVMD_gcUnsafeExec(ee_, unsafeAction_)				\
-    {									\
-	CVMDprivate_gcUnsafe(ee_);					\
-	if (CVMD_gcSafeCheckRequest(ee_)) {     			\
-	    CVMD_gcRendezvous(ee_, CVM_TRUE);				\
-	}								\
-	unsafeAction_;							\
-	CVMDprivate_gcSafe(ee_);					\
-	if (CVMD_gcSafeCheckRequest(ee_)) {     			\
-	    CVMD_gcRendezvous(ee_, CVM_FALSE);				\
-	}								\
+#define CVMD_gcUnsafeExec(ee_, unsafeAction_)                           \
+    {                                                                   \
+        CVMthreadSchedHook(CVMexecEnv2threadID(ee_));                   \
+        CVMDprivate_gcUnsafe(ee_);                                      \
+        if (CVMD_gcSafeCheckRequest(ee_)) {                             \
+            CVMD_gcRendezvous(ee_, CVM_TRUE);                           \
+        }                                                               \
+        unsafeAction_;                                                  \
+        CVMDprivate_gcSafe(ee_);                                        \
+        if (CVMD_gcSafeCheckRequest(ee_)) {                             \
+            CVMD_gcRendezvous(ee_, CVM_FALSE);                          \
+        }                                                               \
     }
 
 #define CVMDprivate_gcSafe(ee_)						\

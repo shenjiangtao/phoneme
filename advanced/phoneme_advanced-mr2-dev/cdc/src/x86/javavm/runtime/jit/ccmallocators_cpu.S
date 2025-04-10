@@ -1,27 +1,28 @@
 /*
  * @(#)ccmallocators_cpu.S	1.6 06/10/23
  * 
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+ * Reserved.  Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 
@@ -37,7 +38,7 @@
 #ifdef CVM_DEBUG_ASSERTS
 .file "ccmallocators_cpu.S"
 ccmallocators_cpu_filename:
-.string "ccmallocators_cpu.S"
+.asciz "ccmallocators_cpu.S"
 CVMCCMruntimeNewGlue_assert_expression:
 CVMCCMruntimeNewArrayGlue_assert_expression:
 CVMCCMruntimeANewArrayGlue_assert_expression:
@@ -47,7 +48,7 @@ CVMCCMruntimeNewArrayGlue_unlock1_assert_expression:
 CVMCCMruntimeNewArrayGlue_unlock2_assert_expression:
 CVMCCMruntimeANewArrayGlue_unlock1_assert_expression:
 CVMCCMruntimeANewArrayGlue_unlock2_assert_expression:
-.string "heap is unlocked"
+.asciz "heap is unlocked"
 #endif /* CVM_DEBUG_ASSERTS */
 
 /*
@@ -82,7 +83,7 @@ CVMCCMruntimeNewGlue_L1:
 	# saving callee saved registers (see CVMCPU_NON_VOLATILE_SET)
 	/* nothing to do */
 	
-	testb	$CONSTANT_CLASS_ACC_FINALIZABLE, OFFSET_CVMClassBlock_accessFlagsX(CB)
+	testw	$CONSTANT_CLASS_ACC_FINALIZABLE, OFFSET_CVMClassBlock_accessFlagsX(CB)
 	jne	GOSLOW         /* go slow route if finalizable */
 
 	# lock the heap
@@ -139,7 +140,7 @@ LOOPTEST:
 
 INITDONE:	
         # unlock the heap
-	lock decl	OFFSET_CVMGlobalState_fastHeapLock + SYM_NAME(CVMglobals)
+	lock ; decl	OFFSET_CVMGlobalState_fastHeapLock + SYM_NAME(CVMglobals) 
 
 	# return to compiled code. The object is in A1.
 	ret
@@ -320,7 +321,7 @@ ARR_LOOPTEST:
 
 ARR_ENDINIT:	
 	# unlock the heap
-	lock decl	OFFSET_CVMGlobalState_fastHeapLock + SYM_NAME(CVMglobals)
+	lock  ; decl	OFFSET_CVMGlobalState_fastHeapLock + SYM_NAME(CVMglobals) ; 
 
 	# return to compiled code. The object is in A1.
 	ret
@@ -539,7 +540,7 @@ OBJARR_LOOPTEST:
 
 OBJARR_ENDINIT:	
 	# unlock the heap
-	lock decl	OFFSET_CVMGlobalState_fastHeapLock + SYM_NAME(CVMglobals)
+	lock  ; decl	OFFSET_CVMGlobalState_fastHeapLock + SYM_NAME(CVMglobals)
 	# return to compiled code. The object is in A1.
 	ret
 

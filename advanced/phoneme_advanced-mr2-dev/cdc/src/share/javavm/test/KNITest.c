@@ -1,7 +1,7 @@
 /*
  * @(#)KNITest.c	1.6 06/10/17
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -25,6 +25,7 @@
  */
 
 #include "kni.h"
+#include "sni.h"
 
 KNIEXPORT KNI_RETURNTYPE_OBJECT
 KNIDECL(KNITest_returnThis) {
@@ -68,9 +69,9 @@ KNIDECL(KNITest_testLongArgs) {
 
 KNIEXPORT KNI_RETURNTYPE_DOUBLE
 KNIDECL(KNITest_testDoubleArgs) {
-    jlong x = KNI_GetParameterAsDouble(1);
-    jlong y = KNI_GetParameterAsDouble(3);
-    jlong z = KNI_GetParameterAsDouble(5);
+    jdouble x = KNI_GetParameterAsDouble(1);
+    jdouble y = KNI_GetParameterAsDouble(3);
+    jdouble z = KNI_GetParameterAsDouble(5);
     KNI_ReturnDouble(x*y+z);
 }
 
@@ -233,3 +234,24 @@ KNIDECL(KNITest_newString) {
     KNI_EndHandlesAndReturnObject(newStr);
 }
 
+KNIEXPORT KNI_RETURNTYPE_OBJECT
+KNIDECL(KNITest_newStringArray) {
+    jint len = KNI_GetParameterAsInt(1);
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(newStrArray);
+    SNI_NewArray(SNI_STRING_ARRAY, len, newStrArray);
+    KNI_EndHandlesAndReturnObject(newStrArray);
+}
+
+
+KNIEXPORT KNI_RETURNTYPE_OBJECT
+KNIDECL(KNITest_newObjectArray) {
+    jint len;
+    KNI_StartHandles(2);
+    KNI_DeclareHandle(newArr);
+    KNI_DeclareHandle(clazz);
+    KNI_GetParameterAsObject(1, clazz);
+    len = KNI_GetParameterAsInt(2);
+    SNI_NewObjectArray(clazz, len, newArr);
+    KNI_EndHandlesAndReturnObject(newArr);
+}

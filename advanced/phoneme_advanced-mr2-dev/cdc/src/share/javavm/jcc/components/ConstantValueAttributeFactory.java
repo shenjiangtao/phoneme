@@ -1,7 +1,7 @@
 /*
  * @(#)ConstantValueAttributeFactory.java	1.8 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -34,9 +34,9 @@ class ConstantValueAttributeFactory extends AttributeFactory {
     public static AttributeFactory instance = new ConstantValueAttributeFactory();
 
     Attribute finishReadAttribute(
-	DataInput in, UnicodeConstant name, ConstantObject constants[] )
+	DataInput in, UnicodeConstant name, ConstantPool cp)
 	throws IOException
     {
-	return ConstantValueAttribute.finishReadAttribute(in, name, constants);
+	return ConstantValueAttribute.finishReadAttribute(in, name, cp);
     }
 }

@@ -1,7 +1,7 @@
 /*
  * @(#)jitcodebuffer.h	1.47 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -114,7 +114,7 @@
  */
 #define CVMJITcbufEmit_n(con, instr, size, castType)			\
 {									\
-    if ((con)->curPhysicalPC >= (con)->codeBufEnd) {			\
+    if (((con)->curPhysicalPC + size) > (con)->codeBufEnd) {            \
         /* Fail to compile. We will retry with a larger buffer */	\
         CVMJITerror((con), CODEBUFFER_TOO_SMALL,			\
                     "Estimated code buffer too small");			\
@@ -139,7 +139,7 @@
 #ifdef IAI_CODE_SCHEDULER_SCORE_BOARD
 #define CVMJITcbufEmitPC_n(con, pc, instr, size, castType)             \
 {                                                                      \
-   if (CVMJITcbufLogicalToPhysical(con, pc) >= (con)->codeBufEnd) {    \
+    if ((CVMJITcbufLogicalToPhysical(con, pc) + size) > (con)->codeBufEnd) { \
        CVMJITerror((con), CODEBUFFER_TOO_SMALL,                        \
                   "Estimated code buffer too small");                  \
    }                                                                   \
@@ -232,7 +232,7 @@ extern void
 CVMmemCodeCacheWriteNotify(int pid, void *addr, void *pc, CVMMemHandle *h);
 #endif
 
-#if defined(CVM_DEBUG) || defined(CVM_USE_MEM_MGR)
+#if defined(CVM_DEBUG) || defined(CVM_USE_MEM_MGR) || defined(CVM_TRACE_JIT)
 extern CVMMethodBlock*
 CVMJITcodeCacheFindCompiledMethod(CVMUint8* pc, CVMBool doPrint);
 #endif

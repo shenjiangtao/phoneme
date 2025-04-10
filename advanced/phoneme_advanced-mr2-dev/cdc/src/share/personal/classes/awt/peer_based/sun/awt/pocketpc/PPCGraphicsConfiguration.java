@@ -1,7 +1,7 @@
 /*
  * @(#)PPCGraphicsConfiguration.java	1.6 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -35,6 +35,7 @@ import java.awt.image.BufferedImage;
 import java.awt.image.ColorModel;
 import java.awt.Component;
 import java.awt.Canvas;
+import java.awt.image.VolatileImage;
 
 class PPCGraphicsConfiguration extends GraphicsConfiguration {
     PPCGraphicsConfiguration (PPCGraphicsDevice device) {
@@ -57,6 +58,12 @@ class PPCGraphicsConfiguration extends GraphicsConfiguration {
     public ColorModel getColorModel() {
         return Toolkit.getDefaultToolkit().getColorModel();
     }
+
+    /* Dummy method */
+    public VolatileImage createCompatibleVolatileImage(int width, int height) {
+        return null;
+    }
+
     private PPCGraphicsDevice device;
     private static final Component IMAGE_COMPONENT = new Canvas();
 }

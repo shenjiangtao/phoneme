@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -33,8 +33,8 @@ CVM_TARGETOBJS_SPEED +=	\
 CVM_SRCDIRS   += \
 	$(CVM_TOP)/src/$(TARGET_CPU_FAMILY)/javavm/runtime
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src/$(TARGET_CPU_FAMILY) \
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src/$(TARGET_CPU_FAMILY) \
 
 ifeq ($(CVM_AOT), true)
 $(error AOT is not supported for x86)
@@ -103,9 +103,6 @@ CVM_TARGETOBJS_OTHER += \
 
 CVM_SRCDIRS   += \
         $(CVM_TOP)/src/$(TARGET_CPU_FAMILY)/javavm/runtime/jit
-
-CVM_INCLUDES  += \
-        -I$(CVM_TOP)/src/portlibs/jit/cisc
 
 CVM_JCS_CPU_RULES_FILE     += \
     $(CVM_TOP)/src/x86/javavm/runtime/jit/jitaddrgrammarrules.jcs

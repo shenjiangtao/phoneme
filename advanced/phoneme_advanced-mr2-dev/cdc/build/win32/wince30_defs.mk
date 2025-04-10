@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -29,3 +29,7 @@
 include ../win32/wince_defs.mk
 
 CVM_DEFINES +=  -DUNDER_CE=300 -D_WIN32_WCE=300
+
+# /MD and /MT are not supported for WinCE 3.0
+M_DLL_FLAGS =
+M_EXE_FLAGS =

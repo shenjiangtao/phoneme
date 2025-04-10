@@ -1,7 +1,7 @@
 /*
  * @(#)memory_md.cpp	1.6 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -77,14 +77,26 @@ unlock()
 static RHeap *heap;
 
 #define MAX_MB 128
-void
+static void
 malloc_init()
 {
     if (!init) {
 	if (cs.CreateLocal() != KErrNone) {
 	    CVMsystemPanic("Could not initialize malloc\n");
 	}
+
+#if !defined(CVM_HW)
 	heap = User::ChunkHeap(NULL, 1 * 1024 * 1024, MAX_MB * 1024 * 1024);
+#else
+	/* For hardware execution, the heap needs to be executable. */
+	static RChunk rc;
+	if (rc.CreateLocalCode(1 * 1024 * 1024, MAX_MB * 1024 * 1024) !=
+	    KErrNone) {
+	    heap = NULL;
+	} else {
+	    heap = User::ChunkHeap(rc, 1 * 1024 * 1024);
+	}
+#endif
 	if (heap == NULL) {
 	    fprintf(stderr, "Could not initialize %dMB malloc heap\n",
 		MAX_MB);

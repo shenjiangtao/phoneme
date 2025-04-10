@@ -1,24 +1,24 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
@@ -42,8 +42,7 @@ static MidpReentryData newSignal;
 static MidpEvent newMidpEvent;
 
 static void initCDCEvents();
-// in midp_msgQueue_md.c
-void handleKey(MidpReentryData* pNewSignal, MidpEvent* pNewMidpEvent);
+
 
 KNIEXPORT KNI_RETURNTYPE_LONG
 JVM_JavaMilliSeconds() {
@@ -121,9 +120,9 @@ KNIDECL(com_sun_midp_main_MIDletSuiteLoader_vmEndStartUp) {
  */
 static int
 midpInitializeUI(void) {
-    //if (InitializeEvents() != 0) {
-    //    return -1;
-    //}
+    /*if (InitializeEvents() != 0) {*/
+    /*    return -1;*/
+    /*}*/
 
     /*
      * Porting consideration:
@@ -131,32 +130,13 @@ midpInitializeUI(void) {
      * function. e.g. initLocaleMethod();
      */
 
-    /*
-     * Set AMS memory limits
-     */
-#if ENABLE_MULTIPLE_ISOLATES
-    {
-        int reserved = AMS_MEMORY_RESERVED_MVM;
-        int limit = AMS_MEMORY_LIMIT_MVM;
-
-        reserved = reserved * 1024;
-        JVM_SetConfig(JVM_CONFIG_FIRST_ISOLATE_RESERVED_MEMORY, reserved);
-
-        if (limit <= 0) {
-            limit = 0x7FFFFFFF;  // MAX_INT
-        } else {
-            limit = limit * 1024;
-        }
-        JVM_SetConfig(JVM_CONFIG_FIRST_ISOLATE_TOTAL_MEMORY, limit);
-    }
-#endif
 
 #if ENABLE_JAVA_DEBUGGER
     {
         char* argv[2];
 
         /* Get the VM debugger port property. */
-        argv[1] = (char *)getInternalProp("VmDebuggerPort");
+        argv[1] = (char *)getInternalProperty("VmDebuggerPort");
         if (argv[1] != NULL) {
             argv[0] = "-port";
             (void)JVM_ParseOneArg(2, argv);
@@ -164,9 +144,9 @@ midpInitializeUI(void) {
     }
 #endif
 
-    // FIXME if (pushopen() != 0) {
-    //    return -1;
-    //}
+    /* IMPL_NOTE if (pushopen() != 0) {*/
+    /*    return -1;*/
+    /*}*/
 
     lcdlf_ui_init();
     return 0;
@@ -179,21 +159,21 @@ static void
 midpFinalizeUI(void) {
     lcdlf_ui_finalize();
 
-    //FIXME: pushclose();
-    finalizeCommandState();
+    /*IMPL_NOTE: pushclose();*/
+    /*finalizeCommandState();*/
 
-    //FinalizeEvents();
+    /*FinalizeEvents();*/
 
-    // Porting consideration:
-    // Here is a good place to put I18N finalization
-    // function. e.g. finalizeLocaleMethod();
+    /* Porting consideration:*/
+    /* Here is a good place to put I18N finalization*/
+    /*function. e.g. finalizeLocaleMethod();*/
 
     /*
      * Note: the AMS isolate will have been registered by a native method
      * call, so there is no corresponding midpRegisterAmsIsolateId in the
      * midpInitializeUI() function.
      */
-    //midpUnregisterAmsIsolateId();
+    /*midpUnregisterAmsIsolateId();*/
     CloseMsgQueue(controlPipe[0]);
     CloseMsgQueue(controlPipe[1]);
 }
@@ -201,30 +181,40 @@ midpFinalizeUI(void) {
 KNIEXPORT KNI_RETURNTYPE_VOID
 KNIDECL(com_sun_midp_main_CDCInit_initMidpNativeStates) {
     jchar jbuff[1024];
-    char cbuff[1024];
-    int max = sizeof(cbuff) - 1;
+    static char conf_buff[1024], store_buff[1024];
+    int max = sizeof(conf_buff) - 1;
     int len, i;
 
-    KNI_StartHandles(1);
-    KNI_DeclareHandle(home);
-    KNI_GetParameterAsObject(1, home);
-
-    len = KNI_GetStringLength(home);
+    KNI_StartHandles(2);    
+    KNI_DeclareHandle(config);
+    KNI_DeclareHandle(storage);
+    
+    KNI_GetParameterAsObject(1, config);
+    KNI_GetParameterAsObject(2, storage);
+	
+    len = KNI_GetStringLength(config);
     if (len > max) {
         len = max;
     }
-
-    KNI_GetStringRegion(home, 0, len, jbuff);
-    for (i=0; i<len; i++) {
-        cbuff[i] = (char)jbuff[i];
+    KNI_GetStringRegion(config, 0, len, jbuff);
+    jbuff[len]=0;
+    convertWtoU8(conf_buff, jbuff);
+    len = KNI_GetStringLength(storage);
+    if (len > max) {
+        len = max;
     }
-    cbuff[len] = 0;
+    KNI_GetStringRegion(storage, 0, len, jbuff);
+    jbuff[len]=0;
+    convertWtoU8(store_buff, jbuff);
 
     initCDCEvents();
 
-    midpSetHomeDir(cbuff);
+    midpSetAppDir(store_buff);
+    midpSetConfigDir(conf_buff);
+    
     if (midpInitialize() != 0) {
         printf("midpInitialize() failed\n");
+
     }
 
     if (midpInitCallback(VM_LEVEL, midpInitializeUI, midpFinalizeUI) != 0) {
@@ -244,14 +234,16 @@ static MSGQUEUEOPTIONS  writeEventQueueOptions;
 static void initCDCEvents() {
     DWORD err;
 
-    enum { MAX_MESSAGE_SIZE = 1024 };
+    enum {
+        MAX_MESSAGE_SIZE = 1024
+    };
 
     readEventQueueOptions.dwSize = sizeof(MSGQUEUEOPTIONS);
     readEventQueueOptions.dwFlags = MSGQUEUE_NOPRECOMMIT;
     readEventQueueOptions.dwMaxMessages = 0;
     readEventQueueOptions.cbMaxMessage = MAX_MESSAGE_SIZE;
     readEventQueueOptions.bReadAccess = TRUE;
-    // Read
+    /* Read*/
     controlPipe[0] = CreateMsgQueue(TEXT("EventQueue"), &readEventQueueOptions);
     err = GetLastError();
     if (err != ERROR_SUCCESS) {
@@ -264,7 +256,7 @@ static void initCDCEvents() {
     writeEventQueueOptions.dwMaxMessages = 0;
     writeEventQueueOptions.cbMaxMessage = MAX_MESSAGE_SIZE;
     writeEventQueueOptions.bReadAccess = FALSE;
-    // Write
+    /* Write*/
     controlPipe[1] = OpenMsgQueue(GetCurrentProcess(), controlPipe[0], &writeEventQueueOptions);
     err = GetLastError();
     if (err != ERROR_SUCCESS) {
@@ -356,7 +348,7 @@ static void setControlStringField(KNIDECLARGS jobject objectHandle,
     if (str->length> 0) {
         str->data = (jchar*)midpMalloc(str->length * sizeof(jchar));
         if (str->data == NULL) {
-            str->length = 0; // FIXME: throw out of memory
+            str->length = 0; // IMPL_NOTE: throw out of memory
         } else {
             KNI_GetStringRegion(stringObj, 0, str->length, str->data);
         }
@@ -420,7 +412,7 @@ KNIDECL(com_sun_midp_events_NativeEventMonitor_waitForNativeEvent) {
 
     do {
         CVMD_gcSafeExec(_ee, {
-            ready = WaitForSingleObject(controlPipe[0], 200);
+            ready = WaitForSingleObject(controlPipe[0], 50);
         });
 
         KNI_StartHandles(3);
@@ -633,7 +625,6 @@ KNIDECL(com_sun_midp_events_EventQueue_getNativeEventQueueHandle) {
     KNI_ReturnInt(0);
 }
 
-DUMMY(CNIcom_sun_midp_events_EventQueue_finalize)
 DUMMY(CNIcom_sun_midp_io_j2me_push_PushRegistryImpl_checkInByMidlet0)
 DUMMY(CNIcom_sun_midp_io_j2me_push_PushRegistryImpl_add0)
 DUMMY(CNIcom_sun_midp_io_j2me_push_PushRegistryImpl_getMIDlet0)
@@ -668,23 +659,7 @@ DUMMY(CNIcom_sun_cdc_i18n_j2me_Conv_sizeOfUnicodeInByte)
 void CNIcom_sun_midp_io_j2me_push_PushRegistryImpl_poll0() {
 }
 
-KNIEXPORT KNI_RETURNTYPE_VOID
-KNIDECL(com_sun_midp_events_EventQueue_sendShutdownEvent) {
-    (void) _arguments;
-    (void) _p_mb;
-    printf("EventQueue_sendShutdownEvent\n");
-    //CVMdumpAllThreads();
-#if ENABLE_DEBUG
-    CVMdumpStack(&_ee->interpreterStack, 0, 0, 0);
-#endif
-#ifdef DIRECTFB
-    fbapp_close_window();
-#endif
-    exit(0);
-    KNI_ReturnVoid();
-}
-
-/* FIXME removed
+/* IMPL_NOTE removed
 DUMMY(lockStorage)
 DUMMY(lock_storage)
 DUMMY(unlockStorage)
@@ -701,9 +676,10 @@ DUMMY(pushdeletesuite)
 DUMMY(midpStoreEventAndSignalForeground)
 
 int getCurrentIsolateId() {return 0;}
+int midpGetAmsIsolateId() {return 0;}
 
-/* FIXME - removed duplicate
- * int midpGetAmsIsolateId() {return 0;}
+/* IMPL_NOTE - removed duplicate
  * DUMMY(midp_getCurrentThreadId)
  */
+
 

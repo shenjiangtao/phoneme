@@ -1,7 +1,7 @@
 /*
  * @(#)URL.java	1.108 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -494,10 +494,10 @@ public final class URL implements java.io.Serializable {
 
 	try {
 	    limit = spec.length();
-	    while ((limit > 0) && (spec.charAt(limit - 1) <= ' ')) {
+	    while ((limit > 0) && (spec.charAt(limit - 1) == ' ' || spec.charAt(limit - 1) == '\u0009')) {
 		limit--;	//eliminate trailing whitespace
 	    }
-	    while ((start < limit) && (spec.charAt(start) <= ' ')) {
+	    while ((start < limit) && (spec.charAt(start) == ' ' || spec.charAt(start) == '\u0009')) {
 		start++;	// eliminate leading whitespace
 	    }
 
@@ -1042,7 +1042,7 @@ public final class URL implements java.io.Serializable {
 		    = (String) java.security.AccessController.doPrivileged(
                     new sun.security.action.GetPropertyAction(
 		        protocolPathProp,""));
-		if (packagePrefixList != "") {
+		if (packagePrefixList.length() > 0) {
 		    packagePrefixList += "|";
 		}
 

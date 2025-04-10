@@ -1,27 +1,27 @@
 /*
  *   
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #ifndef _PCSLPRINT_H_
@@ -62,11 +62,19 @@ extern "C" {
  */
 
 /**
- * Prints out a string to a system specific output strream
+ * Prints out a string to a system specific output stream
  * @param s a NULL terminated character buffer to be printed
  *
  */
-void pcsl_print(const char *s);
+void pcsl_print(const char* s);
+
+/**
+ * Prints out an array of characters to a system specific output stream
+ * @param s address of the first character to print
+ * @param length number of characters to print
+ *
+ */
+void pcsl_print_chars(const char* s, int length);
 
 /** @} */   //End of group High Level Interface
 

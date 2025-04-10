@@ -1,7 +1,7 @@
 /*
  * @(#)classverify.c	1.22 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -35,8 +35,10 @@
 #include "javavm/include/globals.h"
 #include "javavm/include/verify.h"
 #include "javavm/include/directmem.h"
+#include "javavm/include/indirectmem.h"
 #include "javavm/export/jvm.h"
 #include "javavm/export/jni.h"
+#include "generated/offsets/java_lang_ClassLoader.h"
 
 /*
  * Returns one of the VERIFY options.
@@ -55,8 +57,65 @@ CVMclassVerificationSpecToEncoding(char* kind)
     }	    
 }
 
+
+/*
+ * CVMloaderNeedsVerify - returns TRUE if the classloader requires
+ * verification of its loaded classes.
+ *
+ * verifyTrusted should be set true if verification must be done even
+ * for trusted class loaders when the verification level is REMOTE.
+ */
 CVMBool
-CVMclassVerify(CVMExecEnv* ee, CVMClassBlock* cb)
+CVMloaderNeedsVerify(CVMExecEnv* ee, CVMClassLoaderICell* loader,
+                     CVMBool verifyTrusted) {
+#ifdef CVM_TRUSTED_CLASSLOADERS	
+    return CVM_FALSE;
+#else
+    switch (CVMglobals.classVerificationLevel) {
+    case CVM_VERIFY_ALL: {
+        return CVM_TRUE;
+    }
+
+    case CVM_VERIFY_NONE: {
+        return CVM_FALSE;
+    }
+
+    case CVM_VERIFY_REMOTE: {
+        /* We don't need to verify the NULL class loader. */
+        if (loader == NULL) {
+            return CVM_FALSE;
+        }
+        
+        /* We don't need to verify if ClassLoader.noVerification is true */
+        {
+            CVMBool noVerification;
+            CVMID_fieldReadInt(ee, loader, 
+                               CVMoffsetOfjava_lang_ClassLoader_noVerification,
+                               noVerification);
+            if (noVerification) {
+                return CVM_FALSE;
+            }
+        }
+        
+        if (verifyTrusted) {
+            /* Even if the class loader is trusted, we must verify */
+            return CVM_TRUE;
+        }
+        
+        /* We don't have to verify if the class loader is trusted */
+        return !CVMisTrustedClassLoader(ee, loader);
+    }
+        
+    default: {
+        CVMassert(CVM_FALSE);
+        return CVM_FALSE;
+    }
+    } /* switch */
+#endif /* CVM_TRUSTED_CLASSLOADERS */
+}
+
+CVMBool
+CVMclassVerify(CVMExecEnv* ee, CVMClassBlock* cb, CVMBool isRedefine)
 {
 #ifdef CVM_TRUSTED_CLASSLOADERS	
     CVMcbSetRuntimeFlag(cb, VERIFIED);
@@ -104,14 +163,18 @@ CVMclassVerify(CVMExecEnv* ee, CVMClassBlock* cb)
     }
 	
     {
-        CVMBool       result;
+        jint       result;
         char          message[256];
 	message[0] = 0;
 	result = 
-	    VerifyClass(ee, cb, message, sizeof(message));
-	if (!result) {
+	    VerifyClass(ee, cb, message, sizeof(message), isRedefine);
+        if (result < 0) {
 	    if (!CVMexceptionOccurred(ee)) {
-		CVMthrowVerifyError(ee, "%s", message);
+	        if (result == -1) {
+		    CVMthrowVerifyError(ee, "%s", message);
+	        } else if (result == -2) {
+	            CVMthrowClassFormatError(ee, "%s", message);
+                }
 	    }
 	    goto failed;
 	}

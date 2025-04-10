@@ -1,27 +1,27 @@
 /*
  *   
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #include <stdio.h>
@@ -95,20 +95,17 @@ void testDirectories() {
  * Tests for pcsl_file_getfreesize() and pcsl_file_gettotalsize().
  */
 void testSizes() {
-    long res;
+    jlong res;
 
     res = pcsl_file_getfreesize(&dir1);
     assertTrue("Querying free size failed", res >= 0);
-    printf("Free bytes on file system: %ld\n", res);
+    printf("Free bytes on file system: %lld\n", res);
     res = pcsl_file_gettotalsize(&dir1);
     assertTrue("Querying total size failed", res >= 0);
-    printf("Total bytes on file system: %ld\n", res);
+    printf("Total bytes on file system: %lld\n", res);
 
     /*
-     * Further testing (counting exact number of bytes) will most likely fail
-     * on a platform with large file system sizes.
-     * E.g. on win32 pcsl_file_getfreesize() returns 0x7FFFFFFF if number of free bytes
-     * on a filesystem exceeds positive limit for "long".
+     * IMPL_NOTE: to do further testing (counting exact number of bytes).
      */
 }
 

@@ -1,7 +1,7 @@
 /*
  * @(#)hprof_setup.c	1.22 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -262,7 +262,7 @@ static void hprof_do_setup(char *str)
 		    output_filename);
 	    goto bad_option_no_msg;
 	}
-	hprof_fd = fileno(fp);
+	hprof_fp = fp;
     }
 
     /* By default we turn on alloc_sites and heap_dump */

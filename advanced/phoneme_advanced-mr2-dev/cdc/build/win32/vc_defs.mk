@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -31,7 +31,5 @@ CVM_DEFINES += -DWIN32_LEAN_AND_MEAN -DUNICODE -D_UNICODE \
 
 WIN_LINKLIBS += ws2_32.lib user32.lib advapi32.lib kernel32.lib
 
-LINKEXE_FLAGS += /entry:mainCRTStartup /subsystem:console \
-	/fixed:no $(EXTRA_PROFILING_FLAGS)
-
-SO_LINKFLAGS += $(EXTRA_PROFILING_FLAGS)
+LINK_SUBSYSTEM	= /subsystem:console
+LINKEXE_ENTRY	= /entry:mainCRTStartup

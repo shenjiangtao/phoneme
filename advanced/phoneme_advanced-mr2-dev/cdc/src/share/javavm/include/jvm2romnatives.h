@@ -1,7 +1,7 @@
 /*
  * @(#)jvm2romnatives.h	1.11 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -38,7 +38,11 @@
 #define JVM_MonitorNotifyAll	 Java_java_lang_Object_notifyAll
 #define JVM_MonitorWait		 Java_java_lang_Object_wait
 
+#if JAVASE > 15
+#define JVM_GetClassName	 Java_java_lang_Class_getName0
+#else
 #define JVM_GetClassName	 Java_java_lang_Class_getName
+#endif
 #define JVM_GetClassInterfaces	 Java_java_lang_Class_getInterfaces
 #define JVM_GetClassLoader	 Java_java_lang_Class_getClassLoader0
 #define JVM_GetClassSigners	 Java_java_lang_Class_getSigners
@@ -71,7 +75,6 @@
 #define JVM_Sleep		 Java_java_lang_Thread_sleep0
 #define JVM_CurrentThread	 Java_java_lang_Thread_currentThread
 #define JVM_CountStackFrames	 Java_java_lang_Thread_countStackFrames
-#define JVM_Interrupt		 Java_java_lang_Thread_interrupt0
 #define JVM_IsInterrupted	 Java_java_lang_Thread_isInterrupted
 #ifndef CDC_10
 #define JVM_HoldsLock            Java_java_lang_Thread_holdsLock

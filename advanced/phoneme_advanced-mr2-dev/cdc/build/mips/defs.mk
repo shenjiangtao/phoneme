@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -31,12 +31,8 @@
 CVM_SRCDIRS   += \
 	$(CVM_TOP)/src/$(TARGET_CPU_FAMILY)/javavm/runtime
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src/$(TARGET_CPU_FAMILY)
-
-ifeq ($(CVM_AOT), true)
-$(error AOT is not supported for MIPS)
-endif
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src/$(TARGET_CPU_FAMILY)
 
 #
 # JIT related settings
@@ -63,9 +59,20 @@ endif
 # out of the range, non-PC relative instruction jal is used instead
 # of the PC relative branch instructon. If AOT is supported, we
 # want the jal target at a fixed location.
-ifneq ($(CVM_AOT), true)
+#
+# The restriction is not needed since MIPS now uses fixed address for
+# AOT codecache.
+#ifneq ($(CVM_AOT), true)
 CVM_JIT_COPY_CCMCODE_TO_CODECACHE ?= true
+#endif
+
+CVM_JIT_PMI ?= false
+ifeq ($(CVM_JIT_PMI), true)
+ifneq ($(CVM_JIT_COPY_CCMCODE_TO_CODECACHE), true)
+$(error cannot specify CVM_JIT_PMI=true with CVM_JIT_COPY_CCMCODE_TO_CODECACHE=false)
 endif
-include  ../portlibs/defs_jit_risc.mk
+endif
+
+include  $(CDC_DIR)/build/portlibs/defs_jit_risc.mk
 
 endif

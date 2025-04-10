@@ -1,7 +1,7 @@
 /*
  * @(#)FileSystem_md.c	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -46,7 +46,11 @@ Java_java_io_FileSystem_getFileSystem(JNIEnv *env, jclass ignored)
     onNT = JNI_TRUE;
 #endif
     if (onNT) {
+#ifdef WINCE
+        return JNU_NewObjectByName(env, "java/io/WinCEFileSystem", "()V");
+#else
         return JNU_NewObjectByName(env, "java/io/WinNTFileSystem", "()V");
+#endif
     } else {
         return JNU_NewObjectByName(env, "java/io/Win32FileSystem", "()V");
     }

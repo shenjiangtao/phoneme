@@ -1,7 +1,7 @@
 /*
  * @(#)ccmglue_cpu.S	1.39 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -37,6 +37,15 @@
 #include "javavm/include/porting/jit/jit.h"
 #include "javavm/include/sync.h"
 
+        /* Monitor enter/exit code may post an event which will
+         * push a JNI local frame on the stack.  Need to have frame->TOS
+         * consistent with JSP
+         */
+#ifdef CVM_JVMTI
+#define FLUSH_TOS	stw     JSP, OFFSET_CVMFrame_topOfStack(JFP)
+#else
+#define FLUSH_TOS
+#endif
 	.section	".text",""
 
 /*
@@ -91,24 +100,25 @@ SET_SIZE ( CVMCCMruntimeSimpleSyncUnlockGlue )
 /* do a gc rendezvous */
 ENTRY ( CVMCCMruntimeGCRendezvousGlue )
 	mflr	r7
+	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeGCRendezvous)
+
+#if defined(CVMJIT_PATCH_BASED_GC_CHECKS)
+ENTRY ( CVMPPCruntimeGCRendezvousRetAddrAdjustGlue )
 	/* If we are copying to the code cache, then only one instruction
 	 * was needed to call us, so we want to return to it. Otherwise
 	 * it may have taken multiple instructions, so the last one is
 	 * patched with a nop so we can skip it.
 	 */
-#if defined(CVM_JIT_COPY_CCMCODE_TO_CODECACHE) && defined(CVMJIT_PATCH_BASED_GC_CHECKS)
+	mflr	r7
 	subi	r7, r7, 4
-#endif
 	mtlr	r7
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeGCRendezvous)
-
-ENTRY ( CVMPPCruntimeGCRendezvousNoRetAddrAdjustGlue )
-	mflr	r7
-	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeGCRendezvous)
+#endif
 
 /* Throw various well known exceptions */
 
 ENTRY ( CVMCCMruntimeThrowNullPointerExceptionGlue )
+CVMCCMruntimeThrowNullPointerExceptionGlueLocal:
 	mflr	r7
 	FIXUP_FRAMES(JFP,r7)
 	lis	r5, HA16(java_lang_NullPointerException_Classblock)
@@ -256,6 +266,7 @@ ENTRY ( CVMCCMruntimeRunClassInitializerGlue )
 	 * first instruction of a block, which means we may also try to
 	 * patch it when doing a gc-rendezvous. */
 #ifdef CVM_AOT
+	/* Don't patch AOT code */
 	lis	r4, HA16(CVMJITcodeCacheAOTEnd)
 	lwz	r4, LO16(CVMJITcodeCacheAOTEnd)(r4)
 	lwz	r4, 0(r4)
@@ -567,6 +578,7 @@ ENTRY ( CVMCCMruntimeMonitorEnterGlue )
 	# code, then just the following 3 lines are needed.
 	#
 	mflr	r7
+        FLUSH_TOS
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 #endif
 
@@ -584,7 +596,7 @@ ENTRY ( CVMCCMruntimeMonitorEnterGlue )
 
         # Make sure that the object is not NULL:
         cmpwi	OBJ, 0
-        beq-	SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlue)
+        beq-	CVMCCMruntimeThrowNullPointerExceptionGlueLocal
 
         /* Setup a lock record and assume the object has not been locked
 	   yet:	 */
@@ -695,6 +707,7 @@ _monenterFastReentryFailed:
 _monenterRecordNotAvailable:
         /* Let C helper do the hard stuff: */
 	mflr	r7
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 	
 #undef OBJ
@@ -745,7 +758,7 @@ _monenterRecordNotAvailable:
 
         /* Make sure that the object is not NULL */
         cmpwi	OBJ, 0
-        beq-	SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlue)
+        beq-	CVMCCMruntimeThrowNullPointerExceptionGlueLocal
 
         /* Acquire the microlock: */
         li	r0, CVM_MICROLOCK_LOCKED 
@@ -858,6 +871,7 @@ _monenterRecordNotAvailable:
 
         /* Load the ccee.  The obj arg is already loaded. */
 	mflr	r7
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 
 #undef MICROLOCK
@@ -881,6 +895,7 @@ ENTRY ( CVMCCMruntimeMonitorExitGlue )
 	# code, then just the following 3 lines are needed.
 	#
 	mflr	r7
+        FLUSH_TOS
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 #endif
 
@@ -898,7 +913,7 @@ ENTRY ( CVMCCMruntimeMonitorExitGlue )
 
         /* Make sure that the object is not NULL: */
         cmpwi	OBJ, 0
-        beq-	SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlue)
+        beq-	CVMCCMruntimeThrowNullPointerExceptionGlueLocal
 
         /* Check to see if the object is locked with a fastlock: */
         lwz	LOCKREC, OFFSET_CVMObjectHeader_various32(OBJ) /* Get obits */
@@ -999,6 +1014,7 @@ _monexitFastTryUnlockFoundPrevLockRecord:
 _monexitFastTryUnlockFailed:
         /* Let C helper do the hard stuff: */
 	mflr	r7
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 
 #undef OBJ
@@ -1014,6 +1030,7 @@ _monexitFastTryUnlockFailed:
 	/* TODO: if CVM_MICROLOCK_TYPE == CVM_MICROLOCK_SCHEDLOCK, then
 	 * use CVMschedLock for locking. For now, just defer to C */
 	mflr	r7
+        FLUSH_TOS
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 #else
         /* CVM_MICROLOCK_SWAP_SPINLOCK version of monitorenter: */
@@ -1048,7 +1065,7 @@ _monexitFastTryUnlockFailed:
 
         /* Make sure that the object is not NULL */
         cmpwi	OBJ, 0
-        beq-	SYM_NAME(CVMCCMruntimeThrowNullPointerExceptionGlue)
+        beq-	CVMCCMruntimeThrowNullPointerExceptionGlueLocal
 
         /* Acquire the microlock: */
         li	r0, CVM_MICROLOCK_LOCKED 
@@ -1173,6 +1190,7 @@ _monexitFastTryUnlockFailed:
         /* Let C helper do the hard stuff: */
         /* Load the ccee.  The obj arg is already loaded. */
 	mflr	r7
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 
 #undef OBJ

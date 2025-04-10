@@ -1,7 +1,7 @@
 /*
  * @(#)PPCClipboard.cpp	1.9 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -202,7 +202,7 @@ Java_sun_awt_pocketpc_PPCClipboard_getClipboardText(JNIEnv *env,
     length = AwtTextComponent::RemoveCR(ucText);
     harr = new jchar[length];
     ASSERT(harr != NULL);
-    wcsncpy((unsigned short *) harr, ucText, length);
+    wcsncpy((wchar_t *) harr, ucText, length);
     delete[] ucText;
     jstring hStr = env->NewString(harr, length);
     ASSERT(!env->ExceptionCheck());

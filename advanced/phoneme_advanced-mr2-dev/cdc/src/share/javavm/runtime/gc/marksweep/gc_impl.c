@@ -1,7 +1,7 @@
 /*
  * @(#)gc_impl.c	1.51 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -624,6 +624,11 @@ CVMmsSweep()
                     }
                     liveObjectCount--;
 #endif
+#ifdef CVM_JVMTI
+                    if (CVMjvmtiShouldPostObjectFree()) {
+                        CVMjvmtiPostObjectFreeEvent(heapPtr);
+                    }
+#endif
 		    /* 
 		     * Add it to the free list.
 		     * We are going to clear the boundaries bits all
@@ -798,7 +803,7 @@ CVMgcimplDoGC(CVMExecEnv* ee, CVMUint32 numBytes)
 
     gcOpts.isUpdatingObjectPointers = CVM_TRUE;
     gcOpts.discoverWeakReferences = CVM_FALSE;
-#if defined(CVM_DEBUG) || defined(CVM_JVMPI)
+#if defined(CVM_DEBUG) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
     gcOpts.isProfilingPass = CVM_FALSE;
 #endif
     currGcOpts = &gcOpts;
@@ -1010,7 +1015,7 @@ CVMgcimplTimeOfLastMajorGC()
     return lastMajorGCTime;
 }
 
-#if defined(CVM_DEBUG) || defined(CVM_JVMPI)
+#if defined(CVM_DEBUG) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
 
 /*
  * Heap iteration. Call (*callback)() on each object in the heap.

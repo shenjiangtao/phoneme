@@ -1,7 +1,7 @@
 /*
  * @(#)globals_md.c	1.35 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -43,7 +43,7 @@
 #include <malloc.h>
 #include <sched.h>
 #include <javavm/include/utils.h>
-
+#include "javavm/include/path_md.h"
 #ifdef CVM_JIT
 #include "javavm/include/porting/jit/jit.h"
 #include "javavm/include/globals.h"
@@ -106,10 +106,12 @@ void CVMdestroyVMTargetGlobalState()
 
 static CVMProperties props;
 
-CVMBool CVMinitStaticState()
+CVMBool CVMinitStaticState(CVMpathInfo *pathInfo)
 {
-#if 0
-#if !defined(CVM_MP_SAFE) && defined(__cpu_set_t_defined)
+#if defined(LINUX_ENABLE_SET_AFFINITY) && !defined(CVM_MP_SAFE)
+#if !defined(__cpu_set_t_defined)
+#error LINUX_ENABLE_SETAFFINITY not supported
+#endif
     /* If we don't have MP-safe support built in, then make sure
        that we don't run on more than one processor. */
     {
@@ -144,7 +146,6 @@ CVMBool CVMinitStaticState()
 	    return CVM_FALSE;
 	}
     }
-#endif
 #endif
 
     /*
@@ -185,6 +186,11 @@ CVMBool CVMinitStaticState()
     linuxNetInit();
 
     sigignore(SIGPIPE);
+    
+#ifdef __VFP_FP__    
+    /* TODO: Needed for armboard5. Should be moved to ARM specific code. */
+    sigignore(SIGFPE);
+#endif
 
     {
 	char buf[MAXPATHLEN + 1], *p0, *p;
@@ -205,14 +211,15 @@ CVMBool CVMinitStaticState()
 		    realpath((char *)dlinfo.dli_fname, buf);
 		    p0 = buf;
 		} else {
-		    l = open("/proc/self/maps", O_RDONLY);
-		    if (l == -1) {
+		    int fd = open("/proc/self/maps", O_RDONLY);
+		    if (fd == -1) {
 #ifdef CVM_DEBUG
 			fprintf(stderr, "open of /proc/self/maps failed\n");
 #endif
 			return CVM_FALSE;
 		    }
-		    l = read(l, buf, sizeof buf);
+		    l = read(fd, buf, sizeof buf);
+		    close(fd);
 		    if (l == -1) {
 #ifdef CVM_DEBUG
 			fprintf(stderr, "read of /proc/self/maps failed\n");
@@ -239,12 +246,95 @@ CVMBool CVMinitStaticState()
 	    goto badpath;
 	}
 	p = p - 4;
-	if (p > p0 && strncmp(p, "/bin/", 5) == 0) {
-	    *p = '\0';
+	if (p >= p0 && strncmp(p, "/bin/", 5) == 0) {
+	    if (p == p0) {
+		p[1] = '\0'; /* this is the root directory */
+	    } else {
+		p[0] = '\0';
+	    }
 	} else {
 	    goto badpath;
 	}
-        return( CVMinitPathValues( &props, p0, "lib", "lib" ) );
+#ifdef JAVASE
+        {
+	    /* 
+	     * We need to determine if we are running a JDK or JRE 
+	     * Also need to make determination of java home based on 
+	     * the location of libjvm and not java executable.
+	     *
+	     * Determine if arch property is set by the time this code
+	     * is executed.
+	     *
+	     * NOTE: libpath, archlib, and javahomepath below will be
+	     * filled with the contents of p0 which is less or equal
+	     * to MAXPATHLEN in size (based on its setup above).
+	     * Since we are potentially concatinating "/jre/lib",
+	     * ARCH, and "/jre" to libpath, archlib, and javahomepath
+	     * respectively, we need to add their lengths to the
+	     * allocated space for the respective path strings.  This
+	     * ensures that we will not have an overflow situation.
+	     */
+	    char libpath[MAXPATHLEN+1+sizeof("/jre/lib")];
+	    char archlib[MAXPATHLEN+1+sizeof(ARCH)];
+	    char javahomepath[MAXPATHLEN+1+sizeof("/jre")];
+	    struct stat statbuf;
+	    char *dllpath;
+
+	    /* Test to see if JAVA_HOME/jre/lib exists 
+	     * If it exists, we are running in a JDK
+	     * If it doesn't exist, we are running in a JRE
+	     */
+	    strcpy(javahomepath, p0);
+	    strcpy(libpath, p0);
+	    strcat(libpath, "/jre/lib");
+	    if (stat(libpath, &statbuf) == -1) {
+		strcpy(libpath, p0);
+		strcat(libpath, "/lib");
+	    }
+	    else {
+		/* Make javahomepath point to javahome/jre */
+		strcat(javahomepath, "/jre");
+	    }
+
+	    /* 
+	     * Construct native library path from LD_LIBRARY_PATH 
+	     * If it's not set, then we set the lib/ARCH directory.
+	     */
+	    dllpath = getenv("LD_LIBRARY_PATH");
+	    if ( dllpath == NULL ) {
+		strcpy(archlib, libpath);
+		strcat(archlib, "/");
+		strcat(archlib, ARCH);
+		dllpath = archlib;
+	    }
+            pathInfo->basePath = strdup(javahomepath);
+            pathInfo->libPath = strdup(libpath);
+            pathInfo->dllPath = strdup(dllpath);
+	    return CVM_TRUE;
+        }
+#else
+        pathInfo->basePath = strdup(p0);
+        if (pathInfo->basePath == NULL) {
+            return CVM_FALSE;
+        }
+        p = (char *)malloc(strlen(p0) + 1 + strlen("lib") + 1);
+        if (p == NULL) {
+            return CVM_FALSE;
+        }
+        strcpy(p, p0);
+	{
+	    char* pEnd = p + strlen(p);
+	    *pEnd++ = CVM_PATH_LOCAL_DIR_SEPARATOR;
+	    strcpy(pEnd, "lib");
+	}
+        pathInfo->libPath = p;
+        /* lib and dll are the same so this shortcut */
+        pathInfo->dllPath = strdup(p);
+        if (pathInfo->dllPath == NULL) {
+            return CVM_FALSE;
+        }
+        return CVM_TRUE;
+#endif
     badpath:
 	fprintf(stderr, "Invalid path %s\n", p0);
 	fprintf(stderr, "Executable must be in a directory named \"bin\".\n");
@@ -266,3 +356,11 @@ const CVMProperties *CVMgetProperties()
 {
     return &props;
 }
+
+#ifdef JAVASE
+const char *CVMgetJavaHomePath()
+{
+    return props.java_home;
+}
+#endif
+

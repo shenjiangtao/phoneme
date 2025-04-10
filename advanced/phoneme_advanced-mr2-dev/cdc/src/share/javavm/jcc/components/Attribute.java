@@ -1,7 +1,7 @@
 /*
  * @(#)Attribute.java	1.14 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -49,7 +49,7 @@ class Attribute extends ClassComponent
     Attribute( UnicodeConstant n, int l ){
 	name = n;
 	length = l;
-	resolved = true;
+	isFlat = true;
     }
 
     abstract protected int
@@ -64,14 +64,15 @@ class Attribute extends ClassComponent
 	}
     }
 
-    public void countConstantReferences( boolean isRelocatable ){
+    public void countConstantReferences(boolean isRelocatable) {
 	//
 	// if we are producing relocatable output, then
 	// we will need our name in the string table.
 	// Else not.
 	//
-	if ( isRelocatable )
+	if (isRelocatable) {
 	    name.incReference();
+        }
     }
 
     /*
@@ -120,36 +121,37 @@ class Attribute extends ClassComponent
     public static Attribute[] 
     readAttributes(
 	DataInput i,
-	ConstantObject constants[],
+	ConstantPool cp,
 	Hashtable typetable,
 	boolean verbose)
 	throws IOException
     {
 	int nattr =  i.readUnsignedShort();
-	if (verbose){
+	if (verbose) {
 	    System.out.println(Localizer.getString(
 		"attribute.reading_attributes", Integer.toString(nattr)));
 	}
 	if (nattr == 0) return null;
 	Attribute a[] = new Attribute[nattr];
-	for (int j = 0; j < nattr; j++){
-	    UnicodeConstant name = (UnicodeConstant)constants[
-					i.readUnsignedShort()];
+	ConstantObject constants[] = cp.getConstants();
+	for (int j = 0; j < nattr; j++) {
+	    UnicodeConstant name =
+                (UnicodeConstant)constants[i.readUnsignedShort()];
 	    String typename = name.string.intern();
 	    AttributeFactory afact = (AttributeFactory)typetable.get(typename);
-	    if ( afact == null )
+	    if (afact == null) {
 		afact = UninterpretedAttributeFactory.instance;
-
-	    a[j] = afact.finishReadAttribute(i, name, constants);
+            }
+	    a[j] = afact.finishReadAttribute(i, name, cp);
 	}
 	return a;
     }
 
     public static void
-    countConstantReferences( Attribute a[], boolean isRelocatable ){
-	if ( a == null ) return;
-	for ( int i = 0; i < a.length; i++ ){
-	    a[i].countConstantReferences( isRelocatable );
+    countConstantReferences(Attribute a[], boolean isRelocatable) {
+	if (a == null) return;
+	for (int i = 0; i < a.length; i++) {
+	    a[i].countConstantReferences(isRelocatable);
 	}
     }
 

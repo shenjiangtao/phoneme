@@ -1,7 +1,7 @@
 /*
  * @(#)EventQueue.java	1.19 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -110,8 +110,9 @@ public class EventQueue {
             queues[i] = new Queue();
         }
         String name = "AWT-EventQueue-" + nextThreadNum();
-        dispatchThread = new EventDispatchThread(name, 
-                             this.proxy = new EventQueueProxy(this)); // 6261461
+        dispatchThread = EventDispatchThread.create(name, 
+                             this.proxy = new EventQueueProxy(this)); // 6261461 
+        
         dispatchThread.setPriority(Thread.NORM_PRIORITY + 1);
         dispatchThread.start();
     }

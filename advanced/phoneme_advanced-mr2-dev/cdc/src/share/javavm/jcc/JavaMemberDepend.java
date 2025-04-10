@@ -1,7 +1,7 @@
 /*
  * @(#)JavaMemberDepend.java	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -788,20 +788,19 @@ class JavaMemberDepend extends DepgenUtil{
 	}
     }
 
-}
-
-class NeverAccept extends util.ClassnameFilter{
-    public boolean accept( java.io.File dir, String className ){
-	return false;
+    class NeverAccept extends util.ClassnameFilter{
+        public boolean accept( java.io.File dir, String className ){
+            return false;
+        }
     }
-}
 
-class PathPair {
-    String src;
-    String dest;
+    class PathPair {
+        String src;
+        String dest;
 
-    PathPair( String s, String d ){
-	src = s;
-	dest = d;
+        PathPair( String s, String d ){
+            src = s;
+            dest = d;
+        }
     }
 }

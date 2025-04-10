@@ -1,7 +1,7 @@
 #
 # @(#)defs_basis.mk	1.126 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -25,9 +25,9 @@
 #
 
 # Include target specific makefiles first
--include ../$(TARGET_CPU_FAMILY)/defs_basis.mk
--include ../$(TARGET_OS)/defs_basis.mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_basis.mk
+-include $(CDC_CPU_COMPONENT_DIR)/build/$(TARGET_CPU_FAMILY)/defs_basis.mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs_basis.mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_basis.mk
 
 #
 # Assume we are building a qt based implementation of AWT for
@@ -36,7 +36,7 @@
 # check the target-specific makefiles to set this
 #
 AWT_IMPLEMENTATION ?= qt
-AWT_IMPLEMENTATION_DIR ?= ../..
+AWT_IMPLEMENTATION_DIR ?= $(CDC_DIR)
 
 #
 # Include awt implementation makefiles for the profile.
@@ -395,13 +395,13 @@ CLASSLIB_CLASSES += \
         java.awt.event.WindowFocusListener \
 
 # JUMP specific basis classes
-ifeq ($(CVM_INCLUDE_JUMP), true)
+ifeq ($(USE_JUMP), true)
 CLASSLIB_CLASSES += \
-   		sun.mtask.xlet.XletFrame \
-   		sun.mtask.xlet.PXletRunner \
-   		sun.mtask.xlet.PXletStateQueue \
-   		sun.mtask.xlet.PXletManager \
-   		sun.mtask.xlet.PXletContextImpl 
+		sun.mtask.xlet.XletFrame \
+		sun.mtask.xlet.PXletRunner \
+		sun.mtask.xlet.PXletStateQueue \
+		sun.mtask.xlet.PXletManager \
+		sun.mtask.xlet.PXletContextImpl 
 else 
 CLASSLIB_CLASSES += \
                 com.sun.xlet.ixc.ConstantPool \
@@ -415,7 +415,7 @@ CLASSLIB_CLASSES += \
 endif
 
 ifeq ($(EXCLUDE_XLET_RUNNER), false)
-ifeq ($(CVM_INCLUDE_JUMP), false)
+ifeq ($(USE_JUMP), false)
 CLASSLIB_CLASSES += \
 		com.sun.xlet.ToplevelFrame \
 		com.sun.xlet.XletClassLoader \
@@ -533,15 +533,11 @@ CVM_DEMO_CLASSES += \
 	IXCDemo.ixcXlets.serverXlet.PlaneImpl \
 	IXCDemo.ixcXlets.serverXlet.PlaneServer 
 
-ifneq ($(CVM_INCLUDE_JUMP), true)
+ifneq ($(USE_JUMP), true)
 CVM_DEMO_CLASSES += \
 	IXCDemo.IXCMain 
 endif
 
-#
-# Stuff to export. Do this before including defs_foundation.mk
-#
-CVM_INCLUDES 		+= $(PROFILE_INCLUDES)
 
 #
 # Unit Tests
@@ -551,7 +547,7 @@ CVM_TESTCLASSES_SRCDIRS += \
 
 # Include profile specific gunit defs, if it exists
 ifeq ($(CVM_GUNIT_TESTS), true)
--include ../share/defs_$(J2ME_CLASSLIB)_gunit.mk
+-include $(CDC_DIR)/build/share/defs_$(J2ME_CLASSLIB)_gunit.mk
 endif
 
 CVM_TEST_CLASSES += \
@@ -563,4 +559,4 @@ CVM_TEST_CLASSES += \
 # Basis profile sits on top of foundation so we need to include 
 # foundation definitions.
 #
-include ../share/defs_foundation.mk
+include $(CDC_DIR)/build/share/defs_foundation.mk

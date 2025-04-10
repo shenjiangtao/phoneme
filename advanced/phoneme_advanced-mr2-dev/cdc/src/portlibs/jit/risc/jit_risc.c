@@ -1,7 +1,7 @@
 /*
  * @(#)jit_risc.c	1.43 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -64,8 +64,15 @@ CVMJITdoStartOfCodegenRuleAction(CVMJITCompilationContext *con, int ruleno,
                                  const char *description, CVMJITIRNode* node)
 {
     /* Check to see if we need a constantpool dump.  If so, emit the dump
-       with a branch around it: */
-    CVMRISCemitConstantPoolDumpWithBranchAroundIfNeeded(con);
+       with a branch around it. However, don't do this before emitting the
+       first instruction for a basic block. Otherwise the MAP_PC address
+       won't be computed properly (see logic in MAP_PC rule).
+    */
+    if (CVMJITcbufGetLogicalPC(con) !=
+	con->currentCompilationBlock->logicalAddress)
+    {
+	CVMRISCemitConstantPoolDumpWithBranchAroundIfNeeded(con);
+    }
 
     /* The following is intentionally left here to assist in future codegen
        rules debugging needs if necessary: */
@@ -265,6 +272,7 @@ CVMJITcompileGenerateCode(CVMJITCompilationContext* con)
      * code buffer after the stackmaps, so no space will be wasted.
      */
     if (con->numCallees != 0) {
+        CVMassert(CVMglobals.jit.pmiEnabled);
 	con->callees = (CVMMethodBlock**)
 	    CVMJITmemNew(con, JIT_ALLOC_CGEN_OTHER,
 			 (con->numCallees + 1) * sizeof(CVMAddr));
@@ -397,7 +405,7 @@ CVMJITcompileGenerateCode(CVMJITCompilationContext* con)
 		    CVMJITaddCodegenComment((con,
 		        "fallthrough to block L%d, which is "
 			"backward branch target",
-			target->blockID));
+                        CVMJITirblockGetBlockID(target)));
 		    CVMCPUemitBranchNeedFixup(con, target->logicalAddress, 
 					      CVMCPU_COND_AL,
 					      &(target->branchFixupList));

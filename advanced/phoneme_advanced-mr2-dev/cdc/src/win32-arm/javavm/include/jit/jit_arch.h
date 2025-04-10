@@ -1,7 +1,7 @@
 /*
  * @(#)jit_arch.h	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -39,11 +39,18 @@
 #include "javavm/include/jit/jitasmconstants_cpu.h"
 #include "javavm/include/jit/ccm_cpu.h"
 #include "portlibs/jit/risc/include/export/jit_risc.h"
+#include "javavm/include/flushcache_cpu.h"
+
+/* TODO: add iai_opt_config.h like we do for linux-arm. */
 
 /*
- * Trap-based null checking is on for Win32/SARM
+ * Trap-based null checking is on by default for Win32/SARM
  */
+#ifndef WINCE_DISABLE_STATIC_CODECACHE
 #define CVMJIT_TRAP_BASED_NULL_CHECKS
+#else
+#undef CVMJIT_TRAP_BASED_NULL_CHECKS
+#endif
 
 /*
  * Until we figure out how to make exceptions work outside of a
@@ -53,7 +60,15 @@
  * don't work, which would mean that we can't use trap-based
  * checks.
  */
+
+#ifndef WINCE_DISABLE_STATIC_CODECACHE
 #define CVMJIT_HAVE_PLATFORM_SPECIFIC_ALLOC_FREE_CODECACHE
 #define CVMJIT_HAVE_STATIC_CODECACHE
+#else
+#undef CVMJIT_HAVE_PLATFORM_SPECIFIC_ALLOC_FREE_CODECACHE
+#undef CVMJIT_HAVE_STATIC_CODECACHE
+#endif
+
+#define CVMJITflushCache CVMflushCache
 
 #endif /* _WIN32_JIT_sarm_H */

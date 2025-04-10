@@ -1,27 +1,28 @@
 /*
  * @(#)memory_asm_cpu.S	1.13 06/10/10
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -29,6 +30,7 @@
  */
 
 #include "javavm/include/asmmacros_cpu.h"
+#include "javavm/include/porting/endianness.h"
 #include "javavm/include/iai_opt_config.h"
 
 /*
@@ -42,6 +44,7 @@
 
 	ENTRY (CVMARMmemmove8Bit)
 ENTRY1(CVMARMmemmove8Bit)
+LABEL(CVMARMmemmove8BitLocal)
         /*
           r0 = a1 = dest
           r1 = a2 = src
@@ -452,9 +455,17 @@ LABEL(memmove8Bit_alignedWordsTrailingHalfword)
 	/* Can't do strh because the DEST pointer
 	 * is not guaranteed to be half-word aligned.
 	 */
+#if CVM_ENDIANNESS == CVM_BIG_ENDIAN
+	mov	r3, r3, ror #8
+	strb	r3, [DEST], #1
+	mov	r3, r3, ror #24
+	strb	r3, [DEST], #1
+
+#elif CVM_ENDIANNESS == CVM_LITTLE_ENDIAN
 	strb	r3, [DEST], #1
 	mov	r3, r3, lsr #8
 	strb	r3, [DEST], #1
+#endif
 
 LABEL(memmove8Bit_alignedTrailingByte)
         /* Copy the trailing byte if necessary: */
@@ -484,9 +495,17 @@ LABEL(memmove8Bit_alignedLeadingHalfWord)
 	/* Can't do strh because the DEST pointer
 	 * is not guaranteed to be half-word aligned.
 	 */
+#if CVM_ENDIANNESS == CVM_BIG_ENDIAN
+	mov	r3, r3, ror #8
+	strb	r3, [DEST], #1
+	mov	r3, r3, ror #24
+	strgeb	r3, [DEST], #1  /* LENGTH >= 2 */
+
+#elif CVM_ENDIANNESS == CVM_LITTLE_ENDIAN
 	strb	r3, [DEST], #1
 	mov	r3, r3, lsr #8
 	strgeb	r3, [DEST], #1	/* LENGTH >= 2 */
+#endif
         bgt       memmove8Bit_alignedWords
 	BR_REG(lr)	/* Done. */
 
@@ -496,6 +515,17 @@ LABEL(memmove8Bit_unalignedLoop)
          */
         ldr     r3, [SRC], #4
         subs    LENGTH, LENGTH, #4
+#if CVM_ENDIANNESS == CVM_BIG_ENDIAN
+	mov	r3, r3, ror #24
+	strb	r3, [DEST], #1
+	mov	r3, r3, ror #24
+	strb	r3, [DEST], #1
+	mov	r3, r3, ror #24
+	strb	r3, [DEST], #1
+	mov	r3, r3, ror #24
+	strb	r3, [DEST], #1
+
+#elif CVM_ENDIANNESS == CVM_LITTLE_ENDIAN
 	strb	r3, [DEST], #1
 	mov	r3, r3, lsr #8
 	strb	r3, [DEST], #1
@@ -503,6 +533,7 @@ LABEL(memmove8Bit_unalignedLoop)
 	strb	r3, [DEST], #1
 	mov	r3, r3, lsr #8
 	strb	r3, [DEST], #1
+#endif
         bge     memmove8Bit_unalignedLoop
 	b	memmove8Bit_alignedWordsTrailingHalfword /* Loop done */
 
@@ -901,6 +932,7 @@ LABEL(memmove8Bit_copyBackwardLoopDone)
 
 	ENTRY (CVMARMmemmove16Bit)
 ENTRY1(CVMARMmemmove16Bit)
+LABEL(CVMARMmemmove16BitLocal)
         /*
           r0 = a1 = dest
           r1 = a2 = src
@@ -964,9 +996,18 @@ LABEL(memmove16Bit_unalignedLoop)
 	 * DEST pointer however is not. */
 	ldr     r3, [SRC], #4
         subs    LENGTH, LENGTH, #4
+
+#if CVM_ENDIANNESS == CVM_BIG_ENDIAN
+	mov	r3, r3, ror #16
+	strh	r3, [DEST], #2
+	mov	r3, r3, ror #16
+	strh	r3, [DEST], #2
+
+#elif CVM_ENDIANNESS == CVM_LITTLE_ENDIAN
 	strh	r3, [DEST], #2
 	mov	r3, r3, lsr #16
 	strh	r3, [DEST], #2
+#endif
 	bge     memmove16Bit_unalignedLoop
 	b	memmove16Bit_alignedWordsTrailingHalfword	
 
@@ -996,6 +1037,7 @@ LABEL(memmove16Bit_copyBackwardLoopDone)
 
 	ENTRY (CVMARMmemmove32Bit)
 ENTRY1(CVMARMmemmove32Bit)
+LABEL(CVMARMmemmove32BitLocal)
         /*
           r0 = a1 = dest
           r1 = a2 = src

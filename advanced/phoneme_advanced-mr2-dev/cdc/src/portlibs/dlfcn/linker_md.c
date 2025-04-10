@@ -1,7 +1,7 @@
 /*
  * @(#)linker_md.c	1.20 06/10/30
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -27,6 +27,7 @@
 
 #ifdef CVM_DYNAMIC_LINKING
 
+#include "javavm/include/jni_md.h"
 #include "javavm/include/porting/linker.h"
 #include "javavm/include/porting/ansi/stdio.h"
 #include "javavm/include/porting/ansi/string.h"
@@ -45,7 +46,7 @@ CVMdynlinkbuildLibName(char *holder, int holderlen, const char *pname,
     const int pnamelen = pname ? strlen(pname) : 0;
     char *suffix;
 
-#ifdef CVM_DEBUG   
+#if defined(CVM_DEBUG) && (!defined(JAVASE) || JAVASE < 16)
     suffix = "_g";
 #else
     suffix = "";
@@ -58,9 +59,11 @@ CVMdynlinkbuildLibName(char *holder, int holderlen, const char *pname,
     }
 
     if (pnamelen == 0) {
-        sprintf(holder, "lib%s%s.so", fname, suffix);
+        sprintf(holder, "%s%s%s%s", JNI_LIB_PREFIX, fname, suffix,
+		JNI_LIB_SUFFIX);
     } else {
-        sprintf(holder, "%s/lib%s%s.so", pname, fname, suffix);
+        sprintf(holder, "%s/%s%s%s%s", pname, JNI_LIB_PREFIX, fname, suffix,
+		JNI_LIB_SUFFIX);
     }
 }
 
@@ -117,6 +120,18 @@ void
 CVMdynlinkClose(void *dsoHandle)
 {
     dlclose(dsoHandle);
+}
+
+CVMBool
+CVMdynlinkExists(const char *name)
+{
+    void *handle;
+
+    handle = dlopen((const char *) name, RTLD_LAZY);
+    if (handle != NULL) {
+        dlclose(handle);
+    }
+    return (handle != NULL);
 }
 
 #endif /* #defined CVM_DYNAMIC_LINKING */

@@ -1,7 +1,7 @@
 /*
  * @(#)SunToolkit.java	1.34 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -160,10 +160,15 @@ public abstract class SunToolkit extends Toolkit {
     static SoftCache imgCache = new SoftCache();
 
     static synchronized Image getImageFromHash(Toolkit tk, URL url) {
-	SecurityManager sm = System.getSecurityManager();
-	if (sm != null) {
+      
+      // security check is done inside of getImageFromHash(tk, url.getFile());
+      if (url.getProtocol().equals("file")) {
+	   	 return getImageFromHash(tk, url.getFile());
+	   }
+	   SecurityManager sm = System.getSecurityManager();
+	   if (sm != null) {
 	    try {
-		java.security.Permission perm = 
+		    java.security.Permission perm = 
 		    url.openConnection().getPermission();
 		if (perm != null) {
 		    try {

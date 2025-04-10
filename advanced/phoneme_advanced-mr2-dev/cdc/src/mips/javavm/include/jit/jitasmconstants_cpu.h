@@ -1,7 +1,7 @@
 /*
  * @(#)jitasmconstants_cpu.h	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -61,18 +61,32 @@
 
 /*
  * Stack Frame Layout:
+ *
+ * <high mem>
+ * +-------------------
+ * | CCEE             |
+ * +-------------------
+ * | Saved GPRs       |
+ * +-------------------
+ * | Saved FPRs       |
+ * +-------------------
+ * | Outgoing Params  |
+ * +-------------------
+ * <low mem>
+ *
+ * sp points to the first outgoing parameter.
  */
 #define CONSTANT_CStack_NumParameters	8
-#define CONSTANT_CStack_NumGPRs		10
 #define CONSTANT_CStack_NumFPRs		8
+#define CONSTANT_CStack_NumGPRs		11
 
 #define OFFSET_CStack_Parameters	0
-#define OFFSET_CStack_SavedGPRs		\
-    (OFFSET_CStack_Parameters + (CONSTANT_CStack_NumParameters * 4))
 #define OFFSET_CStack_SavedFPRs		\
-    (OFFSET_CStack_Parameters + (CONSTANT_CStack_NumGPRs * 4))
+    (OFFSET_CStack_Parameters + (CONSTANT_CStack_NumParameters * 4))
+#define OFFSET_CStack_SavedGPRs		\
+    (OFFSET_CStack_SavedFPRs + (CONSTANT_CStack_NumFPRs * 4))
 #define OFFSET_CStack_CCEE		\
-    (OFFSET_CStack_SavedGPRs + (CONSTANT_CStack_NumFPRs * 4))
+    (OFFSET_CStack_SavedGPRs + (CONSTANT_CStack_NumGPRs * 4))
 #define CONSTANT_CStack_FrameSize	\
     (OFFSET_CStack_CCEE + CONSTANT_CVMCCExecEnv_size)
 

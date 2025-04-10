@@ -1,7 +1,7 @@
 /*
  * @(#)objsync.c	1.100 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -30,6 +30,9 @@
 #include "javavm/include/localroots.h"
 #include "javavm/include/common_exceptions.h"
 #include "javavm/include/clib.h"
+#ifdef CVM_JVMTI
+#include "javavm/include/jvmtiExport.h"
+#endif
 
 /* NOTES: About CVM object monitors and their life-cycles
    ======================================================
@@ -229,7 +232,7 @@
     sync'ing on the same lock.  The lock currently used for this purpose is
     CVMglobals.syncLock.  The methods are as follows:
         1. CVMobjectInflate()
-        2. CVMobjectSetHashBits()
+        2. CVMobjectSetHashBitsIfNeeded()
         3. CVMfastUnlock()
 
     Assumptions:
@@ -324,7 +327,7 @@ CVMmonEnter(CVMExecEnv *ee, CVMObjMonitor *mon)
 	    */
 	    CVMunboost(ee, mon);
 	    CVMassert(!mon->boost);
-	    CVMprofiledMonitorEnterUnsafe(&mon->mon, ee);
+	    CVMprofiledMonitorEnterUnsafe(&mon->mon, ee, CVM_TRUE);
 	} else {
 	    /* This is the case where we discovered a contended enter and
 	       inflated the monitor.  We therefore need to boost the thread
@@ -335,11 +338,11 @@ CVMmonEnter(CVMExecEnv *ee, CVMObjMonitor *mon)
 	    CVMprofiledMonitorContendedEnterUnsafe(&mon->mon, ee);
 	}
     } else {
-	CVMprofiledMonitorEnterUnsafe(&mon->mon, ee);
+	CVMprofiledMonitorEnterUnsafe(&mon->mon, ee, CVM_TRUE);
     }
     CVMassert(!mon->boost);
 #else
-    CVMprofiledMonitorEnterUnsafe(&mon->mon, ee);
+    CVMprofiledMonitorEnterUnsafe(&mon->mon, ee, CVM_TRUE);
 #endif
 
     ee->objLockCurrent = NULL;
@@ -434,6 +437,14 @@ CVMfastTryLock(CVMExecEnv* ee, CVMObject* obj)
     if (o == NULL) {
 	return CVM_FALSE;
     }
+#ifdef CVM_JVMTI
+    if (CVMjvmtiIsInDebugMode()) {
+        /* just check for an available lockinfo */
+        if (!CVMjvmtiCheckLockInfo(ee)) {
+            return CVM_FALSE;
+        }
+    }
+#endif
 
     /* %comment l006 */
 #ifdef CVM_DEBUG
@@ -516,7 +527,11 @@ CVMfastTryLock(CVMExecEnv* ee, CVMObject* obj)
 
 	o->next = ee->objLocksOwned;
 	ee->objLocksOwned = o;
-
+#ifdef CVM_JVMTI
+	if (CVMjvmtiIsInDebugMode()) {
+	    CVMjvmtiAddLockInfo(ee, NULL, o, CVM_FALSE);
+	}
+#endif
 	return CVM_TRUE;
     }
 
@@ -556,6 +571,11 @@ fast_reentry_failed:
 	    CVMassert(ee->objLocksFreeOwned == o);
             CVMmonitorAttachObjMonitor2OwnedMonitor(ee, mon);
 	}
+#ifdef CVM_JVMTI
+	if (CVMjvmtiIsInDebugMode()) {
+	    CVMjvmtiAddLockInfo(ee, mon, NULL, CVM_FALSE);
+	}
+#endif
 	return CVM_TRUE;
     }
     return CVM_FALSE;
@@ -653,6 +673,11 @@ CVMfastReentryTryLock(CVMExecEnv *ee, CVMObject *obj)
 #error Unknown value for CVM_FASTLOCK_TYPE
 #endif
     }
+#ifdef CVM_JVMTI
+    if (CVMjvmtiIsInDebugMode()) {
+	CVMjvmtiAddLockInfo(ee, NULL, o, CVM_FALSE);
+    }
+#endif
     return CVM_TRUE;
 
 #if CVM_FASTLOCK_TYPE == CVM_FASTLOCK_ATOMICOPS
@@ -1228,9 +1253,9 @@ CVMfastLock(CVMExecEnv* ee, CVMObjectICell* indirectObj)
               how many fast lock reentries have taken place before we got here.
 
            2. While attempting to do a fast lock for the first time on this
-              object, another thread was calling CVMobjectSetHashBits() on the
-              same object.  This caused the fast lock to fail and ended up
-              here even though this thread didn't already have a lock on this
+              object, another thread was calling CVMobjectSetHashBitsIfNeeded()
+              on the same object.  This caused the fast lock to fail and ended
+              up here even though this thread didn't already have a lock on this
               object.  In this case, the CVMprofiledMonitorEnterUnsafe() above
               would be the first lock on the monitor, and a CVMOwnedMonitor
               record hasn't been attached to the CVMObjMonitor yet.  This is
@@ -1243,6 +1268,11 @@ CVMfastLock(CVMExecEnv* ee, CVMObjectICell* indirectObj)
             CVMassert(mon->state == CVM_OBJMON_OWNED);
         }
     }
+#ifdef CVM_JVMTI
+    if (CVMjvmtiIsInDebugMode()) {
+	CVMjvmtiAddLockInfo(ee, mon, NULL, CVM_TRUE);
+    }
+#endif
     return CVM_TRUE;
 }
 
@@ -1268,6 +1298,11 @@ CVMprivateUnlock(CVMExecEnv *ee, CVMObjMonitor *mon)
 
     if (count > 0 && CVMprofiledMonitorGetOwner(&mon->mon) == ee) {
 	CVMassert(mon->state == CVM_OBJMON_OWNED);
+#ifdef CVM_JVMTI
+	if (CVMjvmtiIsInDebugMode()) {
+	    CVMjvmtiRemoveLockInfo(ee, mon, NULL);
+	}
+#endif
 	if (count == 1) {
             CVMOwnedMonitor **prev = &ee->objLocksOwned;
             CVMOwnedMonitor *o = ee->objLocksOwned;
@@ -1502,9 +1537,9 @@ CVMfastTryUnlock(CVMExecEnv* ee, CVMObject* obj)
                 obits0 = CVMatomicCompareAndSwap(&obj->hdr.various32,
                                                  nbits, obits);
                 /* NOTE that we could get here and have a contention with
-                   either CVMobjectInflate() or CVMobjectSetHashBits().  If
-                   contention occurred, the atomicCompareAndSwap will fail and
-                   we abort.  The reentry count stays at 1 because we never
+                   either CVMobjectInflate() or CVMobjectSetHashBitsIfNeeded().
+                   If contention occurred, the atomicCompareAndSwap will fail
+                   and we abort.  The reentry count stays at 1 because we never
                    modified it.  This is as we would want it.
                 */
                 result = (obits0 == obits);
@@ -1526,6 +1561,11 @@ CVMfastTryUnlock(CVMExecEnv* ee, CVMObject* obj)
                    then the CompareAndSwap will fail which means that another
                    thread must be trying to inflate this monitor: */
                 if (oldCount == expectedOldCount) {
+#ifdef CVM_JVMTI
+		    if (CVMjvmtiIsInDebugMode()) {
+			CVMjvmtiRemoveLockInfo(ee, NULL, o);
+		    }
+#endif
                     return CVM_TRUE;
                 }
                 goto fast_failed;
@@ -1561,6 +1601,11 @@ CVMfastTryUnlock(CVMExecEnv* ee, CVMObject* obj)
 		    result = CVM_TRUE;
 		} else {
 		    CVMobjectMicroUnlock(ee, obj);
+#ifdef CVM_JVMTI
+		    if (CVMjvmtiIsInDebugMode()) {
+			CVMjvmtiRemoveLockInfo(ee, NULL, o);
+		    }
+#endif
 		    return CVM_TRUE;
 		}
 	    } else {
@@ -1630,6 +1675,11 @@ CVMfastTryUnlock(CVMExecEnv* ee, CVMObject* obj)
 	    o->u.fast.bits = 0;
 	    o->object = NULL;
 #endif
+#ifdef CVM_JVMTI
+	    if (CVMjvmtiIsInDebugMode()) {
+		CVMjvmtiRemoveLockInfo(ee, NULL, o);
+	    }
+#endif
             /* Add the released CVMOwnedMonitor record back on to the free list: */
 	    o->next = ee->objLocksFreeOwned;
 	    ee->objLocksFreeOwned = o;
@@ -1692,8 +1742,8 @@ CVMfastUnlock(CVMExecEnv* ee, CVMObjectICell* indirectObj)
        Unlock() to fail is reason 1.
 
        Acquiring CVMglobals.syncLock ensures that we cannot be interrupted by
-       CVMobjectInflate() or CVMobjectSetHashBits().  This eliminates reason 2
-       from interfering with TryUnlock().  Hence, after acquiring
+       CVMobjectInflate() or CVMobjectSetHashBitsIfNeeded().  This eliminates
+       reason 2 from interfering with TryUnlock().  Hence, after acquiring
        CVMglobals.syncLock, we can call upon TryUnlock() to do the work of
        Unlock().
     */
@@ -1827,6 +1877,8 @@ CVMprivateWait(CVMExecEnv* ee, CVMObjectICell* indirectObj,
 	if (waitStatus != CVM_WAIT_OK) {
 	    CVMassert(waitStatus == CVM_WAIT_INTERRUPTED);
 	    CVMthrowInterruptedException(ee, "operation interrupted");
+	    /* Clear interrupted state */
+	    ee->threadState &= ~CVM_THREAD_INTERRUPTED;
 	}
     }
 
@@ -1898,6 +1950,15 @@ CVMdetTryLock(CVMExecEnv* ee, CVMObject* obj)
     if (ee->objLocksFreeOwned != NULL) {
 	CVMObjMonitor *mon = CVMobjMonitor(obj);
 
+#ifdef CVM_JVMTI
+	if (CVMjvmtiIsInDebugMode()) {
+	    /* just check for an available lockinfo */
+	    if (!CVMjvmtiCheckLockInfo(ee)) {
+		return CVM_FALSE;
+	    }
+	}
+#endif
+
 	CVMtraceDetLock(("detTryLock(%x,%x)\n", ee, obj));
 	CVMassert(CVMobjMonitorState(obj) == CVM_LOCKSTATE_MONITOR);
 
@@ -1908,7 +1969,11 @@ CVMdetTryLock(CVMExecEnv* ee, CVMObject* obj)
         if (CVMprofiledMonitorGetCount(&mon->mon) == 1) {
             CVMmonitorAttachObjMonitor2OwnedMonitor(ee, mon);
 	}
-
+#ifdef CVM_JVMTI
+	if (CVMjvmtiIsInDebugMode()) {
+	    CVMjvmtiAddLockInfo(ee, mon, NULL, CVM_FALSE);
+	}
+#endif
 	return CVM_TRUE;
     }
     return CVM_FALSE;
@@ -1982,7 +2047,11 @@ CVMdetLock(CVMExecEnv* ee, CVMObjectICell* indirectObj)
     } else {
 	CVMassert(mon->state == CVM_OBJMON_OWNED);
     }
-
+#ifdef CVM_JVMTI
+    if (CVMjvmtiIsInDebugMode()) {
+	CVMjvmtiAddLockInfo(ee, mon, NULL, CVM_TRUE);
+    }
+#endif
     return CVM_TRUE;
 }
 
@@ -2866,11 +2935,12 @@ CVMeeSyncDestroyGlobal(CVMExecEnv *ee, CVMGlobalState *gs)
 }
 
 /* Purpose: Sets the hash value in an inflated object monitor. */
-/* NOTE: Only called by CVMobjectSetHashBits() while GC unsafe.  Must not
-         become GC safe. */
+/* NOTE: Only called by CVMobjectSetHashBitsIfNeeded() while GC unsafe.  Must
+         not become GC safe. */
 static CVMInt32
-CVMobjectSetHashBitsInInflatedMonitor(CVMExecEnv *ee, CVMObject *directObj,
-                                      CVMUint32 hashValue)
+CVMobjectSetHashBitsInInflatedMonitorIfNeeded(CVMExecEnv *ee,
+					      CVMObject *directObj,
+					      CVMUint32 hashValue)
 {
     CVMObjMonitor *mon = CVMobjMonitor(directObj);
     CVMassert(CVMD_isgcUnsafe(ee));
@@ -2893,8 +2963,8 @@ CVMobjectSetHashBitsInInflatedMonitor(CVMExecEnv *ee, CVMObject *directObj,
 
 /* NOTE: Only called while in a GC unsafe state. */
 static CVMInt32
-CVMobjectSetHashBits(CVMExecEnv *ee, CVMObjectICell* indirectObj,
-		     CVMUint32 hashValue)
+CVMobjectSetHashBitsIfNeeded(CVMExecEnv *ee, CVMObjectICell* indirectObj,
+			     CVMUint32 hashValue)
 {
     CVMAddr bits;
 
@@ -2905,7 +2975,7 @@ CVMobjectSetHashBits(CVMExecEnv *ee, CVMObjectICell* indirectObj,
     {
         CVMObject *obj = CVMID_icellDirect(ee, indirectObj);
         if (CVMobjMonitorState(obj) == CVM_LOCKSTATE_MONITOR) {
-            hashValue = CVMobjectSetHashBitsInInflatedMonitor(ee, obj,
+            hashValue = CVMobjectSetHashBitsInInflatedMonitorIfNeeded(ee, obj,
                             hashValue);
             return hashValue;
         }
@@ -2925,7 +2995,7 @@ CVMobjectSetHashBits(CVMExecEnv *ee, CVMObjectICell* indirectObj,
         /* If we're here, then another thread has inflated the monitor: */
 
         CVMObject *obj = CVMID_icellDirect(ee, indirectObj);
-        hashValue = CVMobjectSetHashBitsInInflatedMonitor(ee, obj,
+        hashValue = CVMobjectSetHashBitsInInflatedMonitorIfNeeded(ee, obj,
                         hashValue);
     } else {
 
@@ -2947,6 +3017,32 @@ CVMobjectSetHashBits(CVMExecEnv *ee, CVMObjectICell* indirectObj,
         obits = obj->hdr.various32;
 #endif
 
+	/* Normally, "ROMized objects" are writable, as they are exposed
+	 * to synchronization code which requires you to write into object
+	 * headers.  These ROMized objects would all have their hashcodes
+	 * set during preloader initialization.  Hence, we'll never need to
+	 * set them below.
+	 *
+	 * There are some exceptional cases of ROMized objects that do not
+	 * have their hashcode set by the preloader.  These include the
+	 * shared char[] that comprises the body of ROMized String's, and
+	 * also the various CharacterData internal arrays.  These objects
+	 * are immutable and are not visible to application code.  Hence,
+	 * no one will be able to get a hold of them to ask for a hashcode.
+	 *
+	 * The only case where we could ask for a hashcode on those
+	 * exceptional ROMized objects is from VM debugging code.  However,
+	 * VM code will never (and cannot) lock those objects.  Hence, their
+	 * hashValues will have been fetched by CVMobjectGetHashNoSet() and
+	 * we should never get to this point.  CVMobjectGetHashNoSet() will
+	 * return the address of these ROMized objects as their hashcode,
+	 * without touching their headers.
+	 *
+	 * We assert below that the object is not a ROMized before setting
+	 * its hashcode value to make sure that this assumption hasn't
+	 * changed.
+	 */
+
         if (CVMhdrBitsSync(obits) == CVM_LOCKSTATE_LOCKED) {
             /* If we're here, then the object has been locked using the fast
                lock mechanism.  Hence, the hash value will have to be set in
@@ -2960,7 +3056,8 @@ CVMobjectSetHashBits(CVMExecEnv *ee, CVMObjectICell* indirectObj,
             CVMassert(o->type == CVM_OWNEDMON_FAST);
 
             if (h == CVM_OBJECT_NO_HASH) {
-                CVMhdrSetHashCode(o->u.fast.bits, hashValue);
+		CVMassert(!CVMobjectIsInROM(obj));
+		CVMhdrSetHashCode(o->u.fast.bits, hashValue);
             } else {
                 hashValue = h;
             }
@@ -2970,7 +3067,8 @@ CVMobjectSetHashBits(CVMExecEnv *ee, CVMObjectICell* indirectObj,
 
             CVMUint32 h = CVMhdrBitsHashCode(obits);
             if (h == CVM_OBJECT_NO_HASH) {
-                CVMhdrSetHashCode(obits, hashValue);
+		CVMassert(!CVMobjectIsInROM(obj));
+		CVMhdrSetHashCode(obits, hashValue);
             } else {
                 hashValue = h;
             }
@@ -2990,7 +3088,8 @@ CVMobjectSetHashBits(CVMExecEnv *ee, CVMObjectICell* indirectObj,
            value in the object header: */
         CVMUint32 h = CVMhdrBitsHashCode(obj->hdr.various32);
         if (h == CVM_OBJECT_NO_HASH) {
-            CVMhdrSetHashCode(obj->hdr.various32, hashValue);
+	    CVMassert(!CVMobjectIsInROM(obj));
+	    CVMhdrSetHashCode(obj->hdr.various32, hashValue);
         } else {
             hashValue = h;
         }
@@ -3028,42 +3127,13 @@ CVMobjectComputeHash(CVMExecEnv *ee, CVMObjectICell* indirectObj)
     } while (hashVal == CVM_OBJECT_NO_HASH);
 
     CVMD_gcUnsafeExec(ee, {
-	CVMObject *directObj = CVMID_icellDirect(ee, indirectObj);
-	/*
-	 * If this is a ROM object, normally its hash value is already set
-	 * up when the preloader is initialized.  Hence, we will usually
-	 * not get here at all for ROMized objects.  However, there are a
-	 * few exceptions.  For those, just return its address as its hash
-	 * value.  That is guaranteed to never change because the GC will
-	 * never relocate a ROMized object.
-	 *
-	 * Normally, "ROMized objects" are writable, as they are exposed
-	 * to synchronization code which requires you to write into object
-	 * headers. The one notable exception is the shared char[] that
-	 * comprises the body of ROMized String's. This char[] is
-	 * immutable and not visible to application code, and so cannot be
-	 * locked by anybody, and so does not have to be made
-	 * writable. Except when we need a hash code for the char[], say
-	 * when tracing instructions. So return the address of ROMized
-	 * objects as their hashcode, without touching their header.
-	 */
-	if (CVMobjectIsInROM(directObj)) {
-	    /*
-	     * java.lang.Object.hashCode is a jint so it simply
-	     * makes no sense to try to preserve more than 32 bits here
-	     * in the case of a 64-bit port.
-	     *
-	     * Probably we could do something more sophisticated than just
-	     * cutting off the top bits like shifting right three bits to
-	     * get rid of always zero bits due to the 8 byte alignment...
-	     */
-	    hashVal = (CVMInt32)(CVMAddr)directObj;
-	} else {
-	    hashVal = CVMobjectSetHashBits(ee, indirectObj, hashVal);
-	    /* The hash bits need to be combined with the cb bits to make a
-	       complete 32-bit hashcode: */
-	    hashVal = HASH_WITH_CB_BITS(CVMobjectGetClass(directObj), hashVal);
-	}
+	CVMObject *directObj;
+
+	hashVal = CVMobjectSetHashBitsIfNeeded(ee, indirectObj, hashVal);
+	/* The hash bits need to be combined with the cb bits to make a
+	   complete 32-bit hashcode: */
+	directObj = CVMID_icellDirect(ee, indirectObj);
+	hashVal = HASH_WITH_CB_BITS(CVMobjectGetClass(directObj), hashVal);
     });
     return hashVal;
 }
@@ -3187,6 +3257,15 @@ CVMobjectGetHashNoSet(CVMExecEnv *ee, CVMObject* directObj)
 	/* The hash bits needs to be combined with the cb bits to make a
 	   complete 32-bit hashcode: */
 	hash = HASH_WITH_CB_BITS(CVMobjectGetClass(directObj), hash);
+    } else {
+	/* This is to handle some exceptional cases of ROMized objects whose
+	   hash values are not set.  The normal cases of ROMized objects would
+	   have their hashcode values already set during preloader
+	   initialization.
+	*/
+	if (CVMobjectIsInROM(directObj)) {
+	    hash = (CVMUint32)CVMobjectGetClassWord(directObj);
+	}
     }
     return hash;
 }
@@ -3314,14 +3393,18 @@ CVMgcSafeObjectNotifyAll(CVMExecEnv *ee, CVMObjectICell *o)
 void
 CVMobjectMicroLock(CVMExecEnv *ee, CVMObject *obj)
 {
-    CVMassert(CVMD_isgcUnsafe(ee) && ++ee->microLock == 1);
+    CVMassert((CVMD_isgcUnsafe(ee) || CVMgcIsGCThread(ee) ||
+               CVMsysMutexIAmOwner((ee), &CVMglobals.heapLock)) &&
+              ++ee->microLock == 1);
     CVMobjectMicroLockImpl(obj);
 }
 
 void
 CVMobjectMicroUnlock(CVMExecEnv *ee, CVMObject *obj)
 {
-    CVMassert(CVMD_isgcUnsafe(ee) && --ee->microLock == 0);
+    CVMassert((CVMD_isgcUnsafe(ee) || CVMgcIsGCThread(ee) ||
+               CVMsysMutexIAmOwner((ee), &CVMglobals.heapLock)) &&
+              --ee->microLock == 0);
     CVMobjectMicroUnlockImpl(obj);
 }
 #endif

@@ -1,7 +1,7 @@
 /*
  * @(#)constantpool.c	1.53 06/10/22
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -420,7 +420,7 @@ CVMprivate_cpResolveEntryFromClass(CVMExecEnv* ee,
 	}
 
 	if (!CVMcbCheckRuntimeFlag(resolvedCb, LINKED)) {
-	    if (!CVMclassLink(ee, resolvedCb)) {
+	    if (!CVMclassLink(ee, resolvedCb, CVM_FALSE)) {
 		return CVM_FALSE;
 	    }
 	}
@@ -698,7 +698,7 @@ CVMcpResolveMethodref(CVMExecEnv* ee,
     CVMInt32 access;
 
 #undef IsProtected
-#define IsProtected(x)	((x) & CVM_METHOD_ACC_PROTECTED)
+#define IsProtected(x)	CVMmemberPPPAccessIs((x), METHOD, PROTECTED)
 
     /*
      * The method must not be a method of an interface class.
@@ -773,7 +773,7 @@ CVMcpResolveMethodref(CVMExecEnv* ee,
 	(cb == CVMsystemClass(java_lang_Object)) &&
 	CVMtypeidIsArray(CVMcbClassName(methodCb))) {
       CVMassert(IsProtected(access));
-      access &= ~CVM_METHOD_ACC_PROTECTED;
+      access &= ~CVM_MEMBER_PPP_MASK;
       access |= CVM_METHOD_ACC_PUBLIC;
     }
 

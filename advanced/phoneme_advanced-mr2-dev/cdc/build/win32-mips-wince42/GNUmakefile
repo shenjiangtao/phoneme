@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -41,7 +41,7 @@ LINKEXE_ARCH_FLAGS	= \
 	/subsystem:windowsce,4.20 /MACHINE:MIPSFPU /stack:0x010000
 
 # Description of the VC win32 platform.
-# The following are all for the benefit of win32/defs.mk
+# The following are all for the benefit of win32/wince_defs.mk
 PLATFORM		= wince42
 PLATFORM_OS		= wce420
 PLATFORM_INCLUDE_DIRS	= Include/Mipsiv_fp mfc/include atl/include

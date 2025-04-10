@@ -1,7 +1,7 @@
 /*
  * @(#)ccmglue_cpu.S	1.33 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -36,6 +36,16 @@
 #include "javavm/include/jit/jitasmconstants.h"
 #include "javavm/include/porting/jit/jit.h"
 #include "javavm/include/sync.h"
+
+        /* Monitor enter/exit code may post an event which will
+         * push a JNI local frame on the stack.  Need to have frame->TOS
+         * consistent with JSP
+         */
+#ifdef CVM_JVMTI
+#define FLUSH_TOS	sw	JSP, OFFSET_CVMFrame_topOfStack(JFP)
+#else
+#define FLUSH_TOS
+#endif
 
 /*
  * Make a pc-relative branch instruction. Used for patching and instruction
@@ -129,10 +139,27 @@ ENTRY ( CVMCCMruntimeCheckCastGlue )
 	li	a3, ~3
 	and	a1, a1, a3	# mask off low bits of object cb
 	/* see if guess is correct */
-	bne	a0, a1, call_checkcast_helper
+	bne	a0, a1, inline_superclass_checkcast
 1:
 	move	v0, a0
 	jr	ra		# return, null or same as last successful cast
+
+inline_superclass_checkcast:
+/* IAI - 21 */
+#if defined(IAI_FAST_ASSIGNABLE_CHECKING) && !defined(CVM_AOT)
+	/* Before calling helper, do a quick inline check cast. 
+	 * Compare the cast cb with current object's class, super class, 
+         * super super class ...  until to the super class is NULL.
+         */
+ 	move 	v0, a1   /* v0 = object.cb */
+
+FASTCHECKING1:
+	bne	a2, v0, 1f  /* cast cb != object.cb */
+	sw	a1, -4(ra)  /* save the matched cb into cache */
+	jr	ra          /* match, so return */
+1:	lw	v0, OFFSET_CVMClassBlock_superClassCb(v0) /* load super class*/
+	bne	v0, zero, FASTCHECKING1 /* if superCb not NULL then continue */
+#endif /* IAI_FAST_ASSIGNABLE_CHECKING */
 
 call_checkcast_helper:
 	/* need to call the helper */
@@ -159,13 +186,33 @@ ENTRY ( CVMCCMruntimeInstanceOfGlue )
 	lw	a0, -4(ra)	# load the guess cb
 	li	a3, ~3
 	and	a1, a1, a3	# mask off low bits of object cb
-	bne	a0, a1, 2f	# see if guess is correct
-	li	a0, 1		# return TRUE if equal
+        /* see if guess is correct */
+	bne	a0, a1, inline_superclass_instanceof
+	li	v0, 1		# return TRUE if equal
+	jr	ra
 1:
 	move	v0, a0
 	jr	ra
 
-2:
+inline_superclass_instanceof:
+/* IAI - 21 */
+#if defined(IAI_FAST_ASSIGNABLE_CHECKING) && !defined(CVM_AOT)
+	/* Before calling helper, do a quick inline check cast. 
+	 * Compare the cast cb with current object's class, super class, 
+         * super'super class ...  until to the super class is NULL.
+         */
+ 	move 	a0, a1   /* a0 = object.cb */
+
+FASTCHECKING2:
+	bne	a2, a0, 2f  /* cast cb != object.cb */
+	li	v0, 1       /* return TRUE if a match is fine */
+	sw	a1, -4(ra)  /* save the matched cb into cache */
+	jr	ra          /* match, so return */
+2:	lw	a0, OFFSET_CVMClassBlock_superClassCb(a0) /* load super class*/
+	bne	a0, zero, FASTCHECKING2 /* if superCb not NULL then continue */
+#endif /* IAI_FAST_ASSIGNABLE_CHECKING */
+
+
 	/* need to call the helper */
 	/*
 	 * a1 = objectCb
@@ -435,7 +482,7 @@ ENTRY ( CVMCCMruntimeLookupInterfaceMBGlue )
         /* ointerfaceCount = ocb->interfacesX->interfaceCountX; */ 
         lhu    a0, OFFSET_CVMInterfaces_interfaceCountX(OINTERFACES)
 
-#define GUESS   v0 
+#define GUESS   v1
         lw	GUESS, -4(ra)		# load guess value
         sltu	t0, GUESS, a0		# cmp guess and ointerfaceCount
 	/* if guess >= ointerfaceCount, invalid */
@@ -446,7 +493,6 @@ ENTRY ( CVMCCMruntimeLookupInterfaceMBGlue )
 	addu	GUESS, GUESS, OINTERFACES
 	/* target ICB = ointerfaces.itable[guess].interfaceCb */
         lw	t0, OFFSET_CVMInterfaces_itable(GUESS)
-#undef GUESS
 
 #ifdef CVM_METHODBLOCK_HAS_CB
         lw     v0, OFFSET_CVMMethodBlock_cbX(INTERFACE_MB) # get icb
@@ -485,13 +531,9 @@ ENTRY ( CVMCCMruntimeLookupInterfaceMBGlue )
         lw     SOURCE_MB_IDX, OFFSET_CVMMethodBlock_codeX(INTERFACE_MB)
 
 #define TARGET_METHODTABLE_INDICES jp
-#define GUESS v0
         /* Target methodTableIndices = 
                 ocb->interfacesX.itable[guess].methodTableIndicesX;
         */
-        lw	GUESS, -4(ra)	# load guess value
-        sll     GUESS, GUESS, CONSTANT_LOG2_CVMInterfaceTable_SIZE
-	addu	GUESS, GUESS, OINTERFACES
 	lw	TARGET_METHODTABLE_INDICES, OFFSET_CVMInterfaces_itable0_intfInfoX(GUESS)
 #undef GUESS
 #undef OINTERFACES
@@ -535,6 +577,7 @@ ENTRY ( CVMCCMruntimeMonitorEnterGlue )
 	 * If you just want to call the C helper and write very little
 	 * assembler code, then just the following.
 	 */
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 #endif
 
@@ -650,6 +693,7 @@ _monenterFastRetryFailed:
 _monenterFastReentryFailed:
 _monenterRecordNotAvailable:
         /* Let C helper do the hard stuff: */
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 	
 #undef OBJ
@@ -807,6 +851,7 @@ _monenterRecordNotAvailable:
         sw	v0, 0(MICROLOCK)
 
         /* Load the ccee. The obj arg is already loaded. */
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorEnter)
 
 #undef MICROLOCK
@@ -830,6 +875,7 @@ ENTRY ( CVMCCMruntimeMonitorExitGlue )
 	#
 	# If you just want to call the C helper and write very little assembler
 	# code, then just the following.
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 #endif
 
@@ -940,6 +986,7 @@ _monexitFastTryUnlockFoundPrevLockRecord:
 
 _monexitFastTryUnlockFailed:
         /* Let C helper do the hard stuff: */
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 
 #undef OBJ
@@ -955,6 +1002,7 @@ _monexitFastTryUnlockFailed:
 	/* TODO: if CVM_MICROLOCK_TYPE == CVM_MICROLOCK_SCHEDLOCK, then
 	 * use CVMschedLock for locking. For now, just defer to C */
 	mflr	r7
+        FLUSH_TOS
 	CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 #else
         /* CVM_MICROLOCK_SWAP_SPINLOCK version of monitorenter: */
@@ -1108,6 +1156,7 @@ _monexitFastTryUnlockFailed:
 
         /* Let C helper do the hard stuff: */
         /* Load the ccee. The obj arg is already loaded. */
+        FLUSH_TOS
         CALL_HELPER_AND_PASS_EE(CVMCCMruntimeMonitorExit)
 
 #undef OBJ

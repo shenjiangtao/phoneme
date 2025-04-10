@@ -1,7 +1,7 @@
 /*
  * @(#)QtComponentPeer.java	1.44 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -191,6 +191,8 @@ abstract class QtComponentPeer implements ComponentPeer, UpdateClient,
 	
     public void	print(Graphics g) { }
 	
+    public void	clearBackground(Graphics g) { }
+
     public void	setBounds(int x, int y, int width, int height)
     {
 	// Fix for 4744238.  Let a set size attempt of 0x0 go through but guard

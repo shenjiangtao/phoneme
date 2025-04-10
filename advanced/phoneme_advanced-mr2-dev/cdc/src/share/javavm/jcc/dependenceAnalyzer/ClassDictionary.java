@@ -1,7 +1,7 @@
 /*
  * @(#)ClassDictionary.java	1.14 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -83,12 +83,12 @@ class ClassDictionary {
     ClassInfo findClassInfo( String cname ){
 	InputStream fin = finder.findClassFile( cname );
 	if ( fin == null ) return null;
-	ClassFile f = new ClassFile( cname, fin, false );
-	if ( ! f.readClassFile( null )){
-	    f.dump(System.err);
+	ClassFile cfile = new ClassFile( cname, fin, false );
+	if ( ! cfile.readClassFile()){
+	    cfile.dump(System.err);
 	    return null;
 	}
-	return f.clas;
+	return cfile.cinfo;
     }
 
     /*

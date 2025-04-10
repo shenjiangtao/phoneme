@@ -1,7 +1,7 @@
 /*
  * @(#)io_util.h	1.27 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -38,9 +38,12 @@
  * within the scope in which they're used.
  */
 #define SET_FD(fd, fid) (*env)->SetIntField(env, \
-		    (*env)->GetObjectField(env, thisObj, fid),JNI_STATIC(java_io_FileDescriptor, IO_fd_fdID), fd)
+	                    (*env)->GetObjectField(env, thisObj, (fid)), \
+			    JNI_STATIC(java_io_FileDescriptor, IO_fd_fdID), fd)
+
 #define GET_FD(fid) (*env)->GetIntField(env, \
-		    (*env)->GetObjectField(env, thisObj, fid), JNI_STATIC(java_io_FileDescriptor, IO_fd_fdID))
+			 (*env)->GetObjectField(env, thisObj, (fid)), \
+			 JNI_STATIC(java_io_FileDescriptor, IO_fd_fdID))
 
 
 /*

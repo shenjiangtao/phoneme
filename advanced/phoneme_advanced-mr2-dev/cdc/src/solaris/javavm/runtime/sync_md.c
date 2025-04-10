@@ -1,7 +1,7 @@
 /*
  * @(#)sync_md.c	1.39 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -26,6 +26,7 @@
 
 #include "javavm/include/porting/sync.h"
 #include "javavm/include/porting/threads.h"
+#include "javavm/include/porting/float.h"	/* for setFPMode() */
 #include "javavm/include/porting/globals.h"
 #include <thread.h>
 #include <synch.h>
@@ -35,6 +36,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef CVM_JVMTI
+#include "javavm/include/globals.h"
+#include "javavm/include/jvmtiExport.h"
+#endif
 #ifdef CVM_JVMPI
 #include "javavm/include/globals.h"
 #endif
@@ -357,10 +362,15 @@ static void sigfunc1(int sig)
     }
 }
 
-#ifdef CVM_JVMPI
+#if defined(CVM_JVMPI) || defined(CVM_JVMTI)
 void sigquitHandler(int sig)
 {
+#ifdef CVM_JVMPI
     CVMjvmpiSetDataDumpRequested();
+#endif
+#ifdef CVM_JVMTI
+    CVMjvmtiSetDataDumpRequested();
+#endif
 }
 #endif
 
@@ -436,7 +446,7 @@ CVMcondvarWait(CVMCondVar* c, CVMMutex* m, CVMJavaLong millis)
 #ifdef SOLARIS_ACQUIRES_LOCK_BEFORE_CALLING_HANDLER
     POSIXmutexLock(&m->pmtx);
 #endif
-
+    setFPMode();
     return result;
 }
 
@@ -507,7 +517,7 @@ solarisSyncInit(void)
     sigemptyset(&CVMtargetGlobals->sigusr2Mask);
     sigaddset(&CVMtargetGlobals->sigusr2Mask, SIGUSR2);
 
-#ifdef CVM_JVMPI
+#if defined(CVM_JVMPI) || defined(CVM_JVMTI)
     sa.sa_handler = sigquitHandler;
     sa.sa_flags = SA_RESTART;
     sigemptyset(&sa.sa_mask);

@@ -1,7 +1,5 @@
 /*
- * @(#)inspector.c	1.5 06/10/10
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -30,8 +28,14 @@
 
 #include "javavm/include/objects.h"
 #include "javavm/include/classes.h"
+#include "javavm/include/gc_common.h"
 #include "javavm/include/inspector.h"
 #include "javavm/include/indirectmem.h"
+#ifdef CVM_JIT
+#include "javavm/include/jit_common.h"
+#endif
+
+#include "native/common/jni_util.h"
 
 #include "generated/offsets/java_lang_String.h"
 #ifdef CVM_CLASSLOADING
@@ -260,6 +264,7 @@ CVMgcDumpReferencesObjectCallback(CVMObject *obj, CVMClassBlock *cb,
     CVMExecEnv *ee = CVMgetEE();
     CVMObject *targetObj = (CVMObject *) data;
     CVMGCOptions gcOpts = {
+	/* isUpdatingObjectPointers */ CVM_FALSE,
         /* discoverWeakReferences   */ CVM_FALSE,
         /* isProfilingPass          */ CVM_TRUE
     };
@@ -285,6 +290,7 @@ static void CVMgcDumpReferences(CVMObject *obj)
 {
     CVMExecEnv *ee = CVMgetEE();
     CVMGCOptions gcOpts = {
+	/* isUpdatingObjectPointers */ CVM_FALSE,
         /* discoverWeakReferences   */ CVM_FALSE,
         /* isProfilingPass          */ CVM_TRUE
     };
@@ -307,6 +313,7 @@ static void CVMgcDumpGCRoots(CVMObject *obj)
 {
     CVMExecEnv *ee = CVMgetEE();
     CVMGCOptions gcOpts = {
+	/* isUpdatingObjectPointers */ CVM_FALSE,
         /* discoverWeakReferences   */ CVM_FALSE,
         /* isProfilingPass          */ CVM_TRUE
     };
@@ -317,7 +324,7 @@ static void CVMgcDumpGCRoots(CVMObject *obj)
     CVMconsolePrintf("List of references to object 0x%x (%C):\n",
                      obj, CVMobjectGetClass(obj));
 
-    /* FIXME:
+    /* TODO:
        this is where we have to set up data structures to track the
        references so that we can traverse each reverse reference. */
 
@@ -474,11 +481,7 @@ static void CVMgcClassReferencesDump(CVMExecEnv *ee, void *data)
     newClazzname = malloc(length);
     strcpy(newClazzname, clazzname);
     p = newClazzname;
-    p = strchr(p, '.');
-    while (p != NULL) {
-        *p++ = '/';
-        p = strchr(p, '.');
-    }
+    VerifyFixClassname(newClazzname);
 
     /* Look up the classID for the specified class: */
     clazznameID = CVMtypeidLookupClassID(ee, newClazzname, (int)length - 1);
@@ -1870,6 +1873,17 @@ void CVMdumpObjectGCRoots(CVMObject *obj)
             CVMgcDumpObjectGCRoots(obj);
         });
     }
+}
+
+/* Purpose: Dumps misc system informaion. */
+void CVMdumpSysInfo()
+{
+    CVMconsolePrintf("CVM Configuration:\n");
+    CVMdumpGlobalsSubOptionValues();
+    CVMgcDumpSysInfo();
+#ifdef CVM_JIT
+    CVMjitDumpSysInfo();
+#endif
 }
 
 #endif /* CVM_INSPECTOR */

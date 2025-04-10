@@ -1,7 +1,7 @@
 /*
  * @(#)UNIXProcess_md.c	1.67 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -246,6 +246,9 @@ Java_java_lang_UNIXProcess_waitForProcessExit(JNIEnv* env,
 
 int closeDescriptors()
 {
+#ifdef NO_PROC_FILESYSTEM
+    return 0;
+#else
     DIR *dp;
     struct dirent *dirp;
     char procdir[20];
@@ -268,6 +271,7 @@ int closeDescriptors()
     }
     closedir(dp);
     return 1;
+#endif
 }
 
 JNIEXPORT jint JNICALL

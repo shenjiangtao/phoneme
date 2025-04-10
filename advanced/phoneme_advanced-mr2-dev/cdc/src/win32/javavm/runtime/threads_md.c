@@ -1,7 +1,7 @@
 /*
  * @(#)threads_md.c	1.24 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -58,22 +58,24 @@ getpc(struct _EXCEPTION_POINTERS *ep, DWORD *addr)
 DWORD WINAPI
 start_func( void *a)
 {
-DWORD code, pc, addr;
-__try {
-    void **arglist = (void **)a;
-    void (*func)(void *)= (void *)arglist[0];
-    void *arg = arglist[1];
+    DWORD code = 0, pc = 0, addr = 0;
+    __try {
+        void **arglist = (void **)a;
+        void (*func)(void *)= (void *)arglist[0];
+        void *arg = arglist[1];
 
-    free(arglist);
-    (*func)(arg);
-    return 0;
-} __except ((code = _exception_code()), (pc = getpc(_exception_info(), &addr)), EXCEPTION_EXECUTE_HANDLER) {
-    CVMconsolePrintf("Thread died with exception %x at pc %x addr %x\n",
-	code, pc, addr);
-    CVMabort();
-    DebugBreak();
-    return _exception_code();
-}
+        free(arglist);
+        (*func)(arg);
+        return 0;
+    } __except ((code = _exception_code()),
+                (pc = getpc(_exception_info(), &addr)),
+                EXCEPTION_EXECUTE_HANDLER) {
+        CVMconsolePrintf("Thread died with exception %x at pc %x addr %x\n",
+                         code, pc, addr);
+        CVMabort();
+        DebugBreak();
+        return _exception_code();
+    }
 }
 
 /*
@@ -131,10 +133,10 @@ CVMthreadCreate(CVMThreadID *tid, CVMSize stackSize, CVMInt32 priority,
 			(void *)arglist, CREATE_SUSPENDED, &tid->id);
     if (thrid == 0) {
 #ifdef CVM_DEBUG
-{
-    DWORD err = GetLastError();
-    CVMconsolePrintf("CreateThread failed with error %d\n", err);
-}
+	{
+	    DWORD err = GetLastError();
+	    CVMconsolePrintf("CreateThread failed with error %d\n", err);
+	}
 #endif
 	free(arglist);
 	return CVM_FALSE;

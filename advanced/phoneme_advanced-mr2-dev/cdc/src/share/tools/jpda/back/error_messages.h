@@ -1,7 +1,7 @@
 /*
  * @(#)error_messages.h	1.15 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -35,7 +35,7 @@
                 LOG_ERROR(args), \
                 error_message args )
 
-void print_message(FILE *fp, const char *prefix,  const char *suffix,
+void print_message(int fd, const char *prefix,  const char *suffix,
                    const char *format, ...);
 void error_message(const char *, ...);
 void tty_message(const char *, ...);
@@ -47,7 +47,7 @@ const char * jdwpErrorText(jdwpError);
 
 #define EXIT_ERROR(error,msg) \
         { \
-                print_message(stderr, "JDWP exit error ", "\n", \
+            print_message(fileno(stderr), "JDWP exit error ", "\n",     \
                         "%s(%d): %s [%s:%d]", \
                         jvmtiErrorText((jvmtiError)error), error, (msg==NULL?"":msg), \
                         __FILE__, __LINE__); \

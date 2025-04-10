@@ -46,9 +46,16 @@ public class GameMap {
     static private DisplayAccess displayAccess;
 
     /**
-     * Map contains pairs of GameCanvas and GameCanvasLFImpl
+     * The GraphicsAccess tunnel instance handed out from
+     * javax.microedition.lcdui package 
      */
-    private static Hashtable table = new Hashtable();
+    static private GraphicsAccess graphicsAccess;
+
+    /**
+     * The GameAccess tunnel instance handed out from
+     * javax.microedition.lcdui.game package
+     */
+    static private GameAccess gameAccess;
 
     /**
      * Lock to ensure synchronized access to the displayable
@@ -56,65 +63,77 @@ public class GameMap {
     static final private Object lock = new Object();
 
     /**
-     * Associate the given Displayable and DisplayAccess.  This is a
+     * Associates the given Displayable and DisplayAccess.  This is a
      * one-way association.
      *
      * @param c The GameCanvas to store
      * @param d The DisplayAccess associated with the GameCanvas
      */
-    public static void register(Displayable c, DisplayAccess d) {
+    public static void registerDisplayAccess(Displayable c, DisplayAccess d) {
         synchronized (lock) {
-	    displayable = c;
-	    displayAccess = d;
-	}
+	        displayable = c;
+	        displayAccess = d;
+	    }
     }
 
-
     /**
-     * Get the DisplayAccess object for this Displayable.
+     * Gets the DisplayAccess object for this Displayable.
      * @param c The Displayable to get the DisplayAccess for
      * @return DisplayAccess The DisplayAccess associated with the MIDlet
      */
-    public static DisplayAccess get(Displayable c) {
+    public static DisplayAccess getDisplayAccess(Displayable c) {
         synchronized (lock) {
-  	    if (c == displayable) {
+  	        if (c == displayable) {
                 return displayAccess;
-  	    } else {
+  	        } else {
                 return null;
-	    }
+	        }
         }
     }
 
+    /**
+     * Register given game package accessor instance
+     * @param gameAccess implementation of the GameAccess interface
+     */
+    public static void registerGameAccess(GameAccess gameAccess) {
+        synchronized (lock) {
+            GameMap.gameAccess = gameAccess;
+        }
+    }
 
     /**
-     * Associate the given GameCanvas and GameCanvasLFImpl.
-     *
-     * @param c The GameCanvas to store
+     * Gets the GameCanvasLFImpl object for this GameCanvas.
+     * @param c The GameCanvas to get the GameCanvasLFImpl for
+     * @return GameCanvasLFImpl, or null if there is no accessor to game package
      */
-    public static GameCanvasLFImpl registerTableElement(GameCanvas c) {
-        GameCanvasLFImpl gameCanvasLF = new GameCanvasLFImpl(c);
-        synchronized(lock) {
-            if (!table.containsKey(c)) {
-                table.put(c, gameCanvasLF);
-                return gameCanvasLF;
-            }
+    public static GameCanvasLFImpl getGameCanvasImpl(GameCanvas c) {
+        if (gameAccess != null) {
+            return gameAccess.getGameCanvasLFImpl(c);
         }
         return null;
     }
 
     /**
-     * Get the GameCanvasLFImpl object for this GameCanvas.
-     * @param c The GameCanvas to get the GameCanvasLFImpl for
-     * @return GameCanvasLFImpl
+     * Sets graphics accessor instance from javax.microedition.lcdui package
+     * to use extended package-private Image and Graphics APIs
+     *
+     * @param graphicsAccess graphics accessor tunnel
      */
-    public static GameCanvasLFImpl getTableElement(GameCanvas c) {
+    public static void registerGraphicsAccess(GraphicsAccess graphicsAccess) {
         synchronized (lock) {
-            if (table.containsKey(c)) {
-                return (GameCanvasLFImpl)table.get(c);
-            } else {
-                return null;
-            }
+            GameMap.graphicsAccess = graphicsAccess;
         }
     }
 
+    /**
+     * Gets GraphicsAccess instance needed to access extended
+     * Image and Graphics APIs
+     * 
+     * @return GraphicsAccess tunnel instance
+     */
+    public static GraphicsAccess getGraphicsAccess() {
+        synchronized (lock) {
+            return graphicsAccess;
+        }
+    }
 }

@@ -1,7 +1,7 @@
 /*
  * @(#)threads_md.c	1.33 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -103,9 +103,9 @@ linuxCaptureInitialStack()
     }
 #else
     pthreadGetAttr = 
-            (pthread_getattr_np_t)dlsym(RTLD_NEXT, "pthread_getattr_np");
+            (pthread_getattr_np_t)dlsym(RTLD_DEFAULT, "pthread_getattr_np");
     pthreadAttrGetStack =
-            (pthread_attr_getstack_t)dlsym(RTLD_NEXT, 
+            (pthread_attr_getstack_t)dlsym(RTLD_DEFAULT, 
                                            "pthread_attr_getstack");
 #endif
     initial_thread_id = pthread_self();
@@ -129,7 +129,8 @@ static CVMBool
 LINUXcomputeStackTop(CVMThreadID *self)
 {
     void *sp = &self;
-    if (pthread_self() == initial_thread_id) {
+    pthread_t myself = pthread_self();
+    if (myself == initial_thread_id) {
         self->stackTop = initial_stack_top;
 #ifdef LINUX_WATCH_STACK_GROWTH
 	self->stackBottom = initial_stack_bottom;
@@ -137,13 +138,12 @@ LINUXcomputeStackTop(CVMThreadID *self)
 #endif
         return CVM_TRUE;
     } else if (pthreadGetAttr != NULL) {
-        pthread_t tid = POSIX_COOKIE(self);
         pthread_attr_t attr;
         int result;
         void *base;
         size_t size;
  
-        result = (*pthreadGetAttr)(tid, &attr);
+        result = (*pthreadGetAttr)(myself, &attr);
 	if (result != 0) {
 	    return CVM_FALSE;
 	}

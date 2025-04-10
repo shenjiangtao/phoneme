@@ -1,7 +1,7 @@
 /*
  * @(#)hprof.c	1.57 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -36,6 +36,7 @@ JavaVM *jvm;
 
 int hprof_is_on;            /* whether hprof is enabled */
 int hprof_fd = -1;	    /* Non-zero file or socket descriptor. */
+FILE *hprof_fp = NULL;            /* FILE handle. */
 int hprof_socket_p = FALSE; /* True if hprof_fd is a socket. */
 
 #define HPROF_DEFAULT_TRACE_DEPTH 4
@@ -402,7 +403,11 @@ static void hprof_jvm_shut_down_event(void)
     }
 #endif /* WATCH_ALLOCS */
     hprof_is_on = FALSE;
-    close(hprof_fd);
+    if (hprof_socket_p) {
+	hprof_close(hprof_fd);
+    } else {
+	fclose(hprof_fp);
+    }
     CALL(RawMonitorExit)(hprof_dump_lock);
 }  
 

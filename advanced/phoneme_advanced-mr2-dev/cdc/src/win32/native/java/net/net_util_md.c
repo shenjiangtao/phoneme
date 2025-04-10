@@ -1,7 +1,7 @@
 /*
  * @(#)net_util_md.c	1.55 06/10/10 
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -58,6 +58,12 @@ NET_ThrowCurrent(JNIEnv *env, char *msg)
 }
 
 /*
+  These initializations are now down as part of CVMnetStartup and 
+  CVMnetShutdown. Also, using DllMain won't work when cvm is built
+  as a standalone .exe instead of a dll.
+*/
+#if 0
+/*
  * Initialize Windows Sockets API support
  */
  BOOL WINAPI
@@ -81,6 +87,7 @@ DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
     }
     return TRUE;
 }
+#endif /* 0 */
 
 /*
  * Since winsock doesn't have the equivalent of strerror(errno)

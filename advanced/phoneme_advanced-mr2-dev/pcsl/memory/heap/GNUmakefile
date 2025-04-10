@@ -1,27 +1,25 @@
 #
-#  
-#
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2009 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License version
-# 2 only, as published by the Free Software Foundation. 
+# 2 only, as published by the Free Software Foundation.
 # 
 # This program is distributed in the hope that it will be useful, but
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License version 2 for more details (a copy is
-# included at /legal/license.txt). 
+# included at /legal/license.txt).
 # 
 # You should have received a copy of the GNU General Public License
 # version 2 along with this work; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
-# 02110-1301 USA 
+# 02110-1301 USA
 # 
 # Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
 # Clara, CA 95054 or visit www.sun.com if you need additional
-# information or have any questions. 
+# information or have any questions.
 #
 ######################################################################
 #
@@ -46,24 +44,24 @@ OBJS = $(OUTPUT_OBJ_DIR)/pcsl_memory.o \
        $(OUTPUT_OBJ_DIR)/pcsl_memory_port.o \
        $(OUTPUT_OBJ_DIR)/pcsl_chunkheap.o
 
-all: verify $(OUTPUT_OBJ_DIR) $(OUTPUT_LIB_DIR) $(OUTPUT_INC_DIR) \
-     $(OUTPUT_LIB_DIR)/libpcsl_memory$(LIB_EXT)
-	@cp -f ../pcsl_memory.h $(OUTPUT_INC_DIR)/
-	@cp -f pcsl_memory_impl.h $(OUTPUT_INC_DIR)/
+INCS = $(OUTPUT_INC_DIR)/pcsl_memory.h $(OUTPUT_INC_DIR)/pcsl_memory_impl.h
 
-include $(PCSL_DIR)/makefiles/verify.gmk
+all: $(OUTPUT_LIB_DIR)/libpcsl_memory$(LIB_EXT)
+
+$(OUTPUT_INC_DIR)/pcsl_memory.h: ../pcsl_memory.h
+	$(AT)cp -f $< $@
+
+$(OUTPUT_INC_DIR)/pcsl_memory_impl.h: pcsl_memory_impl.h
+	$(AT)cp -f $< $@
 
 $(OUTPUT_LIB_DIR)/libpcsl_memory$(LIB_EXT): $(OBJS)
-	@$(AR) $(AR_OUTPUT)$@ `$(call fixcygpath, $^)`
+	$(AT)$(AR) $(AR_OUTPUT)$@ `$(call fixcygpath, $^)`
 
-$(OUTPUT_OBJ_DIR)/pcsl_memory.o: pcsl_memory.c
-	@$(CC) -I. -I./.. -I./../../print -I$(OUTPUT_INC_DIR) $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
+$(OUTPUT_OBJ_DIR)/pcsl_memory.o: pcsl_memory.c $(INCS)
+	$(AT)$(CC) -I. -I./.. -I./../../print -I$(OUTPUT_INC_DIR) $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
 
-$(OUTPUT_OBJ_DIR)/pcsl_chunkheap.o: pcsl_chunkheap.c
-	@$(CC) -I. -I./.. -I./../../print -I$(OUTPUT_INC_DIR) $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
-
-$(OUTPUT_OBJ_DIR) $(OUTPUT_LIB_DIR) $(OUTPUT_INC_DIR):
-	@mkdir -p $@
+$(OUTPUT_OBJ_DIR)/pcsl_chunkheap.o: pcsl_chunkheap.c $(INCS)
+	$(AT)$(CC) -I. -I./.. -I./../../print -I$(OUTPUT_INC_DIR) $(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
 
 # doc stuff. The 'doc' target is defined in Docs.gmk.
 # Just have to define DOXYGEN_INPUT_LIST and force
@@ -81,25 +79,25 @@ DONUTS_OBJS += $(OUTPUT_OBJ_DIR)/testMem.o
 DONUTS_LIBS += $(OUTPUT_LIB_DIR)/libpcsl_memory$(LIB_EXT)
 
 donuts: verify $(OUTPUT_OBJ_DIR) $(OUTPUT_LIB_DIR) $(DONUTS_LIBS) $(DONUTS_OBJS)
-	@cd $(DONUTS_DIR);$(MAKE) DONUTS_FILES="$(DONUTS_FILES)" DONUTS_OBJS="$(DONUTS_OBJS)" \
+	$(AT)cd $(DONUTS_DIR);$(MAKE) DONUTS_FILES="$(DONUTS_FILES)" DONUTS_OBJS="$(DONUTS_OBJS)" \
                             DONUTS_LIBS="$(DONUTS_LIBS)" all
 
 $(OUTPUT_OBJ_DIR)/testMem.o: $(MEMORY_DIR)/testMem.c
-	@$(CC) -I$(DONUTS_DIR) -I$(MEMORY_DIR) -I$(MEMORY_SELECT_DIR) -I$(OUTPUT_INC_DIR) \
+	$(AT)$(CC) -I$(DONUTS_DIR) -I$(MEMORY_DIR) -I$(MEMORY_SELECT_DIR) -I$(OUTPUT_INC_DIR) \
 	$(CFLAGS) $(CC_OUTPUT)$@ `$(call fixcygpath, $<)`
 
 # define ''clean' target
 
-clean: verify
-	rm -rf $(OUTPUT_OBJ_DIR)/pcsl_memory.o
-	rm -rf $(OUTPUT_OBJ_DIR)/pcsl_chunkheap.o
-	rm -rf $(OUTPUT_OBJ_DIR)/pcsl_chunkmmap_linux.o
-	rm -rf $(OUTPUT_INC_DIR)/pcsl_memory.h
-	rm -rf $(OUTPUT_INC_DIR)/pcsl_memory_impl.h
-	rm -rf $(OUTPUT_LIB_DIR)/libpcsl_memory$(LIB_EXT)
-	rm -rf $(OUTPUT_OBJ_DIR)/testMem.o
-	rm -rf $(OUTPUT_BIN_DIR)/donuts$(EXE)
-	rm -rf $(OUTPUT_GEN_DIR)/donuts_generated.c
-	rm -rf $(DOC_DIR)
+clean: verify_for_clean
+	$(AT)rm -rf $(OUTPUT_OBJ_DIR)/pcsl_memory.o
+	$(AT)rm -rf $(OUTPUT_OBJ_DIR)/pcsl_chunkheap.o
+	$(AT)rm -rf $(OUTPUT_OBJ_DIR)/pcsl_chunkmmap_linux.o
+	$(AT)rm -rf $(OUTPUT_INC_DIR)/pcsl_memory.h
+	$(AT)rm -rf $(OUTPUT_INC_DIR)/pcsl_memory_impl.h
+	$(AT)rm -rf $(OUTPUT_LIB_DIR)/libpcsl_memory$(LIB_EXT)
+	$(AT)rm -rf $(OUTPUT_OBJ_DIR)/testMem.o
+	$(AT)rm -rf $(OUTPUT_BIN_DIR)/donuts$(EXE)
+	$(AT)rm -rf $(OUTPUT_GEN_DIR)/donuts_generated.c
+	$(AT)rm -rf $(DOC_DIR)
 
 .PHONY: all clean donuts doc verify

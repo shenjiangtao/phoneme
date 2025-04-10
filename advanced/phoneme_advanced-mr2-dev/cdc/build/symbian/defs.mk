@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -58,7 +58,7 @@ SYMBIAN_DEVICES_PATH = $(SYMBIAN_PERL_PATH):$(SYMBIAN_TOOLS_PATH)
 SYMBIAN_ENV_CMD := env PATH="$(SYMBIAN_DEVICES_PATH):$$PATH"
 
 SYMBIAN_ROOT := $(shell $(SYMBIAN_ENV_CMD) sh ../symbian/root.sh $(SYMBIAN_DEVICE))
-SYMBIAN_ROOT_U := $(call WIN2POSIX,$(SYMBIAN_ROOT))
+SYMBIAN_ROOT_U := $(call WIN2POSIX,'$(SYMBIAN_ROOT)')
 
 # Environment for a specific SYMBIAN_DEVICE
 EPOC = $(SYMBIAN_ROOT)/epoc32
@@ -111,12 +111,12 @@ CVM_SRCDIRS   += \
 	$(CVM_TARGETROOT)/native/common \
 	$(CVM_TARGETROOT)/native/com/sun/cdc/io/j2me/comm \
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src \
-	-I$(CVM_TARGETROOT) \
-	-I$(CVM_TARGETROOT)/native/java/net \
-	-I$(CVM_TARGETROOT)/native/common \
-	-I$(CVM_TARGETROOT)/native/$(J2ME_CLASSLIB) \
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src \
+	$(CVM_TARGETROOT) \
+	$(CVM_TARGETROOT)/native/java/net \
+	$(CVM_TARGETROOT)/native/common \
+	$(CVM_TARGETROOT)/native/$(J2ME_CLASSLIB) \
 
 #
 # Platform specific objects
@@ -192,6 +192,7 @@ MATHOBJS += \
 	w_acosh.o \
 	w_atanh.o \
 	w_cosh.o \
+	w_gamma.o \
 	w_gamma_r.o \
 	w_hypot.o \
 	w_j0.o \

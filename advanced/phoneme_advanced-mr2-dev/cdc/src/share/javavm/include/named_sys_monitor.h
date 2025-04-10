@@ -1,7 +1,7 @@
 /*
  * @(#)named_sys_monitor.h	1.11 06/10/27
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -82,7 +82,12 @@ struct CVMNamedSysMonitor {
 /* Purpose: Gets the name of this monitor. */
 /* inline const char *CVMnamedSysMonitorGetName(CVMNamedSysMonitor *self); */
 #define CVMnamedSysMonitorGetName(self) \
-    ((const char *)(self)->name)
+    ((char *)(self)->name)
+
+/* Purpose: Gets the type of this monitor. */
+/* inline const char *CVMnamedSysMonitorGettype(CVMNamedSysMonitor *self); */
+#define CVMnamedSysMonitorGetType(self) \
+    ((self)->_super.type)
 
 /* Purpose: Constructor. */
 extern CVMNamedSysMonitor *CVMnamedSysMonitorInit(const char *name);
@@ -94,7 +99,7 @@ void CVMnamedSysMonitorDestroy(CVMNamedSysMonitor *self);
 /* inline void CVMnamedSysMonitorEnter(CVMNamedSysMonitor *self,
             CVMExecEnv *current_ee); */
 #define CVMnamedSysMonitorEnter(self, current_ee) \
-    CVMprofiledMonitorEnter((&(self)->_super), (current_ee))
+    CVMprofiledMonitorEnter((&(self)->_super), (current_ee), CVM_FALSE)
 
 /* Purpose: Exits the monitor. */
 /* inline void CVMnamedSysMonitorExit(CVMNamedSysMonitor *self,
@@ -149,7 +154,7 @@ void CVMnamedSysMonitorDestroy(CVMNamedSysMonitor *self);
 /* inline void CVMnamedSysMonitorEnterUnsafe(CVMNamedSysMonitor *self,
             CVMExecEnv *current_ee); */
 #define CVMnamedSysMonitorEnterUnsafe(self, current_ee) {           \
-    CVMprofiledMonitorEnterUnsafe((&(self)->_super), (current_ee)); \
+	CVMprofiledMonitorEnterUnsafe((&(self)->_super), (current_ee), CVM_FALSE); \
 }
 
 /* Purpose: Enters monitor while thread is in a GC safe state. */

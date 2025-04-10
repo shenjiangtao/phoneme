@@ -1,7 +1,7 @@
 /*
  * @(#)Protocol.java	1.33 06/10/13
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -51,9 +51,9 @@ public class Protocol extends ConnectionBase implements DatagramConnection,UDPDa
     /**
      * Port
      */
-    private int port;
+    private int port = 0;
 
-    private boolean open;
+    protected boolean open;
 
     public  String getLocalAddress() throws IOException {
         if (!open) {
@@ -86,16 +86,39 @@ public class Protocol extends ConnectionBase implements DatagramConnection,UDPDa
         if(colon == 0) {
             return null;
         } else {
-            return name.substring(0, colon);
+            return parseHostName(name, colon);
         }
     }
+
+    
+    protected static String parseHostName(String connection, int colon) {
+        /* IPv6 addresses are enclosed within [] */
+        if ((connection.indexOf("[") == 0) && (connection.indexOf("]") > 0)) {
+            return parseIPv6Address(connection, colon);
+        } else {
+            return parseIPv4Address(connection, colon);
+        }
+    }
+
+
+    protected static String parseIPv4Address(String name, int colon) {
+        return name.substring(0, colon);
+    }
+
+
+    protected static String parseIPv6Address(String address, int colon) {
+        int closing = address.indexOf("]");
+        /* beginning '[' and closing ']' should be included in the hostname*/
+        return address.substring(0, closing+1);
+    }
+    
 
     /**
      * Local function to get the port number from a string
      */
     protected static int getPort(String name) throws IOException, NumberFormatException {
         /* Look for the : */
-        int colon = name.indexOf(':');
+        int colon = name.lastIndexOf(':');
 
         if(colon < 0) {
             throw new IllegalArgumentException("No ':' in protocol name "+name);
@@ -105,10 +128,37 @@ public class Protocol extends ConnectionBase implements DatagramConnection,UDPDa
     }
 
     /*
-     * throws SecurityException if MIDP permission check fails 
-     * nothing to do for CDC
+     * We will throw a SecurityException if permission
+     * checks fail. For CDC the DatagramSocket obect
+     * creation will do this itself so we can use that
+     * checking. This method should be overriden by MIDP
+     * protocol handlers to properly check MIDP permissions.
     */
-    protected void checkMIDPPermission(String host, int port) {
+    protected void checkPermission(String host, int port) {
+        return;
+    }
+
+    /*
+     * Check permission when opening an OutputStream. MIDP
+     * versions of the protocol handler should override this
+     * with an empty method. Throw a SecurityException if
+     * the connection is not allowed. Currently the datagram
+     * protocol handler does not make a permission check at
+     * this point so this method is empty.
+     */
+    protected void outputStreamPermissionCheck() {
+        return;
+    }
+
+    /*
+     * Check permission when opening an InputStream. MIDP
+     * versions of the protocol handler should override this
+     * with an empty method. A SecurityException will be
+     * raised if the connection is not allowed. Currently the
+     * datagram protocol handler does not make a permission
+     * check at this point so this method is empty.
+     */
+    protected void inputStreamPermissionCheck() {
         return;
     }
 
@@ -129,7 +179,6 @@ public class Protocol extends ConnectionBase implements DatagramConnection,UDPDa
             throw new IllegalArgumentException("Protocol must start with \"//\" "+name);
         }
         name = name.substring(2);
-        host = getAddress(name);
 
        /*
         * If 'name' == null then we are a server endpoint at port 'port'
@@ -138,30 +187,28 @@ public class Protocol extends ConnectionBase implements DatagramConnection,UDPDa
         *              and the default address for datagrams to be send is 'host':'port'
         */
         
-        /* name does not have port number, just a colon, hence it should at 
-         * system assigned port.
+        /* If name does not have port number, just a colon, it should at 
+         * system assigned port. Otherwise use the port and host specified.
          */
 
-        if (name.substring(name.indexOf(':') + 1).length() == 0) {
-            /* Open a random port for a datagram client */
-            endpoint = new DatagramSocket();
-        }
-        else {
+        if (name.substring(name.indexOf(':') + 1).length() != 0) {
+	    host = getAddress(name);
             port = getPort(name);
             if(port <= 0) {
                 throw new IllegalArgumentException("Bad port number \"//\" "+name);
             }
-            checkMIDPPermission(host, port);
+	}
 
-            if(host == null) {
-                /* Open a server datagram socket (no host given) */
-                endpoint = new DatagramSocket(port);
-            } else { 
-                /* Open a random port for a datagram client */
-                endpoint = new DatagramSocket();
-            }
+	checkPermission(host, port);
+
+	if(host == null) {
+	    /* Open a server datagram socket (no host given) */
+	    endpoint = new DatagramSocket(port);
+	} else { 
+	    /* Open a random port for a datagram client */
+	    endpoint = new DatagramSocket();
+	}
             
-        }
         open = true;
 
         try {
@@ -253,10 +300,11 @@ public class Protocol extends ConnectionBase implements DatagramConnection,UDPDa
 
 	// Set the return DatagramObject handle to have the address from the
 	//   received DatagramPacket
-	int recv_port = dh.dgram.getPort();
-	if(host != null) {
+    int recv_port = dh.dgram.getPort();
+    String recv_host = dh.dgram.getAddress().getHostName();
+    if(recv_host != null) {
             try {
-                dh.setAddress("datagram://"+host+":"+recv_port);
+                dh.setAddress("datagram://" + recv_host + ":" + recv_port);
             } catch(IOException x) {
                 throw new 
 		    RuntimeException("IOException in datagram::receive");
@@ -343,13 +391,17 @@ public class Protocol extends ConnectionBase implements DatagramConnection,UDPDa
             } catch(IOException x) {
                 throw new RuntimeException("IOException in datagram::newDatagram");
             }
-        } else {
+        } 
+        /* Fix CR 6557544 */
+        /*
+        else {
            try {
              dg.setAddress("datagram://:"+port);
            } catch(IOException x) {
              throw new RuntimeException("IOException in datagram::newDatagram");
            }
-        } 
+        }
+        */
         return dg;
     }
 

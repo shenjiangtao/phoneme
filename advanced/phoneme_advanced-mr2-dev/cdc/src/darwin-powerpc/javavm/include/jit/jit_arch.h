@@ -1,7 +1,7 @@
 /*
  * @(#)jit_arch.h	1.6 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -35,7 +35,7 @@
 
 /*
  * The size in bytes of the region for which we want accurate profiling
- * information. In this case, we want to be accurate to within an instrruction.
+ * information. In this case, we want to be accurate to within an instruction.
  */
 #define CVMJIT_PROFILE_REGION_SIZE CVMCPU_INSTRUCTION_SIZE
 #ifndef _ASM

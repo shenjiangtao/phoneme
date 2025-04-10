@@ -1,6 +1,6 @@
 #  @(#)defs_personal_qt.mk	1.25 06/10/16
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -23,7 +23,7 @@
 # information or have any questions. 
 
 # setup qt tools, includes, and libs
-include ../share/defs_qt.mk
+include $(CDC_DIR)/build/share/defs_qt.mk
 
 #
 # QtEmbedded support if needed
@@ -39,6 +39,7 @@ endif
 AWT_PEERSET_NAME    = $(AWT_PEERSET)
 MOC_OUTPUT_DIR		= $(CVM_DERIVEDROOT)/personal/$(AWT_PEERSET_NAME)/moc
 CVM_BUILDDIRS		+= $(MOC_OUTPUT_DIR)
+CVM_SRCDIRS		+= $(MOC_OUTPUT_DIR)
 
 #
 # These are exported as system properties by defs_basis.mk
@@ -205,8 +206,8 @@ endif
 PROFILE_SRCDIRS_NATIVE += \
     $(CVM_SHAREROOT)/personal/native/awt/$(AWT_PEERSET_NAME)/wproxy \
 
-PROFILE_INCLUDES += \
-    -I$(CVM_SHAREROOT)/personal/native/awt/$(AWT_PEERSET_NAME)/wproxy \
+PROFILE_INCLUDE_DIRS += \
+    $(CVM_SHAREROOT)/personal/native/awt/$(AWT_PEERSET_NAME)/wproxy \
 
 # Define restrictions for this AWT implementation.
 

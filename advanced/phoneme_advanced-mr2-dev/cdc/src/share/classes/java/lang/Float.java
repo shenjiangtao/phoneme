@@ -1,7 +1,7 @@
 /*
  * @(#)Float.java	1.69 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -305,7 +305,7 @@ public final class Float extends Number implements Comparable {
      * @see        java.lang.Float#valueOf(java.lang.String)
      */
     public Float(String s) throws NumberFormatException {
-	// FIXME: this is inefficient
+	// TODO: this is inefficient
 	this(valueOf(s).floatValue());
     }
 

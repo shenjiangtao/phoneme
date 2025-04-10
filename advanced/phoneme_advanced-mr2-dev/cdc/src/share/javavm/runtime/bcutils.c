@@ -1,7 +1,7 @@
 /*
  * @(#)bcutils.c	1.23 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -33,7 +33,7 @@
 #include "javavm/include/bcattr.h"
 #include "javavm/include/utils.h"
 #include "javavm/include/typeid.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #include "javavm/include/globals.h"
 
 #include "javavm/include/porting/int.h"

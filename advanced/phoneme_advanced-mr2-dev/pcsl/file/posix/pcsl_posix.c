@@ -1,27 +1,27 @@
 /*
  * 	
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #include <stdio.h>
@@ -76,6 +76,7 @@ int pcsl_file_finalize() {
 int pcsl_file_open(const pcsl_string * fileName, int flags, void **handle)
 {
     int   fd;
+    int oFlag = O_RDONLY;
     int   creationMode = 0;
     const jbyte * pszOsFilename = pcsl_string_get_utf8_data(fileName);
 
@@ -83,11 +84,29 @@ int pcsl_file_open(const pcsl_string * fileName, int flags, void **handle)
       return -1;
     }
 
-    if((flags & PCSL_FILE_O_CREAT) == PCSL_FILE_O_CREAT) {
+    /* compute open control flag */
+    if ((flags & PCSL_FILE_O_WRONLY) == PCSL_FILE_O_WRONLY) {
+        oFlag |= O_WRONLY;
+    } 
+
+    if ((flags & PCSL_FILE_O_RDWR) == PCSL_FILE_O_RDWR) {
+        oFlag |= O_RDWR;
+    } 
+
+    if ((flags & PCSL_FILE_O_CREAT) == PCSL_FILE_O_CREAT) {
+        oFlag |= O_CREAT;
         creationMode = DEFAULT_FILE_CREATION_MODE;
+    } 
+
+    if ((flags & PCSL_FILE_O_TRUNC) == PCSL_FILE_O_TRUNC) {
+        oFlag |= O_TRUNC;
+    } 
+
+    if ((flags & PCSL_FILE_O_APPEND) == PCSL_FILE_O_APPEND) {
+        oFlag |= O_APPEND;
     }
 
-    fd = open((char*)pszOsFilename, flags, creationMode);
+    fd = open((char*)pszOsFilename, oFlag, creationMode);
 
     pcsl_string_release_utf8_data(pszOsFilename, fileName);
 

@@ -1,7 +1,7 @@
 /*
  * @(#)wceUtil.h	1.9 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -33,6 +33,7 @@
 
 #ifdef WINCE
 
+#include <windows.h>
 #include <string.h>
 #include <stddef.h>
 
@@ -54,10 +55,14 @@
 
 #define JAVAI_API _declspec(dllexport)
 
-JAVAI_API WCHAR *createWCHAR(const char *);
+JAVAI_API wchar_t *createWCHAR(const char *);
 JAVAI_API char  *createMCHAR(const wchar_t *);
 JAVAI_API char  *strerror(int err);
 JAVAI_API char  *getenv(const char* name);
+
+/* Remove "." and ".." from the path */
+BOOL
+WINCEpathRemoveDots(wchar_t *dst0, const wchar_t *src, size_t maxLength);
 
 #endif /* WINCE */
 

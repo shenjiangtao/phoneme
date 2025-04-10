@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -25,18 +25,6 @@
 #
 #  Platform specific makefile for building the Jcov tool
 #
-
-ifeq ($(CVM_DEBUG), true)
-    CVM_JCOV_LIB    = libjcov_g.o
-else
-    CVM_JCOV_LIB    = libjcov.o
-endif
-
-#
-# Platform specific objects:
-#
-CVM_JCOV_TARGETOBJS += \
-        jcov_md.o
 
 #
 # Platform specific build flags:

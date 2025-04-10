@@ -1,7 +1,7 @@
 /*
  * @(#)utils.c	1.158 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -28,6 +28,7 @@
 #include "javavm/include/porting/doubleword.h"
 #include "javavm/include/porting/int.h"
 #include "javavm/include/porting/time.h"
+#include "javavm/include/porting/path.h"
 #include "javavm/include/objects.h"
 #include "javavm/include/classes.h"
 #include "javavm/include/clib.h"
@@ -89,22 +90,26 @@ void
 CVMdumpException(CVMExecEnv* ee) {
     CVMClassBlock* exceptionCb;
     CVMObjectICell* exceptionICell = CVMID_getGlobalRoot(ee);
+    CVMObjectICell* originalExceptionICell = CVMID_getGlobalRoot(ee);
     CVMStringICell* exceptionMessage;
 
     /* print the exception class name */
     CVMID_objectGetClass(ee, CVMlocalExceptionICell(ee), exceptionCb);
     CVMconsolePrintf("%C: ", exceptionCb);
 
-    if (exceptionICell == NULL) {
-      CVMconsolePrintf("backtrace not available\n");
-      return;
+    if (exceptionICell == NULL || originalExceptionICell == NULL) {
+        CVMconsolePrintf("backtrace not available\n");
+        goto delete_roots;
     }
 
     /* Fetch and clear the exception. Required if calling CVMprintStackTrace */
     CVMID_icellAssign(ee, exceptionICell,
 		      CVMlocalExceptionICell(ee));
+    CVMID_icellAssign(ee, originalExceptionICell,
+		      CVMlocalExceptionICell(ee));
     CVMclearLocalException(ee);
 
+ nextException:
     /* print the exception detailedMessage if there is one */
     exceptionMessage = CVMID_getGlobalRoot(ee);
     if (exceptionMessage != NULL) {
@@ -129,12 +134,48 @@ CVMdumpException(CVMExecEnv* ee) {
     /* print the exception backtrace */
     CVMprintStackTrace(ee, exceptionICell, NULL);
 
+    /* now check for the cause of the exception, if any */
+    {
+        JNIEnv* env = CVMexecEnv2JniEnv(ee);
+        CVMClassBlock* cb;
+        CVMMethodBlock* mb;
+	jobject causeICell;
+
+        CVMD_gcUnsafeExec(ee, {
+            cb = CVMobjectGetClass(CVMID_icellDirect(ee, exceptionICell));
+        });
+        mb = CVMclassGetNonstaticMethodBlock(cb, CVMglobals.getCauseTid);
+        CVMassert(mb != NULL);
+
+        /* Get the cause of the exception, if any. */
+        causeICell = (*env)->CallObjectMethod(env, exceptionICell, mb);
+
+        if (causeICell != NULL) {
+            CVMID_icellAssign(ee, exceptionICell, causeICell);
+            CVMjniDeleteLocalRef(env, causeICell);
+        } else {
+            CVMID_icellSetNull(exceptionICell);
+        }
+    }
+
+    /* print the cause of the exception if one was found */
+    if (!CVMID_icellIsNull(exceptionICell)) {
+        CVMconsolePrintf("Caused by: %C: ", exceptionCb);
+        goto nextException; /* print next cause if there is one */
+    }
+
     /* restore the local exception */
     CVMID_icellAssign(ee, CVMlocalExceptionICell(ee),
-		      exceptionICell);
+		      originalExceptionICell);
 
-    /* delete the global root */
-    CVMID_freeGlobalRoot(ee, exceptionICell);
+    /* delete the global roots */
+ delete_roots:
+    if (exceptionICell != NULL) {
+        CVMID_freeGlobalRoot(ee, exceptionICell);
+    }
+    if (originalExceptionICell != NULL) {
+        CVMID_freeGlobalRoot(ee, originalExceptionICell);
+    }
 }
 
 /*
@@ -954,14 +995,21 @@ CVMformatStringVaList(char* buf, size_t bufSize, const char* format,
 	}
 	case 'O': {
 	    CVMObject*           directObj = va_arg(ap, CVMObject*);
+	    CVMInt32 hashValue = 0;
 	    const CVMClassBlock* cb = CVMobjectGetClass(directObj);
 	    CVMClassTypeID       tid = CVMcbClassName(cb);
 	    /* "12" is to leave room for the "@%#x" used for the
 	     * object address. */
 	    CVMclassname2String(tid, tmp, (int)(bufSize - 12));
 	    l = strlen(tmp);
-	    result = sprintf(tmp+l, "@%#x",
-		CVMobjectGetHashNoSet(ee, directObj));
+	    if (CVMD_isgcUnsafe(ee)) {
+		hashValue = CVMobjectGetHashNoSet(ee, directObj);
+	    } else {
+		CVMD_gcUnsafeExec(ee, {
+		    hashValue = CVMobjectGetHashNoSet(ee, directObj);
+		});
+	    }
+	    result = sprintf(tmp+l, "@%#x", hashValue);
 	    goto copy_string;
 	}
 	case 'I': {
@@ -1766,7 +1814,10 @@ CVMprocessSubOptions(const CVMSubOptionData* knownSubOptions,
 	    /* Don't worry about strdup failures. We will quickly fail
 	     * on some other allocation later on if stdrup can't succeed.
 	     */
-	    if (valueString != NULL) {
+	    if (valueString == NULL) {
+		*(const char**)knownSubOptions[i].valuePtr = 
+		    knownSubOptions[i].data.strData.defaultValue;
+	    } else {
 		*(char**)knownSubOptions[i].valuePtr = strdup(valueString);
 	    }
 	    break;
@@ -2031,18 +2082,29 @@ CVMprintSubOptionsUsageString(const CVMSubOptionData* knownSubOptions)
  * java_home values.
  */
 CVMBool
-CVMinitPathValues(void *propsPtr, char *basePath,
-                  char *libPath, char *dllPath)
+CVMinitPathValues(void *propsPtr, CVMpathInfo *pathInfo,
+                  char **userBootclasspath)
 {
-    char *p, *p0;
+    char *p, *p0, *pEnd;
     int i;
-    size_t size, len;
+    size_t size, len, libPathLen;
     CVMProperties *props = (CVMProperties *)propsPtr;
-    const char *jarNames[] = { CVM_JARFILES, NULL };
+    static const char *const jarNames[] = { CVM_JARFILES NULL };
+    char *basePath;
+    char *libPath;
+    char *dllPath;
+    char *preBootclasspath;
+    char *postBootclasspath;
 
     /* Sanity check */
-    CVMassert(propsPtr != NULL && basePath != NULL &&
-              libPath != NULL && dllPath != NULL);
+    CVMassert(propsPtr != NULL && pathInfo->basePath != NULL &&
+              pathInfo->libPath != NULL && pathInfo->dllPath != NULL);
+
+    basePath = pathInfo->basePath;
+    libPath = pathInfo->libPath;
+    dllPath = pathInfo->dllPath;
+    preBootclasspath = pathInfo->preBootclasspath;
+    postBootclasspath = pathInfo->postBootclasspath;
 
     /* Determine how much space to allocate to hold the different
      * paths we want to record. We will store the values for
@@ -2053,17 +2115,28 @@ CVMinitPathValues(void *propsPtr, char *basePath,
     len = strlen(basePath);
     /* Enough space for java_home, including a string terminator */
     size = len + 1;
-    /* Space for dll_dir, including a path delimiter & string terminator */
-    size += len + sizeof(char) + strlen(dllPath) + 1;
+    /* Space for dll_dir, including a string terminator */
+    size += strlen(dllPath) + 1;
     /* Now add space for the entries in the sysclasspath */
-    for (i = 0; jarNames[ i ] != NULL; i++) {
-        /* If in the midst of the path, add a path delimiter */
-        if (i > 0 ) {
-            size += strlen(CVM_PATH_CLASSPATH_SEPARATOR);
+    if (preBootclasspath != NULL) {
+        size += strlen(preBootclasspath) + 1;
+    }
+    if (postBootclasspath != NULL) {
+        size += strlen(postBootclasspath) + 1;
+    }
+    if (*userBootclasspath != NULL) {
+        /* user has set bootclasspath use it instead of sysclasspath */
+        size += strlen(*userBootclasspath);
+    } else {
+        libPathLen = strlen(libPath);
+        for (i = 0; jarNames[ i ] != NULL; i++) {
+            /* If in the midst of the path, add a path delimiter */
+            if (i > 0 ) {
+                size += strlen(CVM_PATH_CLASSPATH_SEPARATOR);
+            }
+            /* Space for the next entry, including two path delimiters */
+            size += libPathLen + sizeof(char) + strlen(jarNames[i]);
         }
-        /* Space for the next entry, including two path delimiters */
-        size += len + sizeof(char) + strlen(libPath) +
-                sizeof(char) + strlen(jarNames[i]);
     }
     /* Now the final terminator for the sysclasspath. */
     size++;
@@ -2074,9 +2147,7 @@ CVMinitPathValues(void *propsPtr, char *basePath,
      * file onto the ext_dirs path. This is another path entry
      * (including two path separators) and terminator.
      */
-    size += len + sizeof(char) +
-            strlen(libPath) + sizeof(char) +
-            strlen("ext") + 1;
+    size += strlen(libPath) + sizeof(char) + strlen("ext") + 1;
 #endif /* CVM_HAS_JCE */
     
     p0 = p = (char *)malloc(size);
@@ -2089,29 +2160,61 @@ CVMinitPathValues(void *propsPtr, char *basePath,
     strcpy(p, basePath);
     props->java_home = p;
     p += strlen(p) + 1;
+
     /* Record path to native libraries */
-    strcpy(p, basePath);
-    *(p+strlen(p)) = CVM_PATH_LOCAL_DIR_SEPARATOR;
-    *(p+strlen(p)+1) = '\0';
-    strcat(p, dllPath);
+    strcpy(p, dllPath);
     props->dll_dir = p;
     props->library_path = p;
+
     p += strlen(p) + 1;
     /* Record boot class path */
     *p = '\0';
-    for (i = 0; jarNames[i] != NULL; i++) {
-        if (i > 0) {
-            strcat(p, CVM_PATH_CLASSPATH_SEPARATOR);
+    if (*userBootclasspath == NULL) {
+        if (preBootclasspath != NULL) {
+            strcat(p, preBootclasspath);
+            if (jarNames[0] != NULL) {
+                /* at least one jar so add separator */
+                strcat(p, CVM_PATH_CLASSPATH_SEPARATOR);
+            }
         }
-        strcat(p, basePath);
-        *(p+strlen(p)) = CVM_PATH_LOCAL_DIR_SEPARATOR;
-        *(p+strlen(p)+1) = '\0'; 
-        strcat(p, libPath);
-        *(p+strlen(p)) = CVM_PATH_LOCAL_DIR_SEPARATOR;
-        *(p+strlen(p)+1) = '\0'; 
-        strcat(p, jarNames[i]);
+        for (i = 0; jarNames[i] != NULL; i++) {
+            if (i > 0) {
+                strcat(p, CVM_PATH_CLASSPATH_SEPARATOR);
+            }
+            strcat(p, libPath);
+            pEnd = p+strlen(p);
+            *pEnd++ = CVM_PATH_LOCAL_DIR_SEPARATOR;
+            strcpy(pEnd, jarNames[i]);
+        }
+        if (postBootclasspath != NULL) {
+            if (i > 0 || preBootclasspath != NULL) {
+                /* had at least one path so add separator */
+                strcat(p, CVM_PATH_CLASSPATH_SEPARATOR);
+            }
+            strcat(p, postBootclasspath);
+        }
+    } else {
+        /* user has provided a bootclasspath so use it */
+        if (preBootclasspath != NULL) {
+            strcat(p, preBootclasspath);
+            strcat(p, CVM_PATH_CLASSPATH_SEPARATOR);
+            pEnd = p+strlen(p);
+        }
+        strcat(p, *userBootclasspath);
+        if (postBootclasspath != NULL) {
+            strcat(p, CVM_PATH_CLASSPATH_SEPARATOR);
+            strcat(p, postBootclasspath);
+        }
     }
-    props->sysclasspath = p;
+    if (*p == '\0' && *userBootclasspath == NULL
+        && preBootclasspath == NULL && postBootclasspath == NULL)
+    {
+        props->sysclasspath = NULL;
+    } else {
+        props->sysclasspath = p;
+        /* return a copy back to caller */
+        *userBootclasspath = strdup(props->sysclasspath);
+    }
     p += strlen(p) + 1;
 #ifdef CVM_HAS_JCE
     /*
@@ -2119,20 +2222,17 @@ CVMinitPathValues(void *propsPtr, char *basePath,
      * value to "lib/ext" so that we can see the sunjce_provider.jar
      * jarfile.
      */
-    *p = '\0';
-    strcat(p, basePath);
-    *(p+strlen(p)) = CVM_PATH_LOCAL_DIR_SEPARATOR;
-    *(p+strlen(p)+1) = '\0';
-    strcat(p, libPath);
-    *(p+strlen(p)) = CVM_PATH_LOCAL_DIR_SEPARATOR;
-    *(p+strlen(p)+1) = '\0';
-    strcat(p, "ext");
+    strcpy(p, libPath);
+    pEnd = p+strlen(p);
+    *pEnd++ = CVM_PATH_LOCAL_DIR_SEPARATOR;
+    strcpy(pEnd, "ext");
     props->ext_dirs = p;
-    p += strlen(p) + 1;
+    CVMassert((pEnd + 4) == (p + strlen(p) + 1));
+    p = pEnd + 4;
 #else
     props->ext_dirs = "";
 #endif /* CVM_HAS_JCE */
-    CVMassert(p - p0 == size);
+    CVMassert(p - p0 <= size);
     return CVM_TRUE;
 }
 
@@ -2145,6 +2245,26 @@ CVMdestroyPathValues(void *propsPtr)
     }
     return;
 } 
+
+void CVMdestroyPathInfo(CVMpathInfo *pathInfo)
+{
+    if (pathInfo->basePath != NULL) {
+        free(pathInfo->basePath);
+    }
+    if (pathInfo->dllPath != NULL) {
+        free(pathInfo->dllPath);
+    }
+    if (pathInfo->libPath != NULL) {
+        free(pathInfo->libPath);
+    }
+    if (pathInfo->preBootclasspath != NULL) {
+        free(pathInfo->preBootclasspath);
+    }
+    if (pathInfo->postBootclasspath != NULL) {
+        free(pathInfo->postBootclasspath);
+    }
+}
+
 
 /*
  * GC-unsafe conversion of a Java string into a C string
@@ -2161,6 +2281,18 @@ CVMconvertJavaStringToCString(CVMExecEnv* ee, jobject stringobj)
     int        i;
 
     strDirect = CVMID_icellDirect(ee, stringobj);
+
+#ifdef JAVASE
+    /* FIXME - investigate the need for this. Supposedly SE will crash
+       if NULL is returned. This fix is just a hack.
+    */
+    if (strDirect == NULL) { 
+	buffer = malloc(16);
+	*buffer = '\0';
+        return buffer;
+    }
+#endif
+
     CVMD_fieldReadInt(strDirect, CVMoffsetOfjava_lang_String_offset, offset);
     CVMD_fieldReadInt(strDirect, CVMoffsetOfjava_lang_String_count, length);
     CVMD_fieldReadRef(strDirect, CVMoffsetOfjava_lang_String_value, charObj);

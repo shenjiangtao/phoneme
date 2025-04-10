@@ -1,7 +1,7 @@
 #
 # @(#)id_personal.mk	1.22 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -24,7 +24,7 @@
 # information or have any questions. 
 #
 
-include ../share/id_basis.mk
+include $(CDC_DIR)/build/share/id_basis.mk
 
 J2ME_PROFILE_NAME		= Personal Profile
 J2ME_PROFILE_SPEC_VERSION	= 1.1

@@ -1,7 +1,7 @@
 #
 # @(#)defs_personal_motif.mk	1.6 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -38,7 +38,7 @@ TOOLKIT_CLASS = sun.awt.motif.MToolkit
 #
 # Get the CPP includes and needed for the motif peers
 #
-PROFILE_INCLUDES += -I$(CVM_SHAREROOT)/basis/native/image
+PROFILE_INCLUDE_DIRS += $(CVM_SHAREROOT)/basis/native/image
 
 CLASSLIB_CLASSES += \
 	sun.awt.motif.InputThread \

@@ -1,7 +1,7 @@
 /*
  * @(#)jitirnode.h	1.125 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -191,6 +191,8 @@ typedef enum CVMJITIROpcodeTag {
     CVMJIT_CONVERT_FLOAT,     /* convert float2{i|l|d} */
     CVMJIT_CONVERT_DOUBLE,    /* convert double2{i|f|l} */
     CVMJIT_NEG,		      /* {i|f|l|d}neg */
+    CVMJIT_NOT,               /* (x == 0)?1:0. */
+    CVMJIT_INT2BIT,           /* (x != 0)?1:0. */
 
     /* CVMJITUnaryOp */
     CVMJIT_RET,		      /* opc_ret */
@@ -917,6 +919,11 @@ CVMJITirnodeSetRightSubtree(CVMJITCompilationContext *con,
 extern void
 CVMJITirnodeDeleteBinaryOp(CVMJITCompilationContext *con, CVMJITIRNode *node);
 
+/* Purpose: Delete the specified unary node and adjust all the refCount of
+            its operands accordingly. */
+extern void
+CVMJITirnodeDeleteUnaryOp(CVMJITCompilationContext *con, CVMJITIRNode *node);
+
 /*
  * CVMJITIRNode access the encoded type tag macro APIs
  */
@@ -1275,15 +1282,6 @@ CVMJITirnodeDeleteBinaryOp(CVMJITCompilationContext *con, CVMJITIRNode *node);
 
 #define CVMJITirnodeHasSideEffects(node) \
     (((node)->flags & CVMJITIRNODE_SIDE_EFFECT_MASK) != 0)
-
-#define CVMJITirnodeInheritSideEffects(node, operand) { \
-    (node)->flags |= ((operand)->flags & CVMJITIRNODE_SIDE_EFFECT_MASK); \
-}
-
-#define CVMJITirnodeBinaryInheritSideEffects(node, lhs, rhs) { \
-    (node)->flags |= \
-     (((lhs)->flags | (rhs)->flags) & CVMJITIRNODE_SIDE_EFFECT_MASK); \
-}
 
 #define CVMJITirnodeSetParentThrowsExceptions(node) \
     ((node)->flags |= CVMJITIRNODE_PARENT_THROWS_EXCEPTIONS)

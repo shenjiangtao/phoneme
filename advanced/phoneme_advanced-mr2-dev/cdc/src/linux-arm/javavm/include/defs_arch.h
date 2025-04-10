@@ -1,7 +1,7 @@
 /*
  * @(#)defs_arch.h	1.11 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -49,5 +49,10 @@
        void CVMvolatileStore(CVMAddr new_value, volatile CVMAddr *addr);
 */
 #define CVM_ADV_SPINLOCK
+
+/* non-VFP hard float returns result in a float register. */
+#if !defined(__SOFTFP__) && !defined(__VFP_FP__)	
+#define CVM_ARM_FLOAT_RESULT_IN_FLOAT_REGISTER
+#endif
 
 #endif /* _LINUX_SARM_DEFS_ARCH_H */

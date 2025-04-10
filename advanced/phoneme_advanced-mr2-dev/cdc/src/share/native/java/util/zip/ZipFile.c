@@ -1,7 +1,7 @@
 /*
  * @(#)ZipFile.c	1.32 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -98,11 +98,16 @@ Java_java_util_zip_ZipFile_open(JNIEnv *env, jclass cls, jstring name,
 
     path = JNU_GetStringPlatformChars(env, name, 0);
 
-    /* Fix for bug #6264809 : mode is cleared before it is passed here
-     * so the operations below is not needed.
-     * if (mode & OPEN_DELETE) flag |= JVM_O_DELETE;
+    /* Fix for bug #6264809 : for CDC, mode is cleared before it is passed
+     * here.  So, the JVM_O_DELETE set operations below is not needed.
+     *
+     * For JAVASE, mode is not cleared, and the low level IO HPI expects
+     * JVM_O_DELETE to be set in the flag when appropriate.
     */
-     if (mode & OPEN_READ) flag |= O_RDONLY;
+#ifdef JAVASE
+    if (mode & OPEN_DELETE) flag |= JVM_O_DELETE;
+#endif
+    if (mode & OPEN_READ) flag |= O_RDONLY;
 
     if (path != 0) {
 	char *msg;

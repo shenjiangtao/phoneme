@@ -1,7 +1,7 @@
 /*
  * @(#)doubleword_arch.h	1.4 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -43,7 +43,7 @@
 #undef USE_ANSI_FCOMPARE
 
 #ifdef CVM_JIT
-#ifndef CVM_FORCE_HARD_FLOAT
+#ifndef CVM_ARM_FLOAT_RESULT_IN_FLOAT_REGISTER		
 /* Following are called from C functions. */
 extern CVMJavaDouble
 CVMCCMruntimeDAdd_C(CVMJavaDouble value1, CVMJavaDouble value2);

@@ -1,7 +1,7 @@
 /*
  * @(#)stacks.c	1.90 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -111,6 +111,9 @@ CVMinitGCRootStack(CVMExecEnv *ee, CVMStack* s, CVMUint32 initialStackSize,
     CVMFreelistFrame* initialFrame;
     CVMBool result;
 
+    if (CVMglobals.unlimitedGCRoots) {
+        maxStackSize = 0xffffffff;
+    }
     result = CVMinitStack(ee, s, initialStackSize, maxStackSize, 
 			  minStackChunkSize, CVMfreelistFrameCapacity,
 			  frameType);
@@ -512,6 +515,66 @@ CVMstackDeleteChunk(CVMStack *stack, CVMStackChunk *chunk)
 }
 
 #endif /* CVM_JIT */
+
+#ifdef CVM_JVMTI
+/* Purpose: Deletes the last chunk in the given stack. */
+CVMBool
+CVMstackDeleteLastChunk(CVMStack *stack, CVMStackChunk *chunk)
+{
+#ifdef CVM_DEBUG_ASSERTS
+    /* Make sure the specified chunk is NOT in the specified stack: */
+    {
+        CVMStackChunk *current = stack->currentStackChunk;
+        CVMBool chunkFoundInStack = CVM_FALSE;
+        while (!chunkFoundInStack && (current != NULL)) {
+            if (current == chunk) {
+                chunkFoundInStack =  CVM_TRUE;
+            } else {
+                current = current->prev;
+            }
+        }
+        CVMassert(!chunkFoundInStack);
+    }
+    CVMassert(stack->currentFrame->topOfStack <=
+              stack->stackChunkEnd &&
+              stack->currentStackChunk->next != NULL &&
+              stack->currentStackChunk->next->next == NULL);
+#endif
+    if (stack->currentFrame->topOfStack >
+        stack->stackChunkEnd ||
+        stack->currentStackChunk->next == NULL ||
+        stack->currentStackChunk->next != chunk ||
+        stack->currentStackChunk->next->next != NULL) {
+        return CVM_FALSE;
+    }
+    /* Unlink the chunk from the stack chunk list: */
+    chunk->prev->next = chunk->next;
+
+    /* Release the chunk and indicate the release in the stack size: */
+    stack->stackSize -= (CVMUint32)(chunk->end_data - chunk->data);
+    free(chunk);
+    return CVM_TRUE;
+}
+
+void
+CVMstackEnableReserved(CVMStack *curStack)
+{
+    curStack->maxStackSize += curStack->minStackChunkSize;
+
+}
+
+void
+CVMstackDisableReserved(CVMStack *curStack)
+{
+    if (curStack->currentStackChunk->next != NULL) {
+        if (CVMstackDeleteLastChunk(curStack,
+                                    curStack->currentStackChunk->next)) {
+            curStack->maxStackSize -= curStack->minStackChunkSize;
+        }
+    }
+}
+
+#endif
 
 CVMBool
 CVMCstackCheckSize(CVMExecEnv* ee, CVMUint32 redzone, 

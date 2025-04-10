@@ -1,7 +1,7 @@
 /*
  * @(#)asmmacros_arch.h	1.9 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -30,6 +30,11 @@
 	
 	INCLUDE KXARM.H
 
+#undef ARM
+#define ARM /* empty */
+
+#define PRESERVE8 /* empty */
+
 #define SET_SECTION_EXEC(x)	TEXTAREA
 
 	MACRO
@@ -38,6 +43,9 @@ AreaName	SETS	"|.rwcode|"
 	AREA $AreaName,CODE,READWRITE
 	MEND
 
+#define ENTRY0(x) \
+	EXPORT x
+
 #define ENTRY(x) \
 	LEAF_ENTRY x
 
@@ -45,12 +53,21 @@ AreaName	SETS	"|.rwcode|"
 
 #define SET_SIZE(x)	ENTRY_END
 
+#define ALIGN(n) 		\
+	ALIGN 1 :SHL: (n)
+
 #define LABEL(x)	x
 #define IMPORT(x)	IMPORT x
 
 #define STRING(s)	DCB s, 0
 #define WORD(x)		DCD x
+#define BYTE(x)		DCB x
+
+#define EQUIV(this, that)	\
+	this EQU that
 
 #define POOL		LTORG
+
+#define END END
 
 #endif /* _INCLUDED_ASMMACROS_ARCH_H */

@@ -1,7 +1,7 @@
 /*
  * @(#)jitasmmacros_cpu.h	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -89,6 +89,8 @@
 	MEND
 #endif /* CVM_JIT_COPY_CCMCODE_TO_CODECACHE */
 
+#define BIT_AND :AND:
+
 #else /* !__RVCT__ */
 
 #ifndef CVM_JIT_COPY_CCMCODE_TO_CODECACHE
@@ -103,12 +105,15 @@
 
 #define CALL_VM_FUNCTION(VMFUNCTION)	\
 	mov lr, pc;			\
-	ldr pc, =VMFUNCTION
+	ldr pc, SYMBOL(VMFUNCTION)
 
 #define BRANCH_TO_VM_FUNCTION(CCMFUNCTION)	\
-	ldr pc, =CCMFUNCTION
+	ldr pc, SYMBOL(CCMFUNCTION)
 
 #endif /* CVM_JIT_COPY_CCMCODE_TO_CODECACHE */
+
+#define BIT_AND &
+
 #endif /* __RVCT__ */
 
 #ifndef __RVCT__

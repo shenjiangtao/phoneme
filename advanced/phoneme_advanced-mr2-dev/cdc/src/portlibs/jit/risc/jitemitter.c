@@ -1,7 +1,7 @@
 /*
  * @(#)jitemitter.c	1.35 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -73,10 +73,7 @@ CVMCPUemitMethodProloguePatch(CVMJITCompilationContext *con,
                                   CVMCPU_JSP_REG, boundsOffset, 2);    
     CVMJITcsClearEmitInPlace(con);
     /* Make sure we are not exceeding the reserved space for TOS adjust */
-    if (CVMJITcbufGetLogicalPC(con) > rec->capacityEndPC) {
-        CVMJITerror(con, CANNOT_COMPILE,
-            "reserved space is not enough for adjustment of TOS by capacity");
-    }
+    CVMassert (CVMJITcbufGetLogicalPC(con) <= rec->capacityEndPC);
     CVMJITcbufPop(con);
 
     /* 2. Spill adjustment. */
@@ -95,10 +92,7 @@ CVMCPUemitMethodProloguePatch(CVMJITCompilationContext *con,
                                   spillAdjust, 0);
     CVMJITcsClearEmitInPlace(con);
     /* Make sure we are not exceeding the reserved space for spill adjust */
-    if (CVMJITcbufGetLogicalPC(con) > rec->spillEndPC) {
-        CVMJITerror(con, CANNOT_COMPILE,
-            "reserved space is not enough for spill adjust");
-    }
+    CVMassert(CVMJITcbufGetLogicalPC(con) <= rec->spillEndPC);
 
 #ifdef CVMCPU_HAS_CP_REG
     {
@@ -563,9 +557,9 @@ CVMCPUCCALLpinArg(CVMJITCompilationContext *con,
 #endif /* !CVMCPU_HAVE_PLATFORM_SPECIFIC_C_CALL_CONVENTION &&
           !CVMCPU_ALLOW_C_ARGS_BEYOND_MAX_ARG_REGS */
 
-/* Purpose: Emits a constantpool dump with a branch around it if needed. */
-void
-CVMRISCemitConstantPoolDumpWithBranchAroundIfNeeded(
+/* Purpose: Emits a constantpool dump with a branch around. */
+void 
+CVMRISCemitConstantPoolDumpWithBranchAround(
     CVMJITCompilationContext* con)
 {
     if (CVMJITcpoolNeedDump(con)) {
@@ -582,5 +576,15 @@ CVMRISCemitConstantPoolDumpWithBranchAroundIfNeeded(
 	CVMJITaddCodegenComment((con, "branch over constant pool dump"));
         CVMCPUemitBranch(con, endPC, CVMCPU_COND_AL);
         CVMJITcbufPop(con);
+    }
+}
+
+/* Purpose: Emits a constantpool dump with a branch around it if needed. */
+void
+CVMRISCemitConstantPoolDumpWithBranchAroundIfNeeded(
+    CVMJITCompilationContext* con)
+{
+    if (CVMJITcpoolNeedDump(con)) {
+	CVMRISCemitConstantPoolDumpWithBranchAround(con);
     }
 }

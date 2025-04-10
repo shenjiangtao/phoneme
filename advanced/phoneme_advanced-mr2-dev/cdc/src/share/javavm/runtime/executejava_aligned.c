@@ -1,7 +1,7 @@
 /*
  * @(#)executejava_aligned.c	1.404 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,7 +29,7 @@
 #include "javavm/include/objects.h"
 #include "javavm/include/directmem.h"
 #include "javavm/include/indirectmem.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #include "javavm/include/interpreter.h"
 #include "javavm/include/classes.h"
 #include "javavm/include/stacks.h"
@@ -554,7 +554,7 @@ CVMdumpStats()
 	DECACHE_PC();						   	\
 	DECACHE_TOS();						   	\
 	CVMD_gcSafeExec(ee, {					   	\
-	    CVMjvmtiNotifyDebuggerOfSingleStep(ee, pc);			\
+	    CVMjvmtiPostSingleStepEvent(ee, pc);			\
 	});								\
 	/* Refetch opcode. See above. */				\
 	FETCH_NEXT_OPCODE(0);      					\
@@ -566,7 +566,7 @@ CVMdumpStats()
 	DECACHE_PC();							\
 	DECACHE_TOS();							\
 	CVMD_gcSafeExec(ee, {						\
-	    CVMjvmtiNotifyDebuggerOfFieldAccess(ee, location, fb);	\
+		CVMjvmtiPostFieldAccessEvent(ee, location, fb);		\
 	});								\
     }
 
@@ -588,8 +588,7 @@ CVMdumpStats()
 	   val.i = STACK_INT(-1);					      \
        }								      \
        CVMD_gcSafeExec(ee, {						      \
-	   CVMjvmtiNotifyDebuggerOfFieldModification(			      \
-	       ee, location, fb, val);					      \
+	       CVMjvmtiPostFieldModificationEvent(ee, location, fb, val); \
        });								      \
    }
 
@@ -3000,7 +2999,7 @@ dispatch_opcode:
 		    DECACHE_PC();
 		    DECACHE_TOS();
 		    CVMD_gcSafeExec(ee, {
-			CVMjvmtiNotifyDebuggerOfFramePush(ee);
+			CVMjvmtiPostFramePushEvent(ee);
 		    });
 		}
 #endif
@@ -3355,7 +3354,7 @@ dispatch_opcode:
 #ifdef CVM_JVMTI
 	    if (CVMjvmtiEventsEnabled()) {
 		CVMD_gcSafeExec(ee, {
-		    CVMjvmtiNotifyDebuggerOfException(ee, pc,
+		    CVMjvmtiPostExceptionEvent(ee, pc,
 			(CVMlocalExceptionOccurred(ee) ?
 			     CVMlocalExceptionICell(ee) :
 			     CVMremoteExceptionICell(ee)));
@@ -3396,8 +3395,8 @@ dispatch_opcode:
                 DECACHE_PC();
                 DECACHE_TOS();
 		CVMD_gcSafeExec(ee, {
-		    CVMjvmtiNotifyDebuggerOfExceptionCatch(ee, pc,
-							   &STACK_ICELL(-1));
+		    CVMjvmtiPostExceptionCatchEvent(ee, pc,
+						    &STACK_ICELL(-1));
 		});
 	    }
 #endif

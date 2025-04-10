@@ -1,7 +1,7 @@
 /*
  * @(#)jitcodebuffer.c	1.102 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -192,10 +192,27 @@ CVMJITcbufAllocate(CVMJITCompilationContext* con, CVMSize extraSpace)
 
     /* Start with the last possible instruction in this buffer (sort of
        like maxLogicalPC) */
-    con->earliestConstantRefPC = con->numMainLineInstructionBytes;
+    con->earliestConstantRefPC = MAX_LOGICAL_PC;
+
+#ifdef CVM_JIT_USE_FP_HARDWARE    
+    con->earliestFPConstantRefPC = MAX_LOGICAL_PC;
+#endif    
 
     /* find a free buffer to generate code into */
     cbuf = CVMJITcodeCacheFindFreeBuffer(con, bufSizeEstimate, CVM_TRUE);
+#ifdef CVM_AOT
+    if (CVMglobals.jit.isPrecompiling) {
+        /* If we are doing AOT compilation, make sure the cbuf is
+         * allocated within the AOT code cache */
+        if (cbuf == NULL ||
+            (cbuf + bufSizeEstimate) > CVMglobals.jit.codeCacheAOTEnd) {
+            CVMconsolePrintf("WARNING: Code cache is full during AOT"
+                             "compilation. Please use a larger AOT "
+                             "code cache using -Xjit:aotCodeCacheSize=<size>.\n");
+            CVMabort();
+        }
+    }
+#endif
     if (cbuf == NULL) {
 	/* Make sure there is enough memory in the code cache */
 	CVMJITcodeCacheMakeRoomForMethod(con, bufSizeEstimate);
@@ -259,6 +276,10 @@ CVMJITcbufCommit(CVMJITCompilationContext* con)
     cbufEnd = CVMJITcbufAlignAddress(con->curPhysicalPC);
     bufSize = cbufEnd - cbuf;    
 
+    /*
+     * Assert that the code did not overrun the actual end of the code buffer
+     */
+    CVMassert(((CVMInt32)(origBufSize - bufSize)) >= 0);
     CVMassert(CVMsysMutexIAmOwner(con->ee, &CVMglobals.jitLock));
     
     /* If there is enough extra at the end of this buffer, then free it */
@@ -271,6 +292,19 @@ CVMJITcbufCommit(CVMJITCompilationContext* con)
 	bufSize = origBufSize;
 	CVMJITcbufSetCommittedBufSize(cbuf, bufSize); /* commit the buffer */
     }
+
+#ifdef CVM_AOT
+    if (CVMglobals.jit.isPrecompiling) {
+        /* If we are doing AOT compilation, make sure the cbuf is
+         * allocated within the AOT code cache */
+        if ((cbuf + CVMJITcbufSize(cbuf)) > CVMglobals.jit.codeCacheAOTEnd) {
+            CVMconsolePrintf("WARNING: Code cache is full during AOT"
+                             "compilation. Please use a larger AOT "
+                             "code cache using-Xjit:aotCodeCacheSize=<size>.\n");
+            CVMabort();
+        }
+    }
+#endif
 
     /* Update the total bytes of the cache that are allocated */
     CVMglobals.jit.codeCacheBytesAllocated += CVMJITcbufSize(cbuf);
@@ -313,9 +347,13 @@ CVMJITmarkCodeBuffer()
     if (!CVMglobals.jit.codeCacheAOTCodeExist)
 #endif
     {
-        CVMassert(CVMglobals.jit.codeCacheFirstFreeBuf != NULL);
-        CVMJITsetCodeCacheDecompileStart(
-            (CVMUint8*)CVMglobals.jit.codeCacheFirstFreeBuf);
+        if (CVMglobals.jit.codeCacheFirstFreeBuf != NULL) {
+            CVMJITsetCodeCacheDecompileStart(
+                (CVMUint8*)CVMglobals.jit.codeCacheFirstFreeBuf);
+        } else {
+            CVMJITsetCodeCacheDecompileStart(
+                CVMglobals.jit.codeCacheEnd);
+        }
     }
 
 #ifdef CVM_USE_MEM_MGR
@@ -332,7 +370,7 @@ CVMJITmarkCodeBuffer()
     CVMJITcodeCachePersist(&CVMglobals.jit);
 #ifndef CVM_MTASK
     /* If CVM_MTASK is enabled, isPrecompiling is set to
-     * false in the clild VM.
+     * false in the child VM.
      */
     CVMglobals.jit.isPrecompiling = CVM_FALSE;
 #endif
@@ -646,29 +684,43 @@ CVMJITcodeCacheInit(CVMExecEnv* ee, CVMJITGlobalState *jgs)
     jgs->codeCacheLowestForcedUtilization = jgs->codeCacheSize;
 
 #ifdef CVM_AOT
-    /* Find AOT codecache */
-    CVMfindAOTCodeCache(jgs);
-#endif
-
-    /* Allocate the dynamic part */
-    /*
-     *  Allocate the code cache and add it to the free list.
-     */
-#ifdef CVMJIT_HAVE_PLATFORM_SPECIFIC_ALLOC_FREE_CODECACHE
-    jgs->codeCacheStart = CVMJITallocCodeCache(&jgs->codeCacheSize);
-#elif defined(CVM_USE_MEM_MGR)
-    /* Align the code cache start at page boundary. */
-    jgs->codeCacheStart = CVMmemalignAlloc(CVMgetPagesize(),
-                                           jgs->codeCacheSize);
-    if ((int)jgs->codeCacheStart % CVMgetPagesize() != 0) {
-        CVMpanic("CVMmemalignAlloc() returns unaligned storage");
+    /* Find existing AOT code. If it doesn't exist, 
+       CVMfindAOTCode allocates a big consecutive 
+       code cache for both AOT and dynamic
+       compilation. */
+    if (jgs->aotEnabled) {
+        if (!CVMfindAOTCode(jgs)) {
+	    /* No existing AOT code found. The code cache
+             * for AOT and JIT compilation has been allocated
+               by CVMfindAOTCode. */ 
+	    goto skipAllocateDynamicPart;
+        }
     }
+#endif
+    {
+        /* Allocate the dynamic part */
+        /*
+         *  Allocate the code cache and add it to the free list.
+         */
+#ifdef CVMJIT_HAVE_PLATFORM_SPECIFIC_ALLOC_FREE_CODECACHE
+         jgs->codeCacheStart = CVMJITallocCodeCache(&jgs->codeCacheSize);
+#elif defined(CVM_USE_MEM_MGR)
+        /* Align the code cache start at page boundary. */
+        jgs->codeCacheStart = CVMmemalignAlloc(CVMgetPagesize(),
+                                           jgs->codeCacheSize);
+        if ((int)jgs->codeCacheStart % CVMgetPagesize() != 0) {
+            CVMpanic("CVMmemalignAlloc() returns unaligned storage");
+        }
 #else
-    jgs->codeCacheStart = malloc(jgs->codeCacheSize);
+        jgs->codeCacheStart = malloc(jgs->codeCacheSize);
+#endif
+    }
+#ifdef CVM_AOT
+skipAllocateDynamicPart:
 #endif
 
     if (jgs->codeCacheStart == NULL) {
-	return CVM_FALSE;
+	    return CVM_FALSE;
     }
 
     jgs->codeCacheEnd = &jgs->codeCacheStart[jgs->codeCacheSize];
@@ -694,6 +746,17 @@ CVMJITcodeCacheInit(CVMExecEnv* ee, CVMJITGlobalState *jgs)
     /* Server does the warmup compilation. */
     jgs->isPrecompiling = (CVMglobals.isServer && CVMglobals.clientId <= 0);
 #endif
+#if defined(CVM_AOT) || defined(CVM_MTASK)
+#ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
+    /* Disable PMI during pre-compiling. CVMglobals.jit.pmiEnabled
+       will be reset properly later by re-processing the -Xjit 
+       options when we are done pre-compilation or finihing
+       initializing AOT code.
+     */
+    jgs->pmiEnabled = !(jgs->isPrecompiling);
+#endif
+#endif
+
 
 #ifdef CVM_JIT_PROFILE
     jgs->profile_fd = -1;
@@ -750,21 +813,21 @@ CVMJITinitializeAOTCode()
                 if (jgs->codeCacheAOTGeneratedCodeStart == 0) {
 		    jgs->codeCacheAOTGeneratedCodeStart = cbuf;
                 }
-#ifdef CVM_DEBUG
-                CVMconsolePrintf("Found pre-compiled method %C.%M, startPC=0x%x\n", 
-                                 CVMmbClassBlock(mb), mb, CVMmbStartPC(mb));
-#endif
+                CVMtraceJITStatus(
+		    ("JS: Found pre-compiled method %C.%M, startPC=0x%x\n",
+                    CVMmbClassBlock(mb), mb, CVMmbStartPC(mb)));
             }
             cbuf += bufSize;
         }
-    }
 #ifndef CVM_MTASK
-    /* Dynamic compilation were disabled until this point. Need to
-     * initialize JIT policy to allow dynamic compilation. If
-     * CVM_MTASK is enabled, CVMjitPolicyInit() is eventually called
-     * by sun.mtask.warmup.runit(). */
-    CVMjitPolicyInit(CVMgetEE(), jgs);
+        /* Need to initialize the [im]cost, climit and pmiEnabled 
+         * by re-processing the JIT options.
+         * Dynamic compilation and PMI were disabled until this point. If
+         * CVM_MTASK is enabled, CVMjitPolicyInit() is eventually called
+         * by sun.misc.Warmup.runit(). */
+        CVMjitProcessOptionsAndPolicyInit(CVMgetEE(), jgs);
 #endif
+    }
     return jgs->codeCacheAOTCodeExist;
 }
 #endif
@@ -791,11 +854,16 @@ CVMJITcodeCacheDestroy(CVMJITGlobalState *jgs)
     }
 
     if (jgs->codeCacheStart != NULL) {
-#ifdef CVMJIT_HAVE_PLATFORM_SPECIFIC_ALLOC_FREE_CODECACHE
- 	CVMJITfreeCodeCache(jgs->codeCacheStart);
-#else
- 	free(jgs->codeCacheStart);
+#ifdef CVM_AOT
+        if (CVMJITAOTcodeCacheDestroy(jgs))
 #endif
+        {
+#ifdef CVMJIT_HAVE_PLATFORM_SPECIFIC_ALLOC_FREE_CODECACHE
+ 	    CVMJITfreeCodeCache(jgs->codeCacheStart);
+#else
+ 	    free(jgs->codeCacheStart);
+#endif
+        }
     }
 
 #ifdef CVM_JIT_PROFILE
@@ -826,11 +894,8 @@ preventMethodFromDecompiling(CVMMethodBlock* mb)
     CVMCompiledMethodDescriptor* cmd = CVMmbCmd(mb);
     /* make sure method survives for 2 aging processes after this one */
     if (CVMcmdEntryCount(cmd) < 8 
-#ifdef CVM_AOT
-        && !((CVMUint8*)cmd >= CVMglobals.jit.codeCacheAOTStart &&
-             (CVMUint8*)cmd < CVMglobals.jit.codeCacheAOTEnd)
-#endif
-        ) {
+        && (CVMUint8*)cmd >= CVMglobals.jit.codeCacheDecompileStart
+        && (CVMUint8*)cmd < CVMglobals.jit.codeCacheEnd) {
 	CVMcmdEntryCount(cmd) = 8;
     }
 }
@@ -1641,7 +1706,7 @@ CVMmemCodeCacheWriteNotify(int pid, void *addr, void *pc, CVMMemHandle *h)
  * Debugging functions
  **********************/
 
-#if defined(CVM_DEBUG) || defined(CVM_USE_MEM_MGR)
+#if defined(CVM_DEBUG) || defined(CVM_USE_MEM_MGR) || defined(CVM_TRACE_JIT)
 
 /*
  * Find the method that the specified pc is in.
@@ -1657,7 +1722,7 @@ CVMJITcodeCacheFindCompiledMethod(CVMUint8* pc, CVMBool doPrint)
     /* make sure the pc is in the code cache */
     if (pc < jgs->codeCacheStart || pc >= jgs->codeCacheEnd) {
 	if (doPrint) {
-	    CVMconsolePrintf("PC is not in code cache\n");
+	    CVMconsolePrintf("PC 0x%x is not in code cache\n", pc);
 	}
 	return NULL;
     }

@@ -1,7 +1,7 @@
 /*
  * @(#)cstates.h	1.28 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -78,7 +78,7 @@ typedef enum {
 struct CVMCState {
     volatile CVMBool request;
     CVMUint32 count;
-    CVMBool reached;
+    volatile CVMBool reached;
     CVMExecEnv *requester;
 
     volatile CVMUint32 inconsistentThreadCount;

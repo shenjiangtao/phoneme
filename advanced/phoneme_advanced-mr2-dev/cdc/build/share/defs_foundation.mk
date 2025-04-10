@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -25,7 +25,7 @@
 #
 
 # Include target specific makefiles first
-include ../$(TARGET_OS)/defs_foundation.mk
+include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs_foundation.mk
 
 PROFILE_SRCDIRS += \
    $(CVM_SHAREROOT)/foundation/classes
@@ -80,10 +80,8 @@ CVM_BUILDTIME_CLASSES += \
    java.security.spec.X509EncodedKeySpec \
    java.text.StringCharacterIterator \
    javax.security.auth.x500.X500Principal \
-   sun.misc.URLClassPath \
    sun.security.action.GetBooleanAction \
    sun.security.action.GetIntegerAction \
-   sun.security.action.GetPropertyAction \
    sun.security.action.LoadLibraryAction \
    sun.security.pkcs.ContentInfo \
    sun.security.pkcs.PKCS7 \
@@ -104,7 +102,6 @@ CVM_BUILDTIME_CLASSES += \
    sun.security.util.ByteArrayLexOrder \
    sun.security.util.ByteArrayTagOrder \
    sun.security.util.Cache \
-   sun.security.util.Debug \
    sun.security.util.DerEncoder \
    sun.security.util.DerIndefLenConverter \
    sun.security.util.DerInputBuffer \
@@ -169,6 +166,7 @@ CVM_BUILDTIME_CLASSES += \
    sun.security.x509.SubjectKeyIdentifierExtension \
    sun.security.x509.URIName \
    sun.security.x509.UniqueIdentity \
+   sun.security.x509.UnparseableExtension \
    sun.security.x509.X500Name$1 \
    sun.security.x509.X500Name \
    sun.security.x509.X509AttributeName \
@@ -182,6 +180,8 @@ CVM_BUILDTIME_CLASSES += \
    sun.text.ComposeData \
    sun.text.CompactByteArray \
    sun.text.CompactCharArray \
+   sun.misc.NetworkMetrics \
+   sun.misc.NetworkMetricsInf \
 
 #
 # The following are the public classes in the Foundation specification.
@@ -341,7 +341,10 @@ PROFILE_IMPL_CLASSES += \
    \
    com.sun.cdc.io.j2me.socket.Protocol \
    \
+   com.sun.cdc.io.j2me.http.HttpStreamConnection \
    com.sun.cdc.io.j2me.http.Protocol \
+   com.sun.cdc.io.j2me.http.StreamConnectionElement \
+   com.sun.cdc.io.j2me.http.StreamConnectionPool \
    \
    com.sun.cdc.io.j2me.serversocket.Protocol \
    com.sun.cdc.io.j2me.UniversalFilterInputStream \
@@ -417,4 +420,4 @@ JAVADOC_FOUNDATION_SRCPATH     = $(PROFILE_SRCDIRS):$(CVM_SHAREDCLASSES_SRCDIR):
 -include defs_foundation_commercial.mk
 
 # Do this last so this makefile can override source files on the vpath.
-include ../share/defs_cdc.mk
+include $(CDC_DIR)/build/share/defs_cdc.mk

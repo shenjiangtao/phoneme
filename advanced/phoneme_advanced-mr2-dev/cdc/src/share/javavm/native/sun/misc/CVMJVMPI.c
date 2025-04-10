@@ -1,7 +1,7 @@
 /*
  * @(#)CVMJVMPI.c	1.7 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -32,7 +32,7 @@
 #include "javavm/include/jvmpi_impl.h"
 
 /* Purpose: Posts the JVMPI_EVENT_DATA_DUMP_REQUEST event. */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVMJVMPI_postDataDumpRequestEvent(CVMExecEnv* ee, 
                                               CVMStackVal32 *arguments,
                                               CVMMethodBlock **p_mb)
@@ -44,7 +44,7 @@ CNIsun_misc_CVMJVMPI_postDataDumpRequestEvent(CVMExecEnv* ee,
 }
 
 /* Purpose: Posts the JVMPI_EVENT_DATA_RESET_REQUEST event. */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIsun_misc_CVMJVMPI_postDataResetRequestEvent(CVMExecEnv* ee, 
                                                CVMStackVal32 *arguments,
                                                CVMMethodBlock **p_mb)

@@ -1,7 +1,7 @@
 /*
  * @(#)Security.java	1.110 06/10/11
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -1126,10 +1126,11 @@ public final class Security {
 	    // java.security.<type>.Spi is a system class, therefore
 	    // Class.forName() always works
 	    Class typeClass;
-	    if (type.equals("CertificateFactory") ||
-		type.equals("CertPathBuilder") ||
-		type.equals("CertPathValidator") ||
-		type.equals("CertStore")) {
+            if (type.equals("CertPathBuilder") || type.equals("CertStore")) {
+		typeClass = Class.forName("com.sun.security.cert." + type
+					  + "Spi");
+            } else if (type.equals("CertificateFactory") ||
+		type.equals("CertPathValidator")) {
 		typeClass = Class.forName("java.security.cert." + type
 					  + "Spi");
 	    } else {

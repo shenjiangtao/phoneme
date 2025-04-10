@@ -202,12 +202,12 @@ newMessage(void)
     uint8* buffer;
     struct _JUMPMessage* message;
 
-    buffer = calloc(1, MESSAGE_BUFFER_SIZE);
+    buffer = calloc(1, JUMP_MESSAGE_BUFFER_SIZE);
     if (buffer == NULL) {
 	return NULL;
     }
 
-    message = newMessageFromBuffer(buffer, MESSAGE_BUFFER_SIZE);
+    message = newMessageFromBuffer(buffer, JUMP_MESSAGE_BUFFER_SIZE);
     if (message == NULL) {
 	free(buffer);
 	return NULL;
@@ -304,7 +304,7 @@ jumpMessageNewOutgoingFromBuffer(uint8* buffer, int isResponse,
     JUMPMessageMark mmarkAfterHeader;
     uint32 messageId;
 
-    message = newMessageFromBuffer(buffer, MESSAGE_BUFFER_SIZE);
+    message = newMessageFromBuffer(buffer, JUMP_MESSAGE_BUFFER_SIZE);
     if (message == NULL) {
 	*code = JUMP_OUT_OF_MEMORY;
 	return NULL;
@@ -524,8 +524,7 @@ jumpMessageAddByteArray(JUMPOutgoingMessage m, const int8* values, int length)
 	return;
     }
     if (values == NULL) {
-	/* FIXME: use -1 */
-	jumpMessageAddInt(m, 0);
+	jumpMessageAddInt(m, -1);
 	return;
     }
     if (length < 0) {
@@ -650,8 +649,7 @@ jumpMessageAddStringArray(JUMPOutgoingMessage m,
 	return;
     }
     if (strs == NULL) {
-	/* FIXME: use -1 */
-	jumpMessageAddInt(m, 0);
+	jumpMessageAddInt(m, -1);
 	return;
     }
     if (length < 0) {
@@ -745,9 +743,7 @@ jumpMessageGetByteArray(JUMPMessageReader* r, uint32* lengthPtr)
 
     *lengthPtr = length;
 
-    /* FIXME: use -1 */
-    if (length == 0) {
-	*lengthPtr = -1;
+    if (length == -1) {
 	/* NULL array was written, this is ok. */
 	return NULL;
     }
@@ -867,7 +863,6 @@ jumpMessageGetString(JUMPMessageReader* r)
 JUMPPlatformCString*
 jumpMessageGetStringArray(JUMPMessageReader* r, uint32* lengthPtr)
 {
-    /* FIXME: create string array freeing routine */
     uint32 length;
     uint32 i;
     JUMPPlatformCString* strs;
@@ -885,9 +880,7 @@ jumpMessageGetStringArray(JUMPMessageReader* r, uint32* lengthPtr)
 
     *lengthPtr = length;
 
-    /* FIXME: use -1 */
-    if (length == 0) {
-	*lengthPtr = -1;
+    if (length == -1) {
 	/* NULL array was written, this is ok. */
 	return NULL;
     }
@@ -906,17 +899,32 @@ jumpMessageGetStringArray(JUMPMessageReader* r, uint32* lengthPtr)
     for (i = 0; i < length; i++) {
 	strs[i] = jumpMessageGetString(r);
 	if (r->status != JUMP_SUCCESS) {
-	    int j;
-	    for (j = 0; j < i; j++) {
-		free(strs[j]);
-	    }
-	    free(strs);
+	    jumpMessageFreeStringArray(strs, i);
 	    return NULL;
 	}
     }
     
     return strs;
 }
+
+void
+jumpMessageFreeStringArray(JUMPPlatformCString* p, uint32 length)
+{
+    uint32 i;
+
+    /* jumpMessageGetStringArray() may validly return NULL, so
+       accept it here. */
+
+    if (p == NULL) {
+	return;
+    }
+
+    for (i = 0; i < length; i++) {
+	free(p[i]);
+    }
+    free(p);
+}
+
 
 JUMPPlatformCString
 jumpMessageGetType(JUMPMessage m)
@@ -976,7 +984,7 @@ jumpMessageSendAsyncResponse(JUMPOutgoingMessage m,
 /*
  * On return, sets *code to one of JUMP_SUCCESS, JUMP_OUT_OF_MEMORY,
  * JUMP_TIMEOUT, JUMP_OVERRUN, JUMP_NEGATIVE_ARRAY_LENGTH,
- * JUMP_NO_SUCH_QUEUE, or JUMP_FAILURE.
+ * JUMP_NO_SUCH_QUEUE, JUMP_UNBLOCKED, or JUMP_FAILURE.
  */
 static JUMPMessage
 doWaitFor(JUMPPlatformCString type, int32 timeout, JUMPMessageStatusCode *code)
@@ -995,21 +1003,21 @@ doWaitFor(JUMPPlatformCString type, int32 timeout, JUMPMessageStatusCode *code)
 	return NULL;
     }
 
-    buffer = calloc(1, MESSAGE_BUFFER_SIZE);
+    buffer = calloc(1, JUMP_MESSAGE_BUFFER_SIZE);
     if (buffer == NULL) {
 	*code = JUMP_OUT_OF_MEMORY;
 	return NULL;
     }
 
     status = jumpMessageQueueReceive(
-	type, buffer, MESSAGE_BUFFER_SIZE, &mqcode);
+	type, buffer, JUMP_MESSAGE_BUFFER_SIZE, &mqcode);
     if (status == -1) {
 	*code = translateJumpMessageQueueStatusCode(&mqcode);
 	free(buffer);
 	return NULL;
     }
 
-    incoming = newMessageFromReceivedBuffer(buffer, MESSAGE_BUFFER_SIZE, code);
+    incoming = newMessageFromReceivedBuffer(buffer, JUMP_MESSAGE_BUFFER_SIZE, code);
     if (incoming == NULL) {
 	free(buffer);
 	return NULL;
@@ -1109,6 +1117,19 @@ jumpMessageWaitFor(JUMPPlatformCString type,
     return doWaitFor(type, timeout, code);
 }
 
+void
+jumpMessageUnblock(JUMPPlatformCString messageType,
+		   JUMPMessageStatusCode* code)
+{
+    JUMPMessageQueueStatusCode mqcode;
+
+    assert(jumpMessagingInitialized != 0);
+
+    jumpMessageQueueUnblock(messageType, &mqcode);
+    *code = translateJumpMessageQueueStatusCode(&mqcode);
+}
+
+
 int
 jumpMessageGetFd(JUMPPlatformCString type)
 {
@@ -1156,6 +1177,9 @@ jumpMessageShutdown(void)
 JUMPMessageStatusCode
 jumpMessageStart(void)
 {
+    /* Ensure the porting layer can handle messages of the size we need. */
+    assert(JUMP_MESSAGE_BUFFER_SIZE <= JUMP_MESSAGE_QUEUE_MAX_MESSAGE_SIZE);
+
     return JUMP_SUCCESS;
 }
 

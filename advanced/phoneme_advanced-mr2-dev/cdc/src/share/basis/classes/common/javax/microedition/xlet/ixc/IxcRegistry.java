@@ -1,7 +1,7 @@
 /*
  * @(#)IxcRegistry.java	1.19 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -57,7 +57,7 @@ public abstract class IxcRegistry implements Registry {
     static Method  getRegistryImplMethod = null;
 
     static String svmIxcRegistryName = "com.sun.xlet.ixc.IxcRegistryImpl"; 
-    static String mvmIxcRegistryName = "com.sun.jumpimpl.ixc.JumpIxcRegistryImpl";
+    static String mvmIxcRegistryName = "com.sun.jumpimpl.ixc.JUMPIxcRegistryImpl";
 
     /**
      * Returns the Inter-Xlet Communication registry.

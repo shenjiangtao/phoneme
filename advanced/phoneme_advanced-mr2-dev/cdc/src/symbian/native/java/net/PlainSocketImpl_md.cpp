@@ -1,7 +1,7 @@
 /*
  * @(#)PlainSocketImpl_md.cpp	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -241,7 +241,7 @@ Java_java_net_PlainSocketImpl_socketConnect(JNIEnv *env, jobject thisObj,
     /* connect */
     RLockingSocket *s = (RLockingSocket *)fd;
 
-    NET_InetAddressToSockaddr(env, iaObj, port, (struct sockaddr *)&him, &len, JNI_FALSE);
+    NET_InetAddressToSockaddr(env, iaObj, port, (struct sockaddr *)&him, &len);
     if (trafficClass != 0) {
 	s->SetOpt(KSoIpTOS, KSolInetIp, trafficClass);
     }
@@ -384,7 +384,7 @@ Java_java_net_PlainSocketImpl_socketBind(JNIEnv *env, jobject thisObj,
     }
 
     /* bind */
-    NET_InetAddressToSockaddr(env, iaObj, localport, (struct sockaddr *)&him, &len, JNI_TRUE);
+    NET_InetAddressToSockaddr(env, iaObj, localport, (struct sockaddr *)&him, &len);
 
     RLockingSocket *s = (RLockingSocket *)fd;
     TInt err = s->Bind(him.ia);

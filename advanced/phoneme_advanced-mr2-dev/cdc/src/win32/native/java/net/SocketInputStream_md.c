@@ -1,7 +1,7 @@
 /*
  * @(#)SocketInputStream_md.c	1.42 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -158,7 +158,7 @@ Java_java_net_SocketInputStream_socketRead0(JNIEnv *env, jobject this,
     } 
 
     if (timeout) {
-	if (timeout <= 5000 ) {
+	if (timeout <= 5000 || !isRcvTimeoutSupported) {
 	    int ret = NET_Timeout (fd, timeout);
 	    
 	    if (ret <= 0) {

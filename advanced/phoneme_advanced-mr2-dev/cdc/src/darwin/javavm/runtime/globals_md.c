@@ -1,7 +1,7 @@
 /*
  * @(#)globals_md.c	1.28 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -32,6 +32,7 @@
 #include "javavm/include/porting/threads.h"
 #include "portlibs/posix/threads.h"
 #include "generated/javavm/include/build_defs.h"
+#include "javavm/include/path_md.h"
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -104,7 +105,7 @@ void CVMdestroyVMTargetGlobalState()
 
 static CVMProperties props;
 
-CVMBool CVMinitStaticState()
+CVMBool CVMinitStaticState(CVMpathInfo *pathInfo)
 {
     /*
      * Initialize the static state for this address space
@@ -145,7 +146,7 @@ CVMBool CVMinitStaticState()
     sigblock(sigmask(SIGPIPE));
 
     {
-	char buf[MAXPATHLEN + 1], *p0, *p;
+	char buf[MAXPATHLEN + 1], *p0, *p, *pEnd;
 
 	Dl_info dlinfo;
 	if (dladdr((void *)CVMinitStaticState, &dlinfo)) {
@@ -162,12 +163,34 @@ CVMBool CVMinitStaticState()
 	    goto badpath;
 	}
 	p = p - 4;
-	if (p > p0 && strncmp(p, "/bin/", 5) == 0) {
-	    *p = '\0';
+	if (p >= p0 && strncmp(p, "/bin/", 5) == 0) {
+	    if (p == p0) {
+		p[1] = '\0'; /* this is the root directory */
+	    } else {
+		p[0] = '\0';
+	    }
 	} else {
 	    goto badpath;
 	}
-        return( CVMinitPathValues( &props, p0, "lib", "lib" ) );
+        pathInfo->basePath = strdup(p0);
+        if (pathInfo->basePath == NULL) {
+            return CVM_FALSE;
+        }
+        p = (char *)malloc(strlen(p0) + 1 + strlen("lib") + 1);
+        if (p == NULL) {
+            return CVM_FALSE;
+        }
+        strcpy(p, p0);
+        pEnd = p + strlen(p);
+        *pEnd++ = CVM_PATH_LOCAL_DIR_SEPARATOR;
+        strcpy(pEnd, "lib");
+        pathInfo->libPath = p;
+        /* lib and dll are the same so this shortcut */
+        pathInfo->dllPath = strdup(p);
+        if (pathInfo->dllPath == NULL) {
+            return CVM_FALSE;
+        }
+        return CVM_TRUE;
     badpath:
 	fprintf(stderr, "Invalid path %s\n", p0);
 	fprintf(stderr, "Executable must be in a directory named \"bin\".\n");
@@ -190,6 +213,3 @@ const CVMProperties *CVMgetProperties()
 {
     return &props;
 }
-
-
-

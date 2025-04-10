@@ -1,7 +1,7 @@
 /*
  * @(#)loadercache.c	1.46 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -883,6 +883,19 @@ CVMloaderCacheAdd(CVMExecEnv* ee, CVMClassBlock* cb,
     CVM_LOADERCACHE_ASSERT_UNLOCKED(ee);
     CVM_LOADERCACHE_LOCK(ee);
 
+#ifdef CVM_JVMTI
+    /*
+     * NOTE: check to see if this
+     * class is in the process of being redefined.  If so
+     * then we just ignore this attempt at adding the new
+     * redefined class to the cache.
+     */
+    /* Note: make the following test a macro when we remove ThreadNode */
+    if (CVMjvmtiIsEnabled() && CVMjvmtiClassBeingRedefined(ee, cb)) {
+	CVM_LOADERCACHE_UNLOCK(ee);
+	return CVM_TRUE;
+    }
+#endif
     /*
      * Make sure we aren't trying to replace an existing entry.
      */

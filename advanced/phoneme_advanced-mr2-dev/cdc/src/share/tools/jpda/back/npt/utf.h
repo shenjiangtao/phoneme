@@ -1,7 +1,7 @@
 /*
  * @(#)utf.h	1.6 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -31,10 +31,8 @@
 #ifndef  _UTF_H
 #define _UTF_H
 
-#include <stdio.h>
-
-#include "jni.h"
 #include "utf_md.h"
+#include "jni.h"
 
 /* Error and assert macros */
 #define UTF_ERROR(m) utfError(__FILE__, __LINE__,  m)

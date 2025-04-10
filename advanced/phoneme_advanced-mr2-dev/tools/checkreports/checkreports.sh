@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 #
 # This program is free software; you can redistribute it and/or
@@ -106,10 +106,11 @@ func_generateBriefSum()
     # Cleanup old summary if exist
     [ -w "$BRIEF_SUMMARY" ] && rm "$BRIEF_SUMMARY"
 
-    # For each report file get first 3 lines and append BRIEF_SUMMARY file.
+    # For each report file get first 2 lines and append BRIEF_SUMMARY file.
     for REPORT in `find "$REPORTS_DIR" -name "TEST*.txt"`
     do
-        head -n 3 "$REPORT" >>"$BRIEF_SUMMARY"
+        head -n 2 "$REPORT" >>"$BRIEF_SUMMARY"
+        echo "" >>"$BRIEF_SUMMARY"
     done
     [ -f "$BRIEF_SUMMARY" ] || func_log "Warning: there were no reports found"
 

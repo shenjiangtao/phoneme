@@ -1,7 +1,7 @@
 /*
  * @(#)executejava_standard.c	1.45 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,7 +29,7 @@
 #include "javavm/include/objects.h"
 #include "javavm/include/directmem.h"
 #include "javavm/include/indirectmem.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #include "javavm/include/interpreter.h"
 #include "javavm/include/classes.h"
 #include "javavm/include/stacks.h"
@@ -46,7 +46,7 @@
 #include "javavm/include/porting/int.h"
 #include "javavm/include/porting/jni.h"
 
-#ifdef CVM_JVMTI
+#ifdef CVM_JVMTI_ENABLED
 #include "javavm/include/jvmtiExport.h"
 #include "generated/offsets/java_lang_Thread.h"
 #endif
@@ -382,62 +382,88 @@ CVMdumpStats()
 #define UPDATE_INSTRUCTION_COUNT(opcode)
 #endif
 
-#ifdef CVM_JVMTI
-/* NOTE: This macro must be called AFTER the PC has been
-   incremented. CVMjvmtiNotifyDebuggerOfSingleStep may cause a
-   breakpoint opcode to get inserted at the current PC to allow the
-   debugger to coalesce single-step events. Therefore, we need to
-   refetch the opcode after calling out to JVMTI. */
-#define JVMTI_SINGLE_STEPPING()					   \
-{									\
-    if (ee->jvmtiSingleStepping && CVMjvmtiThreadEventsEnabled(ee)) {	\
-	DECACHE_PC();						   	\
-	DECACHE_TOS();						   	\
-	CVMD_gcSafeExec(ee, {					   	\
-	    CVMjvmtiNotifyDebuggerOfSingleStep(ee, pc);			\
-	});								\
-	/* Refetch opcode. See above. */				\
-	FETCH_NEXT_OPCODE(0);      					\
-    }									\
-}
+#if defined(CVM_JVMTI_ENABLED) || defined(CVM_JVMPI_TRACE_INSTRUCTION)
+#define CVM_LOSSLESS_OPCODES
+#endif
 
-#define JVMTI_WATCHING_FIELD_ACCESS(location)				\
-    if (CVMglobals.jvmtiWatchingFieldAccess) {				\
+#ifdef CVM_JVMTI_ENABLED
+
+#define CVM_EXECUTE_JAVA_METHOD CVMgcUnsafeExecuteJavaMethodJVMTI
+
+
+/* Note: JVMTI_PROCESS_POP_FRAME_AND_EARLY_RETURN() checks for the need to
+   pop a frame or force an early return.
+   ForceEarlyReturn  can come about via requests from the
+   agent during a event notification from the interpreter e.g. single stepping.
+   So, after a JVMTI event is posted, we should check for the request.
+   Alternately, it is possible for a request to come asynchronously from
+   another thread.  Unlike ForceEarlyReturn which can be requested both ways,
+   PopFrame can only be requested from another thread.  However, with
+   asynchronous requests, the synchronous point is as good as any a point to
+   check for the request.  Hence, we always check immediately after a JVMTI
+   event is posted reqardless of whether we're antcipating a synchronous or
+   asynchronous request.
+ */
+/* TODO: Consolidate the FramePop and NeedEarlyReturn into a single field
+   so that we only need to do one comparison in the normal case where neither
+   were requested. */
+#define JVMTI_PROCESS_POP_FRAME_AND_EARLY_RETURN()					\
+    if (CVMjvmtiNeedFramePop(ee)) {					\
+	goto handle_pop_frame;						\
+    } else if (CVMjvmtiNeedEarlyReturn(ee)) {				\
+	goto handle_early_return;					\
+    }
+
+#define JVMTI_SINGLE_STEPPING()						\
+    if (CVMjvmtiSingleStepping(ee)) {					\
+	goto handle_single_step;					\
+    }
+/* Coalesce the above three tests into the test of one bool for better
+ * performance (and less code bloat).
+ */
+#define JVMTI_CHECK_PROCESSING_NEEDED()					\
+    if (CVMjvmtiNeedProcessing(ee)) {					\
+	goto jvmti_processing;						\
+    }
+
+#define JVMTI_WATCH_FIELD_READ(location)				\
+    if (CVMjvmtiIsWatchingFieldAccess()) {				\
 	DECACHE_PC();							\
 	DECACHE_TOS();							\
 	CVMD_gcSafeExec(ee, {						\
-	    CVMjvmtiNotifyDebuggerOfFieldAccess(ee, location, fb);	\
+	    CVMjvmtiPostFieldAccessEvent(ee, location, fb);		\
 	});								\
     }
 
-#define JVMTI_WATCHING_FIELD_MODIFICATION(location, isDoubleWord, isRef)      \
-   if (CVMglobals.jvmtiWatchingFieldModification) {			      \
-       jvalue val;							      \
-       DECACHE_PC();							      \
-       DECACHE_TOS();							      \
-       if (isDoubleWord) {						      \
-	   CVMassert(CVMfbIsDoubleWord(fb));				      \
-	   if (CVMtypeidGetType(CVMfbNameAndTypeID(fb)) == CVM_TYPEID_LONG) { \
-	       val.j = CVMjvm2Long(&STACK_INFO(-2).raw);		      \
-	   } else /* CVM_TYPEID_DOUBLE */ {				      \
-	       val.d = CVMjvm2Double(&STACK_INFO(-2).raw);		      \
-	   }								      \
-       } else if (isRef) {						      \
-	   val.l = &STACK_ICELL(-1);					      \
-       } else {								      \
-	   val.i = STACK_INT(-1);					      \
-       }								      \
-       CVMD_gcSafeExec(ee, {						      \
-	   CVMjvmtiNotifyDebuggerOfFieldModification(			      \
-	       ee, location, fb, val);					      \
-       });								      \
-   }
-
+#define JVMTI_WATCH_FIELD_WRITE(location, isDoubleWord, isRef)	\
+    if (CVMjvmtiIsWatchingFieldModification()) {			\
+	jvalue val;							\
+	DECACHE_PC();							\
+	DECACHE_TOS();							\
+	if (isDoubleWord) {						\
+	    CVMassert(CVMfbIsDoubleWord(fb));				\
+	    if (CVMtypeidGetType(CVMfbNameAndTypeID(fb)) == CVM_TYPEID_LONG) { \
+		val.j = CVMjvm2Long(&STACK_INFO(-2).raw);		\
+	    } else /* CVM_TYPEID_DOUBLE */ {				\
+		val.d = CVMjvm2Double(&STACK_INFO(-2).raw);		\
+	    }								\
+	} else if (isRef) {						\
+	    val.l = &STACK_ICELL(-1);					\
+	} else {							\
+	    val.i = STACK_INT(-1);					\
+	}								\
+	CVMD_gcSafeExec(ee, {						\
+	    CVMjvmtiPostFieldModificationEvent(ee, location, fb, val);  \
+	});								\
+    }
 #else
-#define JVMTI_SINGLE_STEPPING()
-#define JVMTI_WATCHING_FIELD_ACCESS(location)
-#define JVMTI_WATCHING_FIELD_MODIFICATION(location, isDoubleWord, isRef)
+#define CVM_EXECUTE_JAVA_METHOD CVMgcUnsafeExecuteJavaMethod
 
+#define JVMTI_PROCESS_POP_FRAME_AND_EARLY_RETURN()
+#define JVMTI_SINGLE_STEPPING()
+#define JVMTI_CHECK_PROCESSING_NEEDED()
+#define JVMTI_WATCH_FIELD_READ(location)
+#define JVMTI_WATCH_FIELD_WRITE(location, isDoubleWord, isRef)
 #endif
 
 #ifdef CVM_JVMPI
@@ -452,6 +478,19 @@ CVMdumpStats()
 
 #else
 #define JVMPI_CHECK_FOR_DATA_DUMP_REQUEST(ee)
+#endif
+#ifdef CVM_JVMTI_ENABLED
+#define JVMTI_CHECK_FOR_DATA_DUMP_REQUEST(ee) \
+    if (CVMjvmtiDataDumpWasRequested()) {     \
+        DECACHE_PC();                         \
+        DECACHE_TOS();                        \
+        CVMD_gcSafeExec(ee, {                 \
+            CVMjvmtiPostDataDumpRequest();    \
+        });                                   \
+    }
+
+#else
+#define JVMTI_CHECK_FOR_DATA_DUMP_REQUEST(ee)
 #endif
 
 #ifdef CVM_JVMPI_TRACE_INSTRUCTION
@@ -597,7 +636,7 @@ CVMdumpStats()
         OPCODE_DECL;				\
         FETCH_NEXT_OPCODE(0);			\
 	UPDATE_INSTRUCTION_COUNT(*pc);		\
-        JVMTI_SINGLE_STEPPING();		\
+        JVMTI_CHECK_PROCESSING_NEEDED();	\
         DISPATCH_OPCODE();   			\
     }
 
@@ -619,7 +658,7 @@ CVMdumpStats()
 #undef UPDATE_PC_AND_TOS_AND_CONTINUE
 #define UPDATE_PC_AND_TOS_AND_CONTINUE(opsize, stack) 		\
 	UPDATE_PC_AND_TOS(opsize, stack);			\
-        JVMTI_SINGLE_STEPPING();				\
+        JVMTI_CHECK_PROCESSING_NEEDED();			\
         DISPATCH_OPCODE();					\
     }
 
@@ -630,11 +669,14 @@ CVMdumpStats()
 #undef CHECK_PENDING_REQUESTS
 #ifdef CVM_REMOTE_EXCEPTIONS_SUPPORTED
 /* %comment h001 */
-#define CHECK_PENDING_REQUESTS(ee) \
-	(CVMD_gcSafeCheckRequest(ee) || CVMremoteExceptionOccurred(ee))
+#define CHECK_PENDING_REQUESTS(ee)                      \
+        ((CVMthreadSchedHook(CVMexecEnv2threadID(ee))), \
+         (CVMD_gcSafeCheckRequest(ee) ||                \
+          CVMremoteExceptionOccurred(ee)))
 #else
-#define CHECK_PENDING_REQUESTS(ee) \
-	(CVMD_gcSafeCheckRequest(ee))
+#define CHECK_PENDING_REQUESTS(ee)                      \
+	((CVMthreadSchedHook(CVMexecEnv2threadID(ee))), \
+         (CVMD_gcSafeCheckRequest(ee)))
 #endif
 
 /*
@@ -648,8 +690,9 @@ CVMdumpStats()
 	goto handle_pending_request;					   \
     }									   \
     JVMPI_CHECK_FOR_DATA_DUMP_REQUEST(ee);                                 \
+    JVMTI_CHECK_FOR_DATA_DUMP_REQUEST(ee);                                 \
     UPDATE_PC_AND_TOS(skip, stack);					   \
-    JVMTI_SINGLE_STEPPING();						   \
+    JVMTI_CHECK_PROCESSING_NEEDED(); 					   \
     DISPATCH_OPCODE();							   \
 }
 
@@ -1200,6 +1243,46 @@ CVMinvokeInterfaceHelper(CVMExecEnv* ee, CVMStackVal32* topOfStack,
     }
 }
 
+static CVMBool
+CVMloadConstantHelper(CVMExecEnv *ee, CVMStackVal32* topOfStack,
+    CVMConstantPool* cp, CVMUint16 cpIndex, CVMUint8* pc)
+{
+    switch (CVMcpEntryType(cp, cpIndex)) {
+    case CVM_CONSTANT_ClassTypeID:
+    {
+	CVMBool resolved;
+	CVMD_gcSafeExec(ee, {
+	    resolved = CVMcpResolveEntry(ee, cp, cpIndex);
+	});
+	if (!resolved) {
+	    return CVM_FALSE;
+	}
+    }
+    case CVM_CONSTANT_ClassBlock: {
+	CVMClassBlock *cb = CVMcpGetCb(cp, cpIndex);
+	CVMID_icellAssignDirect(ee, &STACK_ICELL(0), CVMcbJavaInstance(cb));
+	TRACE(("\t%s #%d => %C\n", CVMopnames[pc[0]],
+	       cpIndex, cb));
+	return CVM_TRUE;
+    }
+    default:
+	return CVM_FALSE;
+    }
+}
+
+static CVMBool
+CVMldcHelper(CVMExecEnv *ee, CVMStackVal32* topOfStack,
+    CVMConstantPool* cp, CVMUint8* pc)
+{
+    return CVMloadConstantHelper(ee, topOfStack, cp, pc[1], pc);
+}
+
+static CVMBool
+CVMldc_wHelper(CVMExecEnv *ee, CVMStackVal32* topOfStack,
+    CVMConstantPool* cp, CVMUint8* pc)
+{
+    return CVMloadConstantHelper(ee, topOfStack, cp, GET_INDEX(pc + 1), pc);
+}
 
 static void
 CVMldc2_wHelper(CVMStackVal32* topOfStack, CVMConstantPool* cp, CVMUint8* pc)
@@ -1220,7 +1303,7 @@ CVMgetfield_quick_wHelper(CVMExecEnv* ee, CVMFrame* frame,
 	return NULL;
     }
     fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
-    JVMTI_WATCHING_FIELD_ACCESS(&STACK_ICELL(-1));
+    JVMTI_WATCH_FIELD_READ(&STACK_ICELL(-1));
     if (CVMfbIsDoubleWord(fb)) {
         /* For volatile type */
         if (CVMfbIs(fb, VOLATILE)) {
@@ -1261,8 +1344,7 @@ CVMputfield_quick_wHelper(CVMExecEnv* ee, CVMFrame* frame,
 	if (directObj == NULL) {
 	    return NULL;
 	}
-	JVMTI_WATCHING_FIELD_MODIFICATION(&STACK_ICELL(-3),
-					  CVM_TRUE, CVM_FALSE);
+	JVMTI_WATCH_FIELD_WRITE(&STACK_ICELL(-3), CVM_TRUE, CVM_FALSE);
         /* For volatile type */
         if (CVMfbIs(fb, VOLATILE)) {
             CVM_ACCESS_VOLATILE_LOCK(ee);
@@ -1280,8 +1362,8 @@ CVMputfield_quick_wHelper(CVMExecEnv* ee, CVMFrame* frame,
 	if (directObj == NULL) {
 	    return NULL;
 	}
-	JVMTI_WATCHING_FIELD_MODIFICATION(&STACK_ICELL(-2),
-					  CVM_FALSE, CVMfbIsRef(fb));
+	JVMTI_WATCH_FIELD_WRITE(&STACK_ICELL(-2),
+				       CVM_FALSE, CVMfbIsRef(fb));
 	if (CVMfbIsRef(fb)) {
 	    CVMD_fieldWriteRef(directObj, CVMfbOffset(fb), STACK_OBJECT(-1));
 	} else {
@@ -1447,9 +1529,9 @@ static const CVMUint8 CVMinvokeInterfaceTransitionCode[] = {
  * can instead be used for something more important.
  */
 void
-CVMgcUnsafeExecuteJavaMethod(CVMExecEnv* volatile ee, /* see note above */
-			     CVMMethodBlock* mb,
-			     CVMBool isStatic, CVMBool isVirtual)
+CVM_EXECUTE_JAVA_METHOD(CVMExecEnv* volatile ee, /* see note above */
+                        CVMMethodBlock* mb,
+                        CVMBool isStatic, CVMBool isVirtual)
 {
     CVMFrame*         frame = NULL;         /* actually it's a CVMJavaFrame */
     CVMFrame*         initialframe = NULL;  /* the initial transition frame
@@ -1464,15 +1546,22 @@ CVMgcUnsafeExecuteJavaMethod(CVMExecEnv* volatile ee, /* see note above */
 #endif
     CVMConstantPool*  cp = NULL;
     CVMTransitionConstantPool   transitioncp;
-    CVMClassBlock*    initCb;
+    CVMClassBlock*    initCb = NULL;
 
 #ifdef CVM_TRACE
     char              trBuf[30];   /* needed by GET_LONGCSTRING */
 #endif
+#if defined (CVM_JVMPI) || defined(CVM_JVMTI_ENABLED)
+#undef RETURN_OPCODE
+#define RETURN_OPCODE return_opcode
+	    CVMUint32 return_opcode;
+#else
+#define RETURN_OPCODE pc[0]
+#endif
 
 #ifdef CVM_USELABELS
 #include "generated/javavm/include/opcodeLabels.h"
-    const static void* const opclabels_data[256] = { 
+    static const void* const opclabels_data[256] = { 
 	&&opc_0, &&opc_1, &&opc_2, &&opc_3, &&opc_4, &&opc_5,
 	&&opc_6, &&opc_7, &&opc_8, &&opc_9, &&opc_10, &&opc_11,
 	&&opc_12, &&opc_13, &&opc_14, &&opc_15, &&opc_16, &&opc_17,
@@ -1606,7 +1695,7 @@ new_transition:
 #ifndef CVM_PREFETCH_OPCODE
 	opcode = *pc;
 #endif
-#if (defined(CVM_JVMTI)) && !defined(CVM_USELABELS)
+#if (defined(CVM_JVMTI_ENABLED)) && !defined(CVM_USELABELS)
     opcode_switch:
 #endif
 #ifndef CVM_USELABELS
@@ -2418,7 +2507,31 @@ new_transition:
 	    if (CHECK_PENDING_REQUESTS(ee)) {
 		goto handle_pending_request;
 	    }
-
+#ifdef CVM_JVMTI_ENABLED
+	    if (CVMjvmtiIsEnabled()) {
+		jvalue retValue;
+		CVMmemCopy64Helper((CVMAddr*)&retValue.j, &STACK_INFO(-2).raw);
+		/* We might gc, so flush state. */
+		DECACHE_PC();
+		DECACHE_TOS();
+		return_opcode = CVMjvmtiReturnOpcode(ee);
+		if (return_opcode != 0) {
+		    /* early return happening so process accordingly */
+		    CVMjvmtiReturnOpcode(ee) = 0;
+		    CVMmemCopy64Helper(&STACK_INFO(-2).raw,
+			       (CVMAddr *)&(CVMjvmtiReturnValue(ee).j));
+		    return_opcode =
+			CVMregisterReturnEvent(ee, pc,
+					       return_opcode,
+					       (jvalue*)&(CVMjvmtiReturnValue(ee)));
+		} else {
+		    return_opcode = CVMregisterReturnEventPC(ee, pc,
+							     &retValue);
+		}
+	    } else {
+		return_opcode = pc[0];
+	    }
+#endif
 	    topOfStack = CVMreturn64Helper(topOfStack, frame);
 	    topOfStack += 2;
 	    TRACEIF(opc_dreturn, ("\tfreturn1 %f\n", STACK_DOUBLE(-2)));
@@ -2436,6 +2549,28 @@ new_transition:
 	    if (CHECK_PENDING_REQUESTS(ee)) {
 		goto handle_pending_request;
 	    }
+#ifdef CVM_JVMTI_ENABLED
+	    if (CVMjvmtiIsEnabled()) {
+		jvalue retValue;
+		retValue.j = CVMlongConstZero();
+		/* We might gc, so flush state. */
+		DECACHE_PC();
+		DECACHE_TOS();
+		return_opcode = CVMjvmtiReturnOpcode(ee);
+		if (return_opcode != 0) {
+		    /* early return happening so process accordingly */
+		    CVMjvmtiReturnOpcode(ee) = 0;
+		    return_opcode = CVMregisterReturnEvent(ee, pc,
+							   return_opcode,
+							   &retValue);
+		} else {
+		    return_opcode = CVMregisterReturnEventPC(ee, pc,
+							     &retValue);
+		}
+	    } else {
+		return_opcode = pc[0];
+	    }
+#endif
 	    CACHE_PREV_TOS();
 	    TRACE(("\treturn\n"));
 	    goto handle_return;
@@ -2455,6 +2590,43 @@ new_transition:
 		goto handle_pending_request;
 	    }
 
+#ifdef CVM_JVMTI_ENABLED
+	    if (CVMjvmtiIsEnabled()) {
+		jvalue retValue;
+		/* We might gc, so flush state. */
+		DECACHE_PC();
+		DECACHE_TOS();
+		retValue.i = STACK_INT(-1);
+		return_opcode = CVMjvmtiReturnOpcode(ee);
+		if (return_opcode != 0) {
+		    /* early return happening so process accordingly */
+		    if (return_opcode == opc_areturn) {
+			CVMID_icellAssignDirect(ee, &STACK_ICELL(-1),
+				(CVMObjectICell*)(CVMjvmtiReturnValue(ee).l));
+			CVMID_icellAssignDirect(ee, (jobject)&retValue.l,
+				(CVMObjectICell*)(CVMjvmtiReturnValue(ee).l));
+		    } else {
+			STACK_INT(-1) =
+			    (CVMJavaInt)(CVMjvmtiReturnValue(ee).i);
+			retValue.i = (CVMJavaInt)(CVMjvmtiReturnValue(ee).i);
+		    }
+		    CVMjvmtiReturnOpcode(ee) = 0;
+		    return_opcode =
+			CVMregisterReturnEvent(ee, pc,
+					       return_opcode,
+					       &retValue);
+		    if (return_opcode == opc_areturn) {
+			/* restore object in case GC happened */
+			STACK_ICELL(-1) = *(jobject)&retValue.l;
+		    }
+		} else {
+		    return_opcode = CVMregisterReturnEventPC(ee, pc,
+							     &retValue);
+		}
+	    } else {
+		return_opcode = pc[0];
+	    }
+#endif
 	    result = STACK_INFO(-1);
 	    CACHE_PREV_TOS();
 	    STACK_INFO(0) = result;
@@ -2462,24 +2634,23 @@ new_transition:
 	    TRACEIF(opc_ireturn, ("\tireturn %d\n", STACK_INT(-1)));
 	    TRACEIF(opc_areturn, ("\tareturn 0x%x\n", STACK_OBJECT(-1)));
 	    TRACEIF(opc_freturn, ("\tfreturn %f\n", STACK_FLOAT(-1)));
-	    /* fall through */
+	    goto handle_return;
         }
- 
+
     handle_return: 
 	ASMLABEL(label_handle_return);
 	{
-#undef RETURN_OPCODE
-#if (defined(CVM_JVMTI) || defined(CVM_JVMPI))
-#define RETURN_OPCODE return_opcode
-	    CVMUint32 return_opcode;
+#ifdef CVM_JVMPI
+	    jvalue retValue;
 	    /* We might gc, so flush state. */
 	    DECACHE_PC();
 	    CVM_RESET_JAVA_TOS(frame->topOfStack, frame);
-	    return_opcode = CVMregisterReturnEvent(ee, pc, &STACK_ICELL(-1));
-#else
-#define RETURN_OPCODE pc[0]
+	    {
+		retValue.i = STACK_INT(-1);
+		return_opcode = CVMregisterReturnEventPC(ee, pc,
+							 &retValue);
+	    }
 #endif
-
 	    /* %comment c003 */
 	    /* Unlock the receiverObj if this was a sync method call. */
 	    if (CVMmbIs(frame->mb, SYNCHRONIZED)) {
@@ -2500,6 +2671,7 @@ new_transition:
 	    }
 
 	    TRACESTATUS();
+	    DECACHE_PC();
 	    TRACE_METHOD_RETURN(frame);
 	    CVMpopFrame(stack, frame);
 
@@ -2544,6 +2716,9 @@ new_transition:
 
 	    TRACESTATUS();
 	    
+#ifdef CVM_JVMTI_ENABLED
+	    CVMjvmtiClearEarlyReturn(ee);
+#endif
 	    CONTINUE;
 	} /* handle_return: */
 
@@ -2646,7 +2821,7 @@ new_transition:
 
 	/* debugger breakpoint */
 
-#ifdef CVM_JVMTI
+#ifdef CVM_JVMTI_ENABLED
         CASE_ND(opc_breakpoint) {
 	    OPCODE_DECL
 	    CVMUint32 newOpcode;
@@ -2662,6 +2837,7 @@ new_transition:
 	    CVMD_gcSafeExec(ee, {
 		newOpcode = CVMjvmtiGetBreakpointOpcode(ee, pc, notify);
 	    });
+	    JVMTI_PROCESS_POP_FRAME_AND_EARLY_RETURN();
 #if defined(CVM_USELABELS)
 	    nextLabel = opclabels[newOpcode];
 	    DISPATCH_OPCODE();
@@ -2671,7 +2847,7 @@ new_transition:
 #endif
 	}
 #endif
-#ifndef CVM_JVMTI
+#ifndef CVM_JVMTI_ENABLED
         CASE_NT(opc_breakpoint, 1) {
 	    TRACE(("\tbreakpoint\n"));
 	    UPDATE_PC_AND_TOS_AND_CONTINUE(1, 0);    /* treat as opc_nop */
@@ -2757,7 +2933,7 @@ new_transition:
 	CASE_ND(opc_agetstatic_quick)
 	CASE(opc_getstatic_quick, 3) {
 	    CVMFieldBlock* fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
-	    JVMTI_WATCHING_FIELD_ACCESS(NULL)
+	    JVMTI_WATCH_FIELD_READ(NULL);
 	    STACK_INFO(0) = CVMfbStaticField(ee, fb);
 	    TRACE(("\t%s #%d %C.%F[%d] (0x%X) ==>\n",
 		   CVMopnames[pc[0]], GET_INDEX(pc+1),
@@ -2768,7 +2944,7 @@ new_transition:
 
 	CASE(opc_getstatic2_quick, 3) {
 	    CVMFieldBlock* fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
-	    JVMTI_WATCHING_FIELD_ACCESS(NULL)
+	    JVMTI_WATCH_FIELD_READ(NULL);
             /* For volatile type */
             if (CVMfbIs(fb, VOLATILE)) {
                 CVM_ACCESS_VOLATILE_LOCK(ee);
@@ -2787,7 +2963,7 @@ new_transition:
 	CASE_ND(opc_aputstatic_quick)
 	CASE(opc_putstatic_quick, 3) {
 	    CVMFieldBlock* fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
-	    JVMTI_WATCHING_FIELD_MODIFICATION(NULL, CVM_FALSE, CVMfbIsRef(fb));
+	    JVMTI_WATCH_FIELD_WRITE(NULL, CVM_FALSE, CVMfbIsRef(fb));
 	    CVMfbStaticField(ee, fb) = STACK_INFO(-1);
 	    TRACE(("\t%s #%d (0x%X) ==> %C.%F[%d]\n",
 		   CVMopnames[pc[0]], GET_INDEX(pc+1), STACK_INT(-1), 
@@ -2797,7 +2973,7 @@ new_transition:
 
 	CASE(opc_putstatic2_quick, 3) {
 	    CVMFieldBlock* fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
-	    JVMTI_WATCHING_FIELD_MODIFICATION(NULL, CVM_TRUE, CVM_FALSE);
+	    JVMTI_WATCH_FIELD_WRITE(NULL, CVM_TRUE, CVM_FALSE);
             /* For volatile type */
             if (CVMfbIs(fb, VOLATILE)) {
                 CVM_ACCESS_VOLATILE_LOCK(ee);
@@ -2826,7 +3002,7 @@ new_transition:
 	    fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
 	    cb = CVMfbClassBlock(fb);
 	    INIT_CLASS_IF_NEEDED(ee, cb);
-	    JVMTI_WATCHING_FIELD_ACCESS(NULL)
+	    JVMTI_WATCH_FIELD_READ(NULL);
 	    STACK_INFO(0) = CVMfbStaticField(ee, fb);
 	    TRACE(("\t%s #%d %C.%F[%d] (0x%X) ==>\n",
 		   CVMopnames[pc[0]], GET_INDEX(pc+1), cb, fb, 
@@ -2839,7 +3015,7 @@ new_transition:
 	    CVMFieldBlock* fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
 	    CVMClassBlock* cb = CVMfbClassBlock(fb);
 	    INIT_CLASS_IF_NEEDED(ee, cb);
-	    JVMTI_WATCHING_FIELD_ACCESS(NULL)
+	    JVMTI_WATCH_FIELD_READ(NULL);
             /* For volatile type */
             if (CVMfbIs(fb, VOLATILE)) {
                 CVM_ACCESS_VOLATILE_LOCK(ee);
@@ -2861,7 +3037,7 @@ new_transition:
 	    CVMFieldBlock* fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
 	    CVMClassBlock* cb = CVMfbClassBlock(fb);
 	    INIT_CLASS_IF_NEEDED(ee, cb);
-	    JVMTI_WATCHING_FIELD_MODIFICATION(NULL, CVM_FALSE, CVMfbIsRef(fb));
+	    JVMTI_WATCH_FIELD_WRITE(NULL, CVM_FALSE, CVMfbIsRef(fb));
 	    CVMfbStaticField(ee, fb) = STACK_INFO(-1);
 	    TRACE(("\t%s #%d (0x%X) ==> %C.%F[%d]\n",
 		   CVMopnames[pc[0]], GET_INDEX(pc+1), STACK_INT(-1), 
@@ -2874,7 +3050,7 @@ new_transition:
 	    CVMFieldBlock* fb = CVMcpGetFb(cp, GET_INDEX(pc+1));
 	    CVMClassBlock* cb = CVMfbClassBlock(fb);
 	    INIT_CLASS_IF_NEEDED(ee, cb);
-	    JVMTI_WATCHING_FIELD_MODIFICATION(NULL, CVM_TRUE, CVM_FALSE);
+	    JVMTI_WATCH_FIELD_WRITE(NULL, CVM_TRUE, CVM_FALSE);
             /* For volatile type */
             if (CVMfbIs(fb, VOLATILE)) {
                 CVM_ACCESS_VOLATILE_LOCK(ee);
@@ -2895,15 +3071,6 @@ new_transition:
 	 * all lossy and are not needed when in losslessmode.
 	 */
 
-#ifdef CVM_NO_LOSSY_OPCODES
-        CASE_ND(opc_getfield_quick)
-        CASE_ND(opc_putfield_quick)
-        CASE_ND(opc_getfield2_quick)
-        CASE_ND(opc_putfield2_quick)
-	CASE_ND(opc_agetfield_quick)
-	CASE_ND(opc_aputfield_quick)
-	    goto unimplemented_opcode;
-#else
 
         CASE(opc_getfield_quick, 3)
 	{
@@ -2971,7 +3138,6 @@ new_transition:
 		   STACK_OBJECT(-1), directObj, pc[1]));
             UPDATE_PC_AND_TOS_AND_CONTINUE(3, -2);
         }
-#endif /* CVM_NO_LOSSY_OPCODES */
 
 	/* Allocate memory for a new java object. */
 
@@ -3175,12 +3341,16 @@ new_transition:
 	     * care about lossless mode, we use the faster
 	     * CVMcbMethodTableSlot version.
 	     */
-#ifdef CVM_NO_LOSSY_OPCODES
+            /* The decision as to which opcode to quicken to is made
+             * at runtime in quicken.c.  For now leave this as is but
+             * we may want to optimize it later
+             */
+#ifdef CVM_LOSSLESS_OPCODES
 	    mb = CVMobjMethodTableSlot(directObj, CVMmbMethodTableIndex(mb));
 #else
 	    mb = CVMcbMethodTableSlot(CVMobjectGetClass(directObj),
 				      CVMmbMethodTableIndex(mb));
-#endif /* CVM_NO_LOSSY_OPCODES */
+#endif /* CVM_LOSSLESS_OPCODES */
             SET_JIT_INVOKEVIRTUAL_HINT(ee, pc, mb);
 	    goto callmethod;
 	}
@@ -3231,9 +3401,6 @@ new_transition:
 
     new_mb:
 	    ASMLABEL(label_new_mb);
-#ifdef CVM_JVMPI
-            JVMPI_CHECK_FOR_DATA_DUMP_REQUEST(ee);
-#endif
 	    invokerIdx = CVMmbInvokerIdx(mb);
 	    if (invokerIdx < CVM_INVOKE_CNI_METHOD) {
 		/*
@@ -3321,9 +3488,19 @@ new_transition:
 		CVMframeLocals(frame) = locals;
 		pc = CVMjmdCode(jmd);
 		cb = CVMmbClassBlock(mb);
-		cp = CVMcbConstantPool(cb);
+#ifdef CVM_JVMTI_ENABLED
+		if (CVMjvmtiMbIsObsolete(mb)) {
+		    cp = CVMjvmtiMbConstantPool(mb);
+		    if (cp == NULL) {
+			cp = CVMcbConstantPool(cb);
+		    }	
+		} else
+#endif
+		{
+		    cp = CVMcbConstantPool(cb);
+		}
 		CVMframeCp(frame) = cp;
-		
+
 		/* This is needed to get CVMframe2string() to work properly */
 		CVMdebugExec(DECACHE_PC());
 
@@ -3364,6 +3541,7 @@ new_transition:
 		}
 
 #ifdef CVM_JVMPI
+                JVMPI_CHECK_FOR_DATA_DUMP_REQUEST(ee);
                 if (CVMjvmpiEventMethodEntryIsEnabled()) {
                     CVMObjectICell* receiverObjectICell = NULL;
                     if (!CVMmbIs(mb, STATIC)) {
@@ -3378,14 +3556,15 @@ new_transition:
                 }
 #endif /* CVM_JVMPI */
 
-#ifdef CVM_JVMTI
+#ifdef CVM_JVMTI_ENABLED
+                JVMTI_CHECK_FOR_DATA_DUMP_REQUEST(ee);
 		/* %comment k001 */
 		/* Decache all curently uncached interpreter state */
-		if (CVMjvmtiThreadEventsEnabled(ee)) {
+		if (CVMjvmtiEnvEventEnabled(ee, JVMTI_EVENT_METHOD_ENTRY)) {
 		    DECACHE_PC();
 		    DECACHE_TOS();
 		    CVMD_gcSafeExec(ee, {
-			CVMjvmtiNotifyDebuggerOfFramePush(ee);
+			CVMjvmtiPostFramePushEvent(ee);
 		    });
 		}
 #endif
@@ -3416,9 +3595,9 @@ new_transition:
 		CNINativeMethod *f = (CNINativeMethod *)CVMmbNativeCode(mb);
 
 		TRACE_FRAMELESS_METHOD_CALL(frame, mb0, CVM_FALSE);
-
+                ee->threadState = CVM_THREAD_IN_NATIVE;
 		ret = (*f)(ee, topOfStack, &mb);
-
+                ee->threadState &= ~CVM_THREAD_IN_NATIVE;
 		TRACE_FRAMELESS_METHOD_RETURN(mb0, frame);
 
 		/* 
@@ -3432,6 +3611,33 @@ new_transition:
 		     * beyond the invoke opcode and increment the TOS by
 		     * the size of the method result.
 		     */
+                    CVMassert((int)ret <= CNI_DOUBLE);
+
+#if 1
+/*#if defined(CVM_DEBUG) || defined(CVM_DEBUG_ASSERTS) || defined(CVM_CHECK_CNI_RESULT)*/
+		{
+		    int resultSize = -1;
+		    switch(CVMtypeidGetReturnType(CVMmbNameAndTypeID(mb))) {
+			case CVM_TYPEID_VOID:
+			    resultSize = 0;
+			    break;
+			case CVM_TYPEID_LONG:
+			case CVM_TYPEID_DOUBLE:
+			    resultSize = 2;
+			    break;
+			default:
+			    resultSize = 1;
+		    }
+
+		    if (ret != resultSize) {
+			CVMconsolePrintf(
+                            "ERROR! Bad CNI/KNI method return type for %C.%M\n",
+			    CVMmbClassBlock(mb), mb);
+                        /*CVMassert(CVM_FALSE);*/
+		    }
+		}
+#endif
+
 		    topOfStack += (int)ret;
 		    pc += (*pc == opc_invokeinterface_quick ? 5 : 3);
 		    CONTINUE;
@@ -3616,15 +3822,15 @@ new_transition:
 	    ASMLABEL(label_handle_exception_tos_already_reset);
 	    CVMassert(CVMexceptionOccurred(ee));
 
-#ifdef CVM_JVMTI
-		if (CVMjvmtiEventsEnabled()) {
-		  CVMD_gcSafeExec(ee, {
-                CVMjvmtiNotifyDebuggerOfException(ee, pc,
-				(CVMlocalExceptionOccurred(ee) ?
+#ifdef CVM_JVMTI_ENABLED
+	    if (CVMjvmtiThreadEventEnabled(ee, JVMTI_EVENT_EXCEPTION)) {
+	        CVMD_gcSafeExec(ee, {
+                    CVMjvmtiPostExceptionEvent(ee, pc,
+			    (CVMlocalExceptionOccurred(ee) ?
 			     CVMlocalExceptionICell(ee) :
 			     CVMremoteExceptionICell(ee)));
-              });
-		}
+                });
+	    }
 #endif
 
 	    /* Get the frame that handles the exception. frame->pc will
@@ -3641,6 +3847,7 @@ new_transition:
 	     * if the method returns a ref.
 	     */
 	    if (frame == initialframe) {
+		DECACHE_PC();
                 TRACE_METHOD_RETURN(frame);
 		goto finish;
 	    }
@@ -3648,7 +3855,7 @@ new_transition:
 	    /* The exception was caught. Cache our new state. */
 #ifdef CVM_JIT
 	    if (CVMframeIsCompiled(frame)) {
-#ifdef CVM_JVMTI
+#ifdef CVM_JVMTI_ENABLED
 		pc = CVMpcmapCompiledPcToJavaPc(frame->mb,
 						CVMcompiledFramePC(frame));
 		CVMassert(pc != NULL); /* there better be a mapping */
@@ -3671,12 +3878,12 @@ new_transition:
 	    CVMsetCurrentExceptionObj(ee, NULL);
 	    topOfStack++;
 
-#ifdef CVM_JVMTI
-	    if (CVMjvmtiEventsEnabled()) {
+#ifdef CVM_JVMTI_ENABLED
+	    if (CVMjvmtiThreadEventEnabled(ee, JVMTI_EVENT_EXCEPTION_CATCH)) {
                 DECACHE_TOS();
 		CVMD_gcSafeExec(ee, {
-		    CVMjvmtiNotifyDebuggerOfExceptionCatch(ee, pc,
-							   &STACK_ICELL(-1));
+		    CVMjvmtiPostExceptionCatchEvent(ee, pc,
+						    &STACK_ICELL(-1));
 		});
 	    }
 #endif
@@ -3685,6 +3892,9 @@ new_transition:
 	    if (CVMframeIsCompiled(frame)) {
 		goto return_to_compiled_with_exception;
 	    }
+#endif
+#ifdef CVM_JVMTI_ENABLED
+	    CVMjvmtiClearEarlyReturn(ee);
 #endif
 	    CONTINUE;   /* continue interpreter loop */
 	}  /* handle_exception: */
@@ -3943,7 +4153,7 @@ handle_jit_osr:
 		pc += (*pc == opc_invokeinterface_quick ? 5 : 3);
 		CONTINUE;
 	    } else {
-#ifdef CVM_JVMTI
+#ifdef CVM_JVMTI_ENABLED
 		/* Prevent double breakpoints. If the opcode we are
 		 * returning to is an opc_breakpoint, then we've
 		 * already notified the debugger of the breakpoint
@@ -3956,6 +4166,7 @@ handle_jit_osr:
 		{
 		    OPCODE_DECL;
 		    FETCH_NEXT_OPCODE(0);
+		    JVMTI_CHECK_PROCESSING_NEEDED();
 		    DISPATCH_OPCODE();
 		}
 	    }
@@ -4141,14 +4352,39 @@ handle_jit_osr:
         CASE_ND(opc_invokestatic)
 	CASE_ND(opc_invokeinterface)
 	CASE_ND(opc_new)
-        CASE_ND(opc_ldc)
-        CASE_ND(opc_ldc_w)
 	CASE_ND(opc_ldc2_w)
 	CASE_ND(opc_anewarray)
 	CASE_ND(opc_checkcast)
 	CASE_ND(opc_instanceof)
 	CASE_ND(opc_multianewarray)
 	    goto quicken_opcode_noclobber;
+        CASE(opc_ldc, 2)
+	{
+	    /* we may become gc-safe */
+	    DECACHE_TOS();
+	    DECACHE_PC();
+	    if (!CVMldcHelper(ee, topOfStack, cp, pc)) {
+		if (CVMlocalExceptionOccurred(ee)) {
+		    goto handle_exception;
+		}
+		goto quicken_opcode_noclobber;
+	    }
+	    UPDATE_PC_AND_TOS_AND_CONTINUE(2, 1);
+	}
+        CASE(opc_ldc_w, 3)
+	{
+	    /* we may become gc-safe */
+	    DECACHE_TOS();
+	    DECACHE_PC();
+	    if (!CVMldc_wHelper(ee, topOfStack, cp, pc)) {
+		if (CVMlocalExceptionOccurred(ee)) {
+		    goto handle_exception;
+		}
+		goto quicken_opcode_noclobber;
+	    }
+	    UPDATE_PC_AND_TOS_AND_CONTINUE(3, 1);
+	}
+
 	{	    
 	    CVMQuickenReturnCode retCode;
 	    CVMClassBlock *cb;
@@ -4187,7 +4423,7 @@ handle_jit_osr:
 	        default:
 		    CVMassert(CVM_FALSE); /* We should never get here */
 	    }
-#ifdef CVM_JVMTI
+#ifdef CVM_JVMTI_ENABLED
 	    /* Prevent double breakpoints. If the opcode we just
 	     * quickened is an opc_breakpoint, then we've
 	     * already notified the debugger of the breakpoint
@@ -4200,6 +4436,7 @@ handle_jit_osr:
 	    {
 		OPCODE_DECL;
 		FETCH_NEXT_OPCODE(0);
+		JVMTI_CHECK_PROCESSING_NEEDED();
 		DISPATCH_OPCODE();
 	    }
 	} /* quicken_opcode */
@@ -4219,6 +4456,7 @@ handle_jit_osr:
 	}
  
 	CASE_ND(opc_xxxunusedxxx)
+	CASE_ND(opc_invokeinit)
 	    goto unimplemented_opcode;
 	DEFAULT
 	unimplemented_opcode:
@@ -4226,6 +4464,119 @@ handle_jit_osr:
 		   pc[0], CVMopnames[pc[0]]));
 	    goto finish;
 
+#ifdef CVM_JVMTI_ENABLED
+	/* NOTE: FETCH_NEXT_OPCODE() must be called AFTER the PC has been
+	   adjusted. CVMjvmtiPostSingleStepEvent() may cause a breakpoint
+	   opcode to get inserted at the current PC to allow the debugger
+	   to coalesce single-step events. Therefore, we need to refetch
+	   the opcode after calling out to JVMTI.
+	*/
+    handle_single_step:
+	{
+	    OPCODE_DECL;
+	    DECACHE_PC();
+	    DECACHE_TOS();
+	    CVMD_gcSafeExec(ee, {
+		CVMjvmtiPostSingleStepEvent(ee, pc);
+	    });
+	    JVMTI_PROCESS_POP_FRAME_AND_EARLY_RETURN();
+	    /* Refetch opcode. See comment above. */
+	    FETCH_NEXT_OPCODE(0);
+	    DISPATCH_OPCODE();
+	}
+
+    handle_pop_frame:
+	{
+	    int argsSize;
+	    OPCODE_DECL;
+	    do {
+		CVMjvmtiClearFramePop(ee);
+		CACHE_FRAME();
+		argsSize = CVMmbArgsSize(frame->mb);
+		CVMpopFrame(stack, frame);
+		CACHE_FRAME();
+		CACHE_TOS();
+		CACHE_PC();
+		topOfStack += argsSize;
+		locals = CVMframeLocals(frame);
+		cp = CVMframeCp(frame);
+		FETCH_NEXT_OPCODE(0);
+		if (CVMjvmtiSingleStepping(ee)) {
+		    DECACHE_TOS();
+		    CVMD_gcSafeExec(ee, {
+			CVMjvmtiPostSingleStepEvent(ee, pc);
+		    });
+		}
+	    } while (CVMjvmtiNeedFramePop(ee));
+	    /* Refetch opcode. See comment above. */
+	    FETCH_NEXT_OPCODE(0);
+	    DISPATCH_OPCODE();
+	}
+    handle_early_return:
+	{
+	    OPCODE_DECL
+	   /* We get here because a ForceEarlyReturn request has been
+	       received from a JVMTI agent.  The agent specifies a return
+	       opcode (which is guaranteed by JVMTI to match the return
+	       type of the current method) and a return value of that type.
+	       The action that needs to be taken here is push the return
+	       value on the interpreter stack and go execute the appropriate
+	       return opcode:
+	    */
+		/* TODO :: review this again:
+		   Because ForceEarlyReturn can be requested asynchonously
+		   by another thread (in addition to synchronously by the
+		   self thread), the return value need to be passed as a
+		   globalref.  Hence, after we consume its value here, we
+		   need to free that globalref.
+
+		   NOTE also that we need to do this in an atomic way so
+		   that the globalref value isn't being over-written by
+		   another thread while we're reading it.
+
+		   From the spec, it appears that there is no way to tell
+		   the async thread that a ForceEarlyReturn is already in
+		   progress.  However, the async thread is required to
+		   suspend the target thread first before it calls
+		   ForceEarlyReturn() on it.  A typical use case would
+		   probably go like this:
+
+		       Thread A suspends thread B.
+		       Thread A gets stack trace of thread B.
+		       Thread A finds out method that it wants to
+		           ForceEarlyReturn on in thread B.
+		       Thread A calls ForceEarlyReturn() on thread B.
+		       Thread A resumes thread B.
+		       Thread B returns at next earliest convenience.
+
+		   Note that thread A may get a chance to run again before
+		   thread B hs a chance to complete the forced return.
+		   This means that thread A can contend with itself to
+		   force a return in thread B, and not necessarily with
+		   the same return value too.
+
+		   The only way that we can avoid this dilemma is if
+		   thread B cannot be suspended while a forced return
+		   is in progress.  Hence, when thread A tries to suspend
+		   thread B, it will block and wait for thread B to
+		   complete its forced return before it agrees to suspend
+		   and let thread A request another one.
+
+		   This means that suspension is cooperative.
+		*/
+
+#if defined(CVM_USELABELS)
+	    nextLabel = opclabels[CVMjvmtiReturnOpcode(ee)];
+	    DISPATCH_OPCODE();
+#else
+	    opcode = CVMjvmtiReturnOpcode(ee);
+	    goto opcode_switch;
+#endif
+	}
+    jvmti_processing:
+	JVMTI_SINGLE_STEPPING();
+	JVMTI_PROCESS_POP_FRAME_AND_EARLY_RETURN();
+#endif
 	} /* switch(opcode) */
     } /* while (1) interpreter loop */
 
@@ -4299,3 +4650,4 @@ handle_jit_osr:
 
     return;
 }
+

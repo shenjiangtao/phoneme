@@ -1,25 +1,26 @@
 /*
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+ * Reserved.  Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 #include "javavm/include/defs.h"
 #include "javavm/include/objects.h"
@@ -109,15 +110,15 @@ static DWORD handleException(struct _EXCEPTION_POINTERS *ep, DWORD code, DWORD *
          * (instruction size == 2) at pc and will subtract 2 bytes
          */
         *(--sp) = pc + 2;
-        ep->ContextRecord->Esp = sp;
+        ep->ContextRecord->Esp = (DWORD)sp;
         ep->ContextRecord->Eip =
            (unsigned long)CVMCCMruntimeThrowNullPointerExceptionGlue;
-#ifdef CVM_JIT_DEBUG
+#ifdef CVM_DEBUG_ASSERTS
 	/* 
          * In CVMCCMruntimeThrowNullPointerExceptionGlue we check if 
          * %eax == (%esp)
          */
-        ep->ContextRecord->Eax = pc + 2;
+        ep->ContextRecord->Eax = (DWORD)pc + 2;
 #endif
         return EXCEPTION_CONTINUE_EXECUTION;
        }
@@ -132,8 +133,8 @@ static DWORD handleException(struct _EXCEPTION_POINTERS *ep, DWORD code, DWORD *
          * Branch to throw null pointer exception glue
          */
         *(--sp) = (CVMUint8*) 0xcafebabe; /* glue code expects a return address on top of stack (rr) */
-        (CVMUint8 *)ep->ContextRecord->Esp = sp;
-        (CVMUint8 *)ep->ContextRecord->Eip =
+        ep->ContextRecord->Esp = (DWORD)sp;
+        ep->ContextRecord->Eip =
            (unsigned long)CVMCCMruntimeThrowNullPointerExceptionGlue;
         return EXCEPTION_CONTINUE_EXECUTION;
 #endif

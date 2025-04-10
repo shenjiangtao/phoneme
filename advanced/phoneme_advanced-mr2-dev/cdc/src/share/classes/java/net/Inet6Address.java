@@ -1,7 +1,7 @@
 /*
  * @(#)Inet6Address.java	1.28 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -485,7 +485,8 @@ class Inet6Address extends InetAddress {
      */
     static byte[] textToNumericFormat(String src)
     {
-	if (src.length() == 0) {
+        // Shortest valid string is "::", hence at least 2 chars
+        if (src.length() < 2) {
 	    return null;
 	}
 

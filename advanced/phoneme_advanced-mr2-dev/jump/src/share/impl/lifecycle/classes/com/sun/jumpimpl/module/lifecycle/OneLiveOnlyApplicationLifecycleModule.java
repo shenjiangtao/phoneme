@@ -25,14 +25,14 @@
 package com.sun.jumpimpl.module.lifecycle;
 
 import com.sun.jump.executive.JUMPIsolateProxy;
-import com.sun.jump.module.isolatemanager.JUMPIsolateManagerModule;
-import com.sun.jump.module.isolatemanager.JUMPIsolateManagerModuleFactory;
+import com.sun.jump.executive.JUMPExecutive;
+import com.sun.jump.executive.JUMPIsolateFactory;
 import com.sun.jump.module.lifecycle.JUMPApplicationLifecycleModule;
 import com.sun.jump.common.JUMPApplication;
 import com.sun.jump.executive.JUMPApplicationProxy;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Vector;
 
 public class OneLiveOnlyApplicationLifecycleModule
         implements JUMPApplicationLifecycleModule {
@@ -75,8 +75,7 @@ public class OneLiveOnlyApplicationLifecycleModule
             
             if (proxy == null) {
                 // Get a handle to the isolate manager.
-                JUMPIsolateManagerModuleFactory ismf = JUMPIsolateManagerModuleFactory.getInstance();
-                JUMPIsolateManagerModule ism = ismf.getModule();
+                JUMPIsolateFactory ism = JUMPExecutive.getInstance().getIsolateFactory();
                 
                 // Create isolate, which returns JUMPIsolateProxy
                 JUMPIsolateProxy ip = ism.newIsolate(app.getAppType());
@@ -114,7 +113,7 @@ public class OneLiveOnlyApplicationLifecycleModule
      * Can be found by iterating over mapAppToAppProxy.
      */
     public JUMPApplicationProxy[] getApplications() {
-        Vector v =  (Vector)mapAppToAppProxy.values();
+        Collection v =  mapAppToAppProxy.values();
         if (v == null) {
             return null;
         } else {

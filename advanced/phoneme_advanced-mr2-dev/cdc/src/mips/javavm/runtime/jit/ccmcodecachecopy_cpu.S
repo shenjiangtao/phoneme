@@ -1,7 +1,7 @@
 /*
  * @(#)ccmcodecachecopy_cpu.S	1.19 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -44,6 +44,9 @@ CVMCCMcodeCacheCopyStart:
 #include "ccmallocators_cpu.S"
 #include "ccminvokers_cpu.S"
 #include "ccmmath_cpu.S"
+#ifdef USE_CDC_COM
+#include "ccmintrinsics_asm_cpu.S"
+#endif
 
 /*************************************************************************
  * This is the end of the code we copy into the start of the code cache.

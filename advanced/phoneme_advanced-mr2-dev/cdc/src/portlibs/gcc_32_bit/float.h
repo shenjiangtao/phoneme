@@ -1,7 +1,7 @@
 /*
  * @(#)float.h	1.21 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -28,6 +28,13 @@
 #ifndef _GCC_32_BIT_FLOAT_H
 #define _GCC_32_BIT_FLOAT_H
 
+#ifndef longMin
+#define longMin      (0x8000000000000000LL)
+#endif
+#ifndef longMax
+#define longMax      (0x7fffffffffffffffLL)
+#endif
+
 /*
  * See src/share/javavm/include/porting/float.h for full documentation.
  */
@@ -35,9 +42,6 @@
 /*
  * Float Conversions:
  */
-
-#define longMin      (0x8000000000000000LL)
-#define longMax      (0x7fffffffffffffffLL)
 
 #define CVMfloat2Long(val) \
     float2Long((val))

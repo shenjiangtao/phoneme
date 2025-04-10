@@ -1,7 +1,7 @@
 /*
  * @(#)float_arch.h	1.8 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -39,5 +39,7 @@
 #ifdef __GNUC__
 #define BOUNDS_CHECK_f2l
 #endif
+
+#define setFPMode()     {} 
 
 #endif /* _SOLARIS_FLOAT_ARCH_H */

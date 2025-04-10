@@ -1,7 +1,7 @@
 /*
  * @(#)socket_md.c	1.9 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -54,6 +54,12 @@ static int waitForInput(int fd)
     tv.tv_sec = 0;
     tv.tv_usec = 250000;
     return select(fd + 1, &fds, NULL, NULL, &tv);
+}
+
+int
+dbgsysInit(JavaVM *jvm)
+{
+    return 0;
 }
 
 int

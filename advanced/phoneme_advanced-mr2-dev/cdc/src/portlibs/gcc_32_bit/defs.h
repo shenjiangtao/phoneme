@@ -1,7 +1,7 @@
 /*
  * @(#)defs.h	1.17 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -86,5 +86,8 @@ typedef unsigned int	CVMAddr;
 #endif
 
 typedef unsigned int    CVMSize;
+
+#define CONST64(x) (x ## LL)
+#define UCONST64(x) (x ## ULL)
 
 #endif /* _GCC_32_BIT_DEFS_H */

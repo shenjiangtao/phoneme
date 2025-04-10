@@ -1,7 +1,7 @@
 /*
  * @(#)io_md.c	1.21 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -31,6 +31,7 @@
 #include "javavm/include/porting/threads.h"
 #include "javavm/include/porting/doubleword.h"
 #include "javavm/include/porting/globals.h"
+#include "javavm/export/jvm.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -74,11 +75,21 @@ CVMioOpen(const char *name, CVMInt32 openMode,
         while ((p > newName) && (*p == '/')) {
             *p-- = '\0';
         }
+#ifdef JAVASE
+        fd = open64(newName, openMode & (~JVM_O_DELETE), filePerm);
+        if (openMode & JVM_O_DELETE) unlink(newName);
+#else
         fd = open64(newName, openMode, filePerm);
+#endif
         free(newName);
     }
     else {
+#ifdef JAVASE
+        fd = open64(name, openMode & (~JVM_O_DELETE), filePerm);
+        if (openMode & JVM_O_DELETE) unlink(name);
+#else
         fd = open64(name, openMode, filePerm);
+#endif
     }
     if (fd >= 0) {
 	int mode;
@@ -92,6 +103,16 @@ CVMioOpen(const char *name, CVMInt32 openMode,
 	    return -1;
 	}
     }
+#ifdef JAVASE
+    else {
+      switch(errno) {
+        case EEXIST:
+          return JVM_EEXIST;
+        default:
+          return -1;
+      }
+    }
+#endif
     return fd;
 }
 

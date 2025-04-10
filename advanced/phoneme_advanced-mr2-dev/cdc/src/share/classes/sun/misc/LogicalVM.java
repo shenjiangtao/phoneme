@@ -1,7 +1,7 @@
 /*
  * @(#)LogicalVM.java	1.8 06/10/27
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -34,7 +34,7 @@ import java.util.Vector;
 
 
 /*
- * Comments (FIXMEs) on the current Logical VM implementation:
+ * Comments (TODO) on the current Logical VM implementation:
  *
  * - Still under development.
  * - Java isolation API is still under discussion under JSR-121.
@@ -133,7 +133,7 @@ public final class LogicalVM {
 final class Isolate {
     // Used by the native code to store pointer to per-Logical VM 
     // info data structure.
-    private int context = 0; /* FIXME: What about 64 bit support. */
+    private int context = 0; /* TODO: What about 64 bit support. */
 
     private String name;
     private Isolate parent;

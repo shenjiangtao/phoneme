@@ -1,29 +1,30 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
  */
 
+#include <stdio.h>
 #include <sys/time.h>
 #include <jvmconfig.h>
 #include <kni.h>
@@ -31,7 +32,6 @@
 #include <midpMalloc.h>
 #include <midpAMS.h>
 #include <midpInit.h>
-#include <midp_mastermode_port.h>
 #include <midp_foreground_id.h>
 #include <keymap_input.h>
 
@@ -52,7 +52,7 @@ static void initCDCEvents();
 static MidpReentryData newSignal;
 static MidpEvent newMidpEvent;
 
-/* in midp_msgQueue_md.c */
+/* in mastermode_handle_signal.c */
 void handleKey(MidpReentryData* pNewSignal, MidpEvent* pNewMidpEvent);
 
 KNIEXPORT KNI_RETURNTYPE_LONG
@@ -144,32 +144,12 @@ midpInitializeUI(void) {
      * function. e.g. initLocaleMethod();
      */
 
-    /*
-     * Set AMS memory limits
-     */
-#if ENABLE_MULTIPLE_ISOLATES
-    {
-        int reserved = AMS_MEMORY_RESERVED_MVM;
-        int limit = AMS_MEMORY_LIMIT_MVM;
-
-        reserved = reserved * 1024;
-        JVM_SetConfig(JVM_CONFIG_FIRST_ISOLATE_RESERVED_MEMORY, reserved);
-
-        if (limit <= 0) {
-            limit = 0x7FFFFFFF;  /* MAX_INT */
-        } else {
-            limit = limit * 1024;
-        }
-        JVM_SetConfig(JVM_CONFIG_FIRST_ISOLATE_TOTAL_MEMORY, limit);
-    }
-#endif
-
 #if ENABLE_JAVA_DEBUGGER
     {
         char* argv[2];
 
         /* Get the VM debugger port property. */
-        argv[1] = (char *)getInternalProp("VmDebuggerPort");
+        argv[1] = (char *)getInternalProperty("VmDebuggerPort");
         if (argv[1] != NULL) {
             argv[0] = "-port";
             (void)JVM_ParseOneArg(2, argv);
@@ -215,28 +195,46 @@ midpFinalizeUI(void) {
 KNIEXPORT KNI_RETURNTYPE_VOID
 KNIDECL(com_sun_midp_main_CDCInit_initMidpNativeStates) {
     jchar jbuff[1024];
-    char cbuff[1024];
-    int max = sizeof(cbuff) - 1;
+    static char conf_buff[1024], store_buff[1024];
+    int max = sizeof(conf_buff) - 1;
     int len, i;
 
-    KNI_StartHandles(1);
-    KNI_DeclareHandle(home);
-    KNI_GetParameterAsObject(1, home);
-
-    len = KNI_GetStringLength(home);
-    if (len > max) {
-        len = max;
-    }
-
-    KNI_GetStringRegion(home, 0, len, jbuff);
-    for (i=0; i<len; i++) {
-        cbuff[i] = (char)jbuff[i];
-    }
-    cbuff[len] = 0;
+    KNI_StartHandles(2);    
+    KNI_DeclareHandle(config);
+    KNI_DeclareHandle(storage);
+    
+    KNI_GetParameterAsObject(1, config);
+    KNI_GetParameterAsObject(2, storage);
 
     initCDCEvents();
 
-    midpSetHomeDir(cbuff);
+    len = KNI_GetStringLength(config);
+    if (len > max) {
+        len = max;
+    }
+    if (len >= 0) {
+        /* config != null */
+        KNI_GetStringRegion(config, 0, len, jbuff);
+        for (i = 0; i<len; i++) {
+            conf_buff[i] = (char)jbuff[i];
+        }
+        conf_buff[len] = 0;
+        midpSetConfigDir(conf_buff);
+    }
+    len = KNI_GetStringLength(storage);
+    if (len > max) {
+        len = max;
+    }
+    if (len >= 0) {
+        /* sotarage != null */
+        KNI_GetStringRegion(storage, 0, len, jbuff);
+        for (i = 0; i<len; i++) {
+            store_buff[i] = (char)jbuff[i];
+        }
+        store_buff[len] = 0;
+        midpSetAppDir(store_buff);
+    }
+
     if (midpInitialize() != 0) {
         printf("midpInitialize() failed\n");
 
@@ -480,7 +478,8 @@ KNIDECL(com_sun_midp_events_NativeEventMonitor_waitForNativeEvent) {
                 /* Need to set the event DISPLAY (intParam4) to forground. See
                    midpStoreEventAndSignalForeground() in midpEventUtil.c. */
                 newMidpEvent.DISPLAY = gForegroundDisplayId;
-                if (newSignal.waitingFor == UI_SIGNAL) {
+                if (newSignal.waitingFor == UI_SIGNAL
+                    || newSignal.waitingFor == AMS_SIGNAL) {
                     KNI_SetIntField(eventObj, typeFieldID, newMidpEvent.type);
                     KNI_SetIntField(eventObj, intParam1FieldID,
                                     newMidpEvent.intParam1);
@@ -499,8 +498,7 @@ KNIDECL(com_sun_midp_events_NativeEventMonitor_waitForNativeEvent) {
 #endif
                     done = 1;
                 }
-            }
-            else if (FD_ISSET(controlPipe[0], &read_fds)) {
+            } else if (FD_ISSET(controlPipe[0], &read_fds)) {
                 readControlIntField(eventObj, typeFieldID);
                 readControlIntField(eventObj, intParam1FieldID);
                 readControlIntField(eventObj, intParam2FieldID);
@@ -697,7 +695,6 @@ KNIDECL(com_sun_midp_events_EventQueue_getNativeEventQueueHandle) {
     KNI_ReturnInt(0);
 }
 
-DUMMY(CNIcom_sun_midp_events_EventQueue_finalize)
 DUMMY(CNIcom_sun_midp_io_j2me_push_PushRegistryImpl_checkInByMidlet0)
 DUMMY(CNIcom_sun_midp_io_j2me_push_PushRegistryImpl_add0)
 DUMMY(CNIcom_sun_midp_io_j2me_push_PushRegistryImpl_getMIDlet0)
@@ -727,24 +724,6 @@ DUMMY(CNIcom_sun_cdc_i18n_j2me_Conv_charToByte)
 DUMMY(CNIcom_sun_cdc_i18n_j2me_Conv_sizeOfByteInUnicode)
 DUMMY(CNIcom_sun_cdc_i18n_j2me_Conv_sizeOfUnicodeInByte)
 
-KNIEXPORT KNI_RETURNTYPE_VOID
-KNIDECL(com_sun_midp_events_EventQueue_sendShutdownEvent) {
-    (void) _arguments;
-    (void) _p_mb;
-#ifdef CVM_DEBUG
-    printf("EventQueue_sendShutdownEvent\n");
-#endif
-    /* CVMdumpAllThreads(); */
-#if ENABLE_DEBUG
-    CVMdumpStack(&_ee->interpreterStack, 0, 0, 0);
-#endif
-#ifdef DIRECTFB
-    directfbapp_close_window();
-#endif
-    exit(0);
-    KNI_ReturnVoid();
-}
-
 /* IMPL_NOTE removed
 DUMMY(lockStorage)
 DUMMY(lock_storage)
@@ -768,4 +747,3 @@ int midpGetAmsIsolateId() {return 0;}
 /* IMPL_NOTE - removed duplicate
  * DUMMY(midp_getCurrentThreadId)
  */
-

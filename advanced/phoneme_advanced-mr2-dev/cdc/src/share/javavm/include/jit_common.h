@@ -1,7 +1,5 @@
 /*
- * @(#)jit_common.h	1.85 06/10/10
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -54,6 +52,7 @@ typedef struct {
     CVMInt32 pcOffset;
     CVMInt32 index;
     CVMInt32 numEntries;
+    CVMInt32 invokePC;
 } CVMJITFrameIterator;
 
 /*
@@ -65,7 +64,7 @@ extern void
 CVMJITframeIterate(CVMFrame* frame, CVMJITFrameIterator* iter);
 
 extern CVMBool
-CVMJITframeIterateSkip(CVMJITFrameIterator* iter, int skip,
+CVMJITframeIterateSkip(CVMJITFrameIterator* iter,
     CVMBool skipArtificial, CVMBool popFrame);
 
 #define CVMJITframeIterateNext(iter)	\
@@ -191,11 +190,19 @@ typedef enum {
 #define CVMJIT_DEFAULT_MIN_INLINE_CODELEN   16
 #define CVMJIT_DEFAULT_MAX_WORKING_MEM      (1024*1024)
 #define CVMJIT_DEFAULT_MAX_COMP_METH_SIZE   (64*1024 - 1)
+#ifndef JAVASE
 #define CVMJIT_DEFAULT_CODE_CACHE_SIZE      512*1024
+#else
+#define CVMJIT_DEFAULT_CODE_CACHE_SIZE      2*1024*1024
+#endif
+
 #define CVMJIT_DEFAULT_UPPER_CCACHE_THR     95
 /* NOTE: the default of -1 for lower code cache threshold is
-   significant. See CVMJITcodeCacheInit */
+   significant. See CVMJITcodeCacheInitOptions */
 #define CVMJIT_DEFAULT_LOWER_CCACHE_THR     -1
+#ifdef CVM_AOT
+#define CVMJIT_DEFAULT_AOT_CODE_CACHE_SIZE 672*1024
+#endif
 
 /*
  * Normally the CVMJIT_MAX_CODE_CACHE_SIZE is set to 32MB. The size shouldn't
@@ -375,6 +382,9 @@ typedef struct {
 #endif /* IAI_CODE_SCHEDULER_SCORE_BOARD */
     CVMBool  policyTriggeredDecompilations;
     CVMBool  compilingCausesClassLoading;
+#ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
+    CVMBool  pmiEnabled;
+#endif
     CVMUint32 maxAllowedInliningDepth;
     CVMUint32 maxInliningCodeLength;
     CVMUint32 minInliningCodeLength;
@@ -436,6 +446,11 @@ typedef struct {
 
 #ifdef CVM_AOT
     /* AOT states  */
+    CVMBool    aotEnabled;
+    char*      aotFile;
+    CVMBool    aotCompileFailed;
+    CVMBool    recompileAOT;
+    CVMUint32  aotCodeCacheSize;  /* Code Cache Size for AOT compilation */
     CVMUint8*  codeCacheAOTStart; /* start of AOT code */
     CVMUint8*  codeCacheAOTEnd;   /* end of AOT code */
     CVMUint8*  codeCacheAOTGeneratedCodeStart;
@@ -562,11 +577,16 @@ extern CVMBool
 CVMjitReinitialize(CVMExecEnv* ee, const char *options);
 #endif
 
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+/* Dumps info about the configuration of the JIT. */
+extern void CVMjitDumpSysInfo();
+#endif /* CVM_DEBUG || CVM_INSPECTOR */
+
 #if defined(CVM_AOT) && !defined(CVM_MTASK)
 /* If there is no existing AOT code, compile a list of methods. The
  * compiled methods will be saved as AOT code.
  */
-void
+extern CVMBool
 CVMjitCompileAOTCode(CVMExecEnv* ee);
 #endif
 
@@ -575,6 +595,17 @@ CVMjitInit(CVMExecEnv* ee, CVMJITGlobalState* jgs, const char *options);
 
 extern CVMBool
 CVMjitPolicyInit(CVMExecEnv* ee, CVMJITGlobalState* jgs);
+
+#if defined(CVM_AOT) || defined(CVM_MTASK)
+/* During AOT compilation and MTASK warmup, dynamic compilation policy
+ * is disabled. Patched method invocation (PMI) is also disabled during
+ * that. This is used to re-initialize JIT options and policy after 
+ * pre-compilation. For AOT, if there is existing AOT code, this is
+ * called after initializing the AOT code.
+ */
+CVMBool
+CVMjitProcessOptionsAndPolicyInit(CVMExecEnv* ee, CVMJITGlobalState* jgs);
+#endif
 
 /* Purpose: Set up the inlining threshold table. */
 CVMBool

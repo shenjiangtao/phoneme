@@ -1,34 +1,34 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
-#include <errno.h>
+
 #include <util/utf.h>
 #include <pcsl_string.h>
 #include <pcsl_memory.h>
@@ -126,7 +126,7 @@ jsize pcsl_string_utf8_length(const pcsl_string * str) {
 
   {
     jsize utf8_length = 0;
-    pcsl_string_status status = utf16_convert_to_utf8(str->data, str->length,
+    pcsl_string_status status = pcsl_utf16_convert_to_utf8(str->data, str->length,
 					   NULL, 0, &utf8_length);
 
     if (status == PCSL_STRING_OK) {
@@ -203,7 +203,7 @@ pcsl_string_status pcsl_string_convert_to_utf8(const pcsl_string * str,
 
   {
     pcsl_string_status status =
-      utf16_convert_to_utf8(str->data, str->length,
+      pcsl_utf16_convert_to_utf8(str->data, str->length,
 			    buffer, buffer_length, converted_length);
 
     /* Do not count the terminating zero character. */
@@ -317,9 +317,10 @@ pcsl_string_status pcsl_string_convert_from_utf8(const jbyte * buffer,
 
   {
     jsize utf16_length = 0;
-    pcsl_string_status status = utf8_convert_to_utf16(buffer, buffer_length,
+    /* we specify max_utf16_length - 1 to leave room for a terminating zero */
+    pcsl_string_status status = pcsl_utf8_convert_to_utf16(buffer, buffer_length,
 						      utf16_buffer,
-						      max_utf16_length,
+						      max_utf16_length - 1,
 						      &utf16_length);
 
     if (status != PCSL_STRING_OK) {
@@ -328,11 +329,6 @@ pcsl_string_status pcsl_string_convert_from_utf8(const jbyte * buffer,
       return status;
     } else {
       /* Append terminating zero character. */
-      if (utf16_length + 1 > max_utf16_length) {
-	* string = PCSL_STRING_NULL;
-	return PCSL_STRING_ERR;
-      }
-
       utf16_buffer[utf16_length] = 0;
       utf16_length++;
 
@@ -872,7 +868,7 @@ jint pcsl_string_index_of_from(const pcsl_string * str, jint ch,
   } else if (IS_UNICODE_CODE_POINT(ch)) {
     jchar code_unit[2];
     jsize unit_length;
-    pcsl_string_status status = code_point_to_utf16_code_unit(ch, code_unit, &unit_length);
+    pcsl_string_status status = pcsl_code_point_to_utf16_code_unit(ch, code_unit, &unit_length);
 
     if (status != PCSL_STRING_OK) {
       return -1;
@@ -961,7 +957,7 @@ jint pcsl_string_last_index_of_from(const pcsl_string * str, jint ch,
   } else if (IS_UNICODE_CODE_POINT(ch)) {
     jchar code_unit[2];
     jsize unit_length;
-    pcsl_string_status status = code_point_to_utf16_code_unit(ch, code_unit, &unit_length);
+    pcsl_string_status status = pcsl_code_point_to_utf16_code_unit(ch, code_unit, &unit_length);
 
     if (from_index >= str->length - 1) {
       from_index = str->length - 2;
@@ -1115,7 +1111,11 @@ pcsl_string_status pcsl_string_trim_from_end(const pcsl_string * str,
  */
 pcsl_string_status pcsl_string_convert_to_jint(const pcsl_string * str, jint * value) {
   jlong value_long;
-  pcsl_string_status  ret_val = pcsl_string_convert_to_jlong( str, &value_long);
+  pcsl_string_status ret_val;
+  if (value == NULL) {
+    return PCSL_STRING_EINVAL;
+  }
+  ret_val = pcsl_string_convert_to_jlong(str, &value_long);
   if (ret_val == PCSL_STRING_OK) { /* check result */
     jint value_int = (jint)value_long;
     if ((jlong)value_int == value_long) {
@@ -1414,47 +1414,6 @@ jboolean pcsl_string_is_null(const pcsl_string * str) {
   return (str != NULL && str->data == NULL) ? PCSL_TRUE : PCSL_FALSE;
 }
 
-/**
- * Convert a Unicode string into a form that can be safely stored on
- * an ANSI-compatible file system and append it to the string specified
- * as the first parameter. All characters that are not
- * [A-Za-z0-9] are converted into %uuuu, where uuuu is the hex
- * representation of the character's unicode value. Note even
- * though "_" is allowed it is converted because we use it for
- * for internal purposes. Potential file separators are converted
- * so the storage layer does not have deal with sub-directory hierarchies.
- *
- * @param dst the string to which the converted text is appendsd
- * @param suffix text to be converted into escaped-ascii
- * @return error code
- */
-pcsl_string_status
-pcsl_string_append_escaped_ascii(pcsl_string* dst, const pcsl_string* suffix) {
-    pcsl_string_status rc = PCSL_STRING_ENOMEM;
-    jchar* id_data = NULL;
-    int len = -1;
-
-    if (pcsl_string_length(suffix) <= 0) { /* nothing to do */
-        return PCSL_STRING_OK;
-    }
-
-    if (NULL != suffix->data) {
-        int id_len = PCSL_STRING_ESCAPED_BUFFER_SIZE(suffix->length);
-        id_data = (jchar*)pcsl_mem_malloc(id_len * sizeof (jchar));
-        if (NULL != id_data) {
-            len = unicode_to_escaped_ascii(suffix->data, suffix->length,
-                                           id_data, 0);
-        }
-    }
-
-    if (NULL != id_data) {
-        rc = pcsl_string_append_buf(dst, id_data, len);
-        pcsl_mem_free(id_data);
-    }
-
-    return rc;
-}
-
 static jchar empty_string_data = 0;
 
 /* Empty zero-terminated string */
@@ -1464,3 +1423,4 @@ const pcsl_string PCSL_STRING_EMPTY =
 /* NULL string */
 const pcsl_string PCSL_STRING_NULL =
   { NULL, 0, 0 };
+

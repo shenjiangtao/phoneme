@@ -1,6 +1,6 @@
 /*
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -144,12 +144,12 @@ void* Hashtable::put(void* key, void* value) {
     } 
 
     // Creates the new entry.
-    e = new HashtableEntry();
-    e->hash = (int)key;
-    e->key = key;
-    e->value = value;
-    e->next = table[index];
-    table[index] = e;
+    HashtableEntry* f = new HashtableEntry();
+    f->hash = (int)key;
+    f->key = key;
+    f->value = value;
+    f->next = table[index];
+    table[index] = f;
     count++;
 #ifdef DEBUG
     if (count > m_max) {

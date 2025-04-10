@@ -1,7 +1,7 @@
 /*
  * @(#)segvhandler_arch.c	1.18 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -36,8 +36,13 @@
 #include "portlibs/jit/risc/include/porting/ccmrisc.h"
 
 #include <signal.h>
-#define ucontext asm_ucontext
-#include <asm/ucontext.h>
+#include <ucontext.h>
+#ifndef _ASM_SIGCONTEXT_H
+#define sigcontext asm_sigcontext
+#include <asm/sigcontext.h>
+#endif
+
+#ifdef CVM_SIGACTION_CHAINING
 
 #define MAXSIGNUM 32
 #define MASK(sig) ((CVMUint32)1 << sig)
@@ -114,13 +119,18 @@ sigaction(int sig, const struct sigaction *act, struct sigaction *oact)
     return __sigaction(sig, act, oact);
 }
 
+#endif /* CVM_SIGACTION_CHAINING */
+
 /*
  * SEGV handler
  */
 static void handleSegv(int sig, siginfo_t* info, struct ucontext* ucp)
 {
+    struct sigcontext* mcp = (struct sigcontext*)&ucp->uc_mcontext;
+#ifdef CVM_DEBUG
     int pid = getpid();
-    CVMUint8* pc = (CVMUint8*)(ptrdiff_t)ucp->uc_mcontext.sc_pc;
+#endif
+    CVMUint8* pc = (CVMUint8*)(ptrdiff_t)mcp->sc_pc;
     if (CVMJITcodeCacheInCompiledMethod(pc)) {
 #if 0
         fprintf(stderr, "Process #%d received signal %d in jit code\n",
@@ -140,22 +150,20 @@ static void handleSegv(int sig, siginfo_t* info, struct ucontext* ucp)
 		if (offset >= 0) {
 		    /* set link register to return to just before the trap
 		     * instruction where incoming locals are reloaded. */
-		    ucp->uc_mcontext.sc_regs[31] =
-			ucp->uc_mcontext.sc_pc - offset;
+		    mcp->sc_regs[31] = mcp->sc_pc - offset;
 		    /* Branch to do a gc rendezvous */
-		    ucp->uc_mcontext.sc_pc =
-			(unsigned long)CVMCCMruntimeGCRendezvousGlue;
+		    mcp->sc_pc = (unsigned long)CVMCCMruntimeGCRendezvousGlue;
 		} else {
 		    /* phi handling: branch to generated code that will
 		     * spill phis, call CVMCCMruntimeGCRendezvousGlue, and
 		     * then reload phis.
 		     */
-		    ucp->uc_mcontext.sc_pc += offset;
+		    mcp->sc_pc += offset;
 		}
 #if 0
 		fprintf(stderr, "redirecting to rendezvous code 0x%x 0x%x\n",
-			(int)ucp->uc_mcontext.sc_pc,
-			(int)ucp->uc_mcontext.sc_regs[31]);
+			(int)mcp->sc_pc,
+			(int)mcp->sc_regs[31]);
 #endif
 		return;
 	    }
@@ -163,9 +171,8 @@ static void handleSegv(int sig, siginfo_t* info, struct ucontext* ucp)
 #endif
 #ifdef CVMJIT_TRAP_BASED_NULL_CHECKS
 	/* Branch and link to throw null pointer exception glue */
-	ucp->uc_mcontext.sc_regs[31] =
-	    ucp->uc_mcontext.sc_pc + 4; /* set link register */
-	ucp->uc_mcontext.sc_pc =
+	mcp->sc_regs[31] = mcp->sc_pc + 4; /* set link register */
+	mcp->sc_pc =
 	    (unsigned long)CVMCCMruntimeThrowNullPointerExceptionGlue;
 	return;
 #endif
@@ -177,7 +184,7 @@ static void handleSegv(int sig, siginfo_t* info, struct ucontext* ucp)
 #endif
 	/* Coming from CCM code. */
 	/* Branch to throw null pointer exception glue */
-	ucp->uc_mcontext.sc_pc =
+	mcp->sc_pc =
 	    (unsigned long)CVMCCMruntimeThrowNullPointerExceptionGlue;
 	return;
 #endif
@@ -193,9 +200,10 @@ static void handleSegv(int sig, siginfo_t* info, struct ucontext* ucp)
 	 * NOTE: for some reason it is not off by 4 if the crash is in
 	 * the code cache, which is why didn't adjust it above also.
 	 */
-	ucp->uc_mcontext.sc_pc = ucp->uc_mcontext.sc_pc - 4; 
+	mcp->sc_pc = mcp->sc_pc - 4; 
     }
 #else
+#ifdef CVM_SIGACTION_CHAINING
     /* Call chained handler */
     {
         struct sigaction sa = sact[sig];
@@ -211,6 +219,7 @@ static void handleSegv(int sig, siginfo_t* info, struct ucontext* ucp)
             }
         }
     }
+#endif /* CVM_SIGACTION_CHAINING */
 #endif
 }
 
@@ -220,11 +229,13 @@ static void handleSegv(int sig, siginfo_t* info, struct ucontext* ucp)
 CVMBool
 linuxSegvHandlerInit(void)
 {
-    int signals[] = {SIGSEGV};
+    int signals[] = {SIGSEGV, SIGBUS};
     int i;
     int result = 0;
     
+#ifdef CVM_SIGACTION_CHAINING
     cvmSignalInstalling = CVM_TRUE;
+#endif
 
     for (i = 0; result != -1 && i < (sizeof signals / sizeof signals[0]); ++i){
         struct sigaction sa;
@@ -234,7 +245,9 @@ linuxSegvHandlerInit(void)
         result = sigaction(signals[i], &sa, NULL);
     }
 
+#ifdef CVM_SIGACTION_CHAINING
     cvmSignalInstalling = CVM_FALSE;
+#endif
 
     return (result != -1);
 }

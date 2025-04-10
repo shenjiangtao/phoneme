@@ -1,7 +1,7 @@
 /*
  * @(#)classlookup.c	1.91 06/10/22
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -278,7 +278,7 @@ CVMclassLookupFromClassLoader(CVMExecEnv* ee,
 	CVMdisableRemoteExceptions(ee);
 	CVMassert(!CVMlocalExceptionOccurred(ee));
 	if (CVMtypeidIsArray(typeID)) {
-	    cb = CVMclassCreateArrayClass(ee, typeID, loader, pd);
+	    cb = CVMclassCreateMultiArrayClass(ee, typeID, loader, pd);
 	} else {
 	    /*
 	     * The API supports passing in a valid typeID and a NULL class
@@ -321,7 +321,8 @@ CVMclassLookupFromClassLoader(CVMExecEnv* ee,
     }
 
 #ifdef CVM_CLASSLOADING
-    if (cb != NULL) {
+    /* Fix for 6708366, don't check array class access */
+    if (cb != NULL && !CVMtypeidIsArray(typeID)) {
 	if (!CVMloaderCacheCheckPackageAccess(ee, loader, cb, pd)) {
 	    cb = NULL;
 	}

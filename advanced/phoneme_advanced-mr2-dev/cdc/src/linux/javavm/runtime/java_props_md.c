@@ -1,27 +1,28 @@
 /*
  * @(#)java_props_md.c	1.36 06/10/24
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+ * Reserved.  Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #include <pwd.h>
@@ -90,11 +91,26 @@ CVMgetJavaProperties(java_props_t *sprops)
     /* tmp dir */
     sprops->tmp_dir = P_tmpdir;
 
+#ifndef JAVASE
     /* Printing properties */
     sprops->printerJob = NULL;
 
     /* Java 2D properties */
     sprops->graphics_env = NULL;
+#else
+    /* Printing properties */
+    sprops->printerJob = "sun.print.PSPrinterJob";
+
+    /* Preferences properties */
+    sprops->util_prefs_PreferencesFactory =
+                                "java.util.prefs.FileSystemPreferencesFactory";
+
+    /* patches/service packs installed */
+    sprops->patch_level = "unknown";
+
+    sprops->graphics_env = "sun.awt.X11GraphicsEnvironment";
+#endif
+
     sprops->awt_toolkit = NULL;
 
     v = getenv("JAVA_FONTS");
@@ -142,8 +158,7 @@ CVMgetJavaProperties(java_props_t *sprops)
 	}
 
 #ifdef ARCH
-	strcpy(name.machine, ARCH, sizeof(name.machine));
-	name.machine[sizeof(name.machine)] = '\0'; /* in case of overflow */
+        sprops->os_arch = ARCH;
 #else
 	{
 	    char* arch = name.machine;
@@ -323,6 +338,10 @@ CVMgetJavaProperties(java_props_t *sprops)
                 std_encoding = "EUC-JP-LINUX";
             }
             sprops->encoding = std_encoding;
+#ifdef JAVASE 
+            sprops->sun_jnu_encoding = sprops->encoding;
+#endif
+
         }
     }
     

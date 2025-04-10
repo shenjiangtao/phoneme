@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -31,7 +31,7 @@ JUMP_INCLUDE_DIRS       += \
 	$(JUMP_SRCDIR)/$(TARGET_OS)/impl/os/native/include \
 
 JUMP_OBJECTS            += \
-	jump_os_win32.o \
+	jump_os_win32.o
 
 JUMP_NATIVE_LIBRARY_OBJECTS            += \
 	jump_os_win32.o

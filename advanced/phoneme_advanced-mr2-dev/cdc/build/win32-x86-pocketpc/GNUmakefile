@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -29,13 +29,10 @@ CC_ARCH_FLAGS   	=
 CC_ARCH_FLAGS_FDLIB	= /Op
 CC_ARCH_FLAGS_LOOP 	=
 LINK_ARCH_LIBS		= corelibc.lib
-LINK_ARCH_FLAGS		= \
-	/subsystem:windowsce,3.00 /MACHINE:IX86 \
-	/base:0x00100000
-LINKEXE_ARCH_LIBS	= /defaultlib:corelibc.lib
-LINKEXE_ARCH_FLAGS	= \
-	/subsystem:windowsce,3.00 /MACHINE:IX86 \
-	/base:0x00010000 /stack:0x200000,0x40000
+LINK_ARCH_FLAGS		= /subsystem:windowsce,3.00 /MACHINE:IX86
+LINKEXE_STACK		= /stack:0x010000
+LINKDLL_BASE		= /base:0x00100000
+
 
 CVM_JIT_USE_FP_HARDWARE = false
 

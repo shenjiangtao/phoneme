@@ -1,5 +1,5 @@
 //
-// Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+// Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 // DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 //   
 // This program is free software; you can redistribute it and/or  
@@ -105,20 +105,30 @@ freg32:	LOCAL32 : 10 : : : : {
 
 // Purpose: value32 = FETCH32(STATIC32(staticFieldSpec))
 freg32: FETCH32 STATIC32 reg32 : 20 : : : : {
+        CVMBool isVolatile;
         CVMJITprintCodegenComment(("Do getstatic:"));
         CVMJITaddCodegenComment((con,
             "value{I|F|O} = getstatic(staticFieldAddr);"));
+        isVolatile =
+            ((CVMJITirnodeGetUnaryNodeFlag(CVMJITirnodeGetLeftSubtree($$)) &
+             CVMJITUNOP_VOLATILE_FIELD) != 0);
         getStaticField(con, CVMRM_FP_REGS(con),
-		       $$, GET_FLOAT_REGISTER_GOALS, CVMCPU_FLDR32_OPCODE, 1);
+		       $$, GET_FLOAT_REGISTER_GOALS, CVMCPU_FLDR32_OPCODE, 1,
+		       isVolatile);
     };
 
 // Purpose: value = FETCH32(FIELDREF32(obj,fieldOffset))
 freg32: FETCH32 FIELDREF32 reg32 memSpec : 10 :
     GETFIELD_SYNTHESIS(con, $$); : GETFIELD_INHERITANCE(con, $$); : : {
+        CVMBool isVolatile;
         CVMJITprintCodegenComment(("Do getfield:"));
         CVMJITaddCodegenComment((con, "value{I|F}"));
+        isVolatile =
+            ((CVMJITirnodeGetBinaryNodeFlag(CVMJITirnodeGetLeftSubtree($$)) &
+             CVMJITBINOP_VOLATILE_FIELD) != 0);
         fetchField(con, CVMRM_FP_REGS(con), $$,
-		   GET_FLOAT_REGISTER_GOALS, CVMCPU_FLDR32_OPCODE, 1);
+		   GET_FLOAT_REGISTER_GOALS, CVMCPU_FLDR32_OPCODE, 1,
+		   isVolatile);
     };
 
 freg64:	LOCAL64 : 10 : : : : {
@@ -138,7 +148,8 @@ freg64: FETCH64 STATIC64 reg32 : 20 : : : : {
         CVMJITaddCodegenComment((con,
             "value{D} = getstatic(staticFieldAddr);"));
         getStaticField(con, CVMRM_FP_REGS(con),
-		       $$, GET_FLOAT_REGISTER_GOALS, CVMCPU_FLDR64_OPCODE, 2);
+		       $$, GET_FLOAT_REGISTER_GOALS, CVMCPU_FLDR64_OPCODE, 2,
+		       CVM_FALSE);
     };
 
 // Purpose: value = FETCH64(FIELDREF64(obj,fieldOffset))
@@ -147,7 +158,8 @@ freg64: FETCH64 FIELDREF64 reg32 memSpec : 10 :
         CVMJITprintCodegenComment(("Do getfield:"));
         CVMJITaddCodegenComment((con, "value{D}"));
         fetchField(con, CVMRM_FP_REGS(con), $$,
-		   GET_FLOAT_REGISTER_GOALS, CVMCPU_FLDR64_OPCODE, 2);
+		   GET_FLOAT_REGISTER_GOALS, CVMCPU_FLDR64_OPCODE, 2,
+		   CVM_FALSE);
     };
 
 // Purpose: value32 = FINVOKE(parameters, methodBlock)
@@ -339,18 +351,28 @@ root:	ASSIGN LOCAL32 freg32 : 11 : : ASSIGN_INHERITANCE(con, $$) : : {
 // Purpose: ASSIGN(FIELDREF32(obj,fieldOffset), value32)
 root: ASSIGN FIELDREF32 reg32 memSpec freg32 : 11 :
     PUTFIELD_SYNTHESIS(con, $$); : PUTFIELD_INHERITANCE(con, $$); : : {
+        CVMBool isVolatile;
         CVMJITprintCodegenComment(("Do putfield:"));
         CVMJITaddCodegenComment((con,
             "putfield(obj, fieldOffset, value{I|F});"));
-        setField(con, CVMRM_FP_REGS(con), CVMCPU_FSTR32_OPCODE);
+        isVolatile =
+            ((CVMJITirnodeGetBinaryNodeFlag(CVMJITirnodeGetLeftSubtree($$)) &
+             CVMJITBINOP_VOLATILE_FIELD) != 0);
+        setField(con, CVMRM_FP_REGS(con), CVMCPU_FSTR32_OPCODE,
+                 isVolatile);
     };
 
 // Purpose: STATIC32(staticFieldSpec) = value32.
 root: ASSIGN STATIC32 reg32 freg32 : 21 : : : : {
+        CVMBool isVolatile;
         CVMJITprintCodegenComment(("Do putstatic:"));
         CVMJITaddCodegenComment((con,
             "putstatic(staticFieldAddr, value{I|F|O})"));
-        setStaticField(con, CVMRM_FP_REGS(con), CVMCPU_FSTR32_OPCODE);
+        isVolatile =
+            ((CVMJITirnodeGetUnaryNodeFlag(CVMJITirnodeGetLeftSubtree($$)) &
+             CVMJITUNOP_VOLATILE_FIELD) != 0);
+        setStaticField(con, CVMRM_FP_REGS(con), CVMCPU_FSTR32_OPCODE,
+		       isVolatile);
     };
 
 root:	IRETURN freg32: 11 : : : : {
@@ -367,7 +389,8 @@ root: ASSIGN INDEX reg32 arraySubscript freg32 : 21 :
 	if (canDoFloatLoadstore(ei, CVM_TRUE)){
 	    indexedStore(con, CVMRM_FP_REGS(con), $$);
 	} else {
-	    moveFPToIntRegs(con, NULL, CVMRM_ANY_SET, CVMRM_EMPTY_SET);
+	    CVMJITIRNode *f32 = CVMJITirnodeGetRightSubtree($$);
+	    moveFPToIntRegs(con, f32, CVMRM_ANY_SET, CVMRM_EMPTY_SET);
 	    indexedStore(con, CVMRM_INT_REGS(con), $$);
 	}
     };
@@ -383,7 +406,8 @@ root: ASSIGN arrayIndex freg32 : 21 : : : : {
 	if (canDoFloatLoadstore(ei, CVM_TRUE)){
 	    storeArraySlot(con, CVMRM_FP_REGS(con), $$);
 	}else{
-	    moveFPToIntRegs(con, NULL, CVMRM_ANY_SET, CVMRM_EMPTY_SET);
+	    CVMJITIRNode *f32 = CVMJITirnodeGetRightSubtree($$);
+	    moveFPToIntRegs(con, f32, CVMRM_ANY_SET, CVMRM_EMPTY_SET);
 	    storeArraySlot(con, CVMRM_INT_REGS(con), $$);
 	}
     };
@@ -413,7 +437,7 @@ root: ASSIGN FIELDREF64 reg32 memSpec freg64 : 11 :
         CVMJITprintCodegenComment(("Do putfield:"));
         CVMJITaddCodegenComment((con,
             "putfield(obj, fieldOffset, value{L|D});"));
-        setField(con, CVMRM_FP_REGS(con), CVMCPU_FSTR64_OPCODE);
+        setField(con, CVMRM_FP_REGS(con), CVMCPU_FSTR64_OPCODE, CVM_FALSE);
     };
 
 // Purpose: STATIC64(staticFieldSpec) = value64.
@@ -421,7 +445,8 @@ root: ASSIGN STATIC64 reg32 freg64 : 21 : : : : {
         CVMJITprintCodegenComment(("Do putstatic:"));
         CVMJITaddCodegenComment((con,
             "putstatic(staticFieldAddr, value{L|D})"));
-        setStaticField(con, CVMRM_FP_REGS(con), CVMCPU_FSTR64_OPCODE);
+        setStaticField(con, CVMRM_FP_REGS(con), CVMCPU_FSTR64_OPCODE,
+		       CVM_FALSE);
     };
 
 root:	LRETURN freg64: 11 : : : : {
@@ -438,7 +463,8 @@ root: ASSIGN INDEX reg32 arraySubscript freg64 : 21 :
 	if (canDoFloatLoadstore(ei, CVM_TRUE)){
 	    indexedStore(con, CVMRM_FP_REGS(con), $$);
 	} else {
-	    moveFPToIntRegs(con, NULL, CVMRM_ANY_SET, CVMRM_EMPTY_SET);
+	    CVMJITIRNode *f64 = CVMJITirnodeGetRightSubtree($$);
+	    moveFPToIntRegs(con, f64, CVMRM_ANY_SET, CVMRM_EMPTY_SET);
 	    indexedStore(con, CVMRM_INT_REGS(con), $$);
 	}
     };
@@ -454,7 +480,8 @@ root: ASSIGN arrayIndex freg64 : 21 : : : : {
 	if (canDoFloatLoadstore(ei, CVM_TRUE)){
 	    storeArraySlot(con, CVMRM_FP_REGS(con), $$);
 	}else{
-	    moveFPToIntRegs(con, NULL, CVMRM_ANY_SET, CVMRM_EMPTY_SET);
+	    CVMJITIRNode *f64 = CVMJITirnodeGetRightSubtree($$);
+	    moveFPToIntRegs(con, f64, CVMRM_ANY_SET, CVMRM_EMPTY_SET);
 	    storeArraySlot(con, CVMRM_INT_REGS(con), $$);
 	}
     };
@@ -671,6 +698,8 @@ freg64: DNEG freg64 : 10 : : : :
 // the correct conditional instruction.
 
 %{
+#ifdef CVM_NEED_COMPARE_FLOATS_HELPER
+
 /* convert CVMJIT_XXX condition code to a CVMCPUCondCode */
 static CVMCPUCondCode
 mapFloatCondCode(CVMUint16 condition) {
@@ -728,12 +757,14 @@ compareFloats(
 #endif
     CVMRMunpinAllIncomingLocals(con, target);
 }
+
+#endif
 %}
 
-root: BCOND_FLOAT freg32 freg32 : 10 : : : : 
+root: BCOND_FLOAT freg32 freg32 : 10 : : : CVM_NEED_COMPARE_FLOATS_HELPER : 
 	compareFloats(con, $$, CVMCPU_FCMP_OPCODE);
 
-root: BCOND_DOUBLE freg64 freg64 : 10 : : : : 
+root: BCOND_DOUBLE freg64 freg64 : 10 : : : CVM_NEED_COMPARE_FLOATS_HELPER : 
 	compareFloats(con, $$, CVMCPU_DCMP_OPCODE);
 
 

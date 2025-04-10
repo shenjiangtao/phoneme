@@ -1,7 +1,7 @@
 /*
  * @(#)jitirlist.h	1.7 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -72,9 +72,6 @@ CVMJITirlistInsert(CVMJITCompilationContext* con, CVMJITIRList* list,
 void
 CVMJITirlistRemove(CVMJITCompilationContext* con, CVMJITIRList* lst,
     void* item);
-
-extern void 
-CVMJITirlistInit(CVMJITCompilationContext* con, CVMJITIRList* lst);
 
 void
 CVMJITirlistAppendList(CVMJITCompilationContext* con, CVMJITIRList* to,

@@ -1,7 +1,7 @@
 /*
  * @(#)SignatureFileVerifier.java	1.29 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -156,7 +156,7 @@ public class SignatureFileVerifier {
 	    sf.getMainAttributes().getValue(Attributes.Name.SIGNATURE_VERSION);
 
 	if ((version == null) || !(version.equalsIgnoreCase("1.0"))) {
-	    // FIXME: should this be an exception?
+	    // TODO: should this be an exception?
 	    // for now we just ignore this signature file
 	    return;
 	}

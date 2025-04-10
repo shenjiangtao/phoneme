@@ -1,27 +1,27 @@
 /*
  *  
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 package javax.microedition.lcdui;
 
@@ -75,6 +75,7 @@ class GaugeLFImpl extends ItemLFImpl implements GaugeLF {
         }
         
         percentLoc = new int[2];
+        drawsTraversalIndicator = false;
     }
 
 
@@ -800,7 +801,7 @@ class GaugeLFImpl extends ItemLFImpl implements GaugeLF {
         // display current value of gauge
         drawNumber(g, GaugeSkin.IMAGE_VALUES, 11, value, 
                    GaugeSkin.VALUE_X, GaugeSkin.VALUE_Y,
-                   (value * 100) / maxValue);
+                   value);
 
         if (GaugeSkin.IMAGE_DEC_BTN != null) {
             // decrease button            
@@ -964,7 +965,32 @@ class GaugeLFImpl extends ItemLFImpl implements GaugeLF {
 
         // the percentage symbol
         drawPercentage(g, ProgressBarSkin.IMAGE_PERCENTS, value);           
-    }               
+    }
+
+
+    /**
+     * Called by the system to traverse this DateField.
+     *
+     * @param dir the direction of traversal
+     * @param viewportWidth the width of the container's viewport
+     * @param viewportHeight the height of the container's viewport
+     * @param visRect passes the visible rectangle into the method, and
+     * returns the updated traversal rectangle from the method
+     * @return true if internal traversal had occurred, false if traversal
+     * should proceed out
+     */
+    boolean lCallTraverse(int dir, int viewportWidth, int viewportHeight,
+                          int[] visRect)
+    {
+        boolean res = super.lCallTraverse(dir, viewportWidth, viewportHeight, visRect);
+
+        visRect[X] = 0;
+        visRect[Y] = 0;
+        visRect[HEIGHT] = bounds[HEIGHT];
+        visRect[WIDTH] = bounds[WIDTH];
+        return res;
+
+    }
                
     
     /**

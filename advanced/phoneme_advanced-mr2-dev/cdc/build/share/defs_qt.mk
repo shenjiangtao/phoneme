@@ -1,26 +1,25 @@
 #  @(#)defs_qt.mk	1.15 06/10/19
 #
-#
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved. 
-# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER 
-#  
-# This program is free software; you can redistribute it and/or 
-# modify it under the terms of the GNU General Public License version 
-# 2 only, as published by the Free Software Foundation. 
-#  
-# This program is distributed in the hope that it will be useful, but 
-# WITHOUT ANY WARRANTY; without even the implied warranty of 
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
-# General Public License version 2 for more details (a copy is 
-# included at /legal/license.txt). 
-#  
-# You should have received a copy of the GNU General Public License 
-# version 2 along with this work; if not, write to the Free Software 
-# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 
-# 02110-1301 USA 
-#  
-# Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa 
-# Clara, CA 95054 or visit www.sun.com if you need additional 
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
+# 
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License version
+# 2 only, as published by the Free Software Foundation.
+# 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License version 2 for more details (a copy is
+# included at /legal/license.txt).
+# 
+# You should have received a copy of the GNU General Public License
+# version 2 along with this work; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+# 02110-1301 USA
+# 
+# Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
+# Clara, CA 95054 or visit www.sun.com if you need additional
 # information or have any questions.
 #
 
@@ -36,8 +35,8 @@
 #                            3 is using qt3.3.1 (default for QTEMBEDDED=false)
 #
 
--include ../$(TARGET_OS)/defs_qt.mk
--include ../$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_qt.mk
+-include $(CDC_OS_COMPONENT_DIR)/build/$(TARGET_OS)/defs_qt.mk
+-include $(CDC_DEVICE_COMPONENT_DIR)/build/$(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)/defs_qt.mk
 
 QTEMBEDDED	?= false
 QTOPIA		?= $(QTEMBEDDED)
@@ -164,9 +163,9 @@ endif
 # Get the CPP includes needed for qt. Note that some distributions
 # put some qt files in /usr/include and the rest in /usr/include/qt.
 #
-PROFILE_INCLUDES += \
-	-I$(QT_TARGET_INCLUDE_DIR) \
-	-I$(QT_TARGET_INCLUDE_DIR)/qt
+PROFILE_INCLUDE_DIRS += \
+	$(QT_TARGET_INCLUDE_DIR) \
+	$(QT_TARGET_INCLUDE_DIR)/qt
 
 # Specify the appropriate QT_LIBRARY
 ifeq ($(QTEMBEDDED), true)
@@ -187,8 +186,8 @@ endif
 #
 ifneq ($(QTEMBEDDED), true)
 # personal and basis needs to have access to the X11 headers.
-  PROFILE_INCLUDES += \
-    -I$(X11_LIB_DIR)/../include \
+  PROFILE_INCLUDE_DIRS += \
+    $(X11_LIB_DIR)/../include \
 
   ifeq ($(QT_VERSION), 3)
     X11_LIBS ?= -L$(X11_LIB_DIR) -lXext -lX11 -lSM -lICE -lXft -lXrender -lXrandr -lXinerama

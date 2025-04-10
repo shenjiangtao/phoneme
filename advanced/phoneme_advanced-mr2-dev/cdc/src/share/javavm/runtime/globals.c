@@ -1,7 +1,5 @@
 /*
- * @(#)globals.c	1.200 06/10/25
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -56,6 +54,7 @@
 
 #ifdef CVM_JVMTI
 #include "javavm/include/jvmti_jni.h"
+#include "javavm/include/porting/time.h"
 #endif
 #ifdef CVM_JVMPI
 #include "javavm/include/jvmpi_impl.h"
@@ -127,8 +126,13 @@ void** const CVMJITcodeCacheDecompileStart =
  */
 #define CVM_MIN_WEAK_GLOBALROOTS_STACKCHUNK_SIZE \
     CVM_MIN_GLOBALROOTS_STACKCHUNK_SIZE
+#ifdef CVM_JVMTI
+#define CVM_MAX_WEAK_GLOBALROOTS_STACK_SIZE      \
+    CVM_MAX_GLOBALROOTS_STACK_SIZE * 16
+#else
 #define CVM_MAX_WEAK_GLOBALROOTS_STACK_SIZE      \
     CVM_MAX_GLOBALROOTS_STACK_SIZE
+#endif
 #define CVM_INITIAL_WEAK_GLOBALROOTS_STACK_SIZE   \
     CVM_INITIAL_GLOBALROOTS_STACK_SIZE
 
@@ -202,7 +206,7 @@ static const CVMGlobalSysMutexEntry globalSysMutexes[] = {
        with those accesses it would need to have a higher rank (less
        importance) than this one. */
 #ifdef CVM_JVMTI
-    CVM_SYSMUTEX_ENTRY(debuggerLock, "debugger lock"),
+    CVM_SYSMUTEX_ENTRY(jvmtiLock, "jvmti lock"),
 #endif
     /*
      * All of these are "leaf" mutexes except during gc and during
@@ -213,11 +217,14 @@ static const CVMGlobalSysMutexEntry globalSysMutexes[] = {
     CVM_SYSMUTEX_ENTRY(typeidLock, "typeid lock"),
     CVM_SYSMUTEX_ENTRY(syncLock, "fast sync lock"),
     CVM_SYSMUTEX_ENTRY(internLock, "intern table lock"),
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
     CVM_SYSMUTEX_ENTRY(gcLockerLock, "gc locker lock"),
 #endif
 #ifdef CVM_JVMPI
     CVM_SYSMUTEX_ENTRY(jvmpiSyncLock, "jvmpi sync lock"),
+#endif
+#ifdef CVM_JVMTI
+    CVM_SYSMUTEX_ENTRY(jvmtiLockInfoLock, "jvmti lock info lock"),
 #endif
 #ifdef CVM_TIMESTAMPING
     CVM_SYSMUTEX_ENTRY(timestampListLock, "timestamp list lock"),
@@ -461,7 +468,7 @@ static const CVMGlobalMethodBlockEntry globalMethodBlocks[] = {
 	CVM_TRUE,  /* static */
 	CVMsystemClass(java_lang_Thread),
         "initAttachedThread",
-	    "(Ljava/lang/ThreadGroup;Ljava/lang/String;IJ)"
+	    "(Ljava/lang/ThreadGroup;Ljava/lang/String;IJZ)"
 	    "Ljava/lang/Thread;",
         &CVMglobals.java_lang_Thread_initAttachedThread
         /* NOTE: java.lang.Thread has a static initializer.  The clinit
@@ -478,12 +485,12 @@ static const CVMGlobalMethodBlockEntry globalMethodBlocks[] = {
     },
 
 #ifdef CVM_AOT
-    /* sun.mtask.Warmup.runit() */
+    /* sun.misc.Warmup.runit() */
     {
         CVM_TRUE, /* static */
-        CVMsystemClass(sun_mtask_Warmup),
+        CVMsystemClass(sun_misc_Warmup),
         "runit", "(Ljava/lang/String;Ljava/lang/String;)V",
-        &CVMglobals.sun_mtask_Warmup_runit,
+        &CVMglobals.sun_misc_Warmup_runit,
     },
 #endif
 
@@ -643,6 +650,10 @@ initCstates()
 
 static const CVMSubOptionData knownOptSubOptions[] = {
 
+#ifdef CVM_HAS_PLATFORM_SPECIFIC_SUBOPTIONS
+#include "javavm/include/opt_md.h"
+#endif
+
     {"stackChunkSize", "Java stack chunk size",
 	CVM_INTEGER_OPTION,
 #ifdef CVM_JIT
@@ -714,6 +725,13 @@ CVMoptParseXssOption(const char* xssStr)
     }
 }
 
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+void CVMdumpGlobalsSubOptionValues()
+{
+    CVMprintSubOptionValues(knownOptSubOptions);
+}
+#endif /* CVM_DEBUG || CVM_INSPECTOR */
+
 CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
 {
     CVMExecEnv *ee = &gs->mainEE;
@@ -733,6 +751,9 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
     }
 #endif
 
+    /* init interpreter loop function pointer */
+    gs->CVMgcUnsafeExecuteJavaMethodProcPtr = &CVMgcUnsafeExecuteJavaMethod;
+
     CVMinitJNIStatics();
     
     gs->exit_procs = NULL;
@@ -746,6 +767,14 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
     gs->objMonitorList = NULL;
     gs->rawMonitorList = NULL;
 #endif
+#ifdef CVM_JVMTI
+    /* Initialize high res clocks */
+    CVMtimeClockInit();
+#endif
+    /*
+     * Random number generator
+     */
+    CVMrandomInit();
 
     CVMpreloaderInit();
 
@@ -763,6 +792,8 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
     gs->javaAssertionsClasses     = options->javaAssertionsClasses;
     gs->javaAssertionsPackages    = options->javaAssertionsPackages;
 #endif
+
+    gs->unlimitedGCRoots = options->unlimitedGCRoots;
 
     /*
      * Initalize all of the global sys mutexes.
@@ -802,11 +833,11 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
     /* NOTE: this should come BEFORE the first call to CVMinitExecEnv.
        This mutates the global JNI vector which later gets pointed to
        by the various execution environments. */
+    /*
+     * With JVMTI, we do the instrumentation when an agent connects
+     */
 #ifdef CVM_JVMTI
-    gs->jvmtiDebuggingEnabled = options->debugging;
-    if (gs->jvmtiDebuggingEnabled) {
-	CVMjvmtiInstrumentJNINativeInterface();
-    }
+    CVMjvmtiSetDebugOption(options->debugging);
 #endif    
 
 #ifdef CVM_LVM /* %begin lvm */
@@ -833,10 +864,10 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
 	return CVM_FALSE;
     }
 
-#ifdef CVM_DEBUG
+#if defined(CVM_DEBUG)
     CVMconsolePrintf("CVM Configuration:\n");
-    CVMprintSubOptionValues(knownOptSubOptions);
-#endif
+    CVMdumpGlobalsSubOptionValues();
+#endif /* CVM_DEBUG */
 
     /* In the future, this should be map to a -Xopt sub-option */
     if (options->nativeStackSizeStr != NULL) {
@@ -844,6 +875,19 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
 	    return CVM_FALSE;
 	}
     }
+
+#ifdef CVM_TRACE_ENABLED
+    /*
+     * Turn off all debugging flags by default.
+     */
+
+    if (options->traceFlagsStr != NULL) {
+	gs->debugFlags = strtol(options->traceFlagsStr, NULL, 0);
+    } else {
+	gs->debugFlags = 0;
+    }
+    CVMtraceInit();
+#endif /* CVM_TRACE_ENABLED */
 
     if (!CVMinitExecEnv(ee, ee, NULL)) {
 	return CVM_FALSE;
@@ -950,7 +994,9 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
     /*
      * TypeId system, which also registers well-known types.
      */
-    CVMtypeidInit(ee);
+    if (!CVMtypeidInit(ee)) {
+        goto out_of_memory;
+    }
 
     /*
      * Intern table, which just has a global variable to set.
@@ -965,6 +1011,9 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
     }
 #ifdef CVM_CLASSLOADING
     gs->classVerificationLevel = options->classVerificationLevel;
+#ifdef CVM_SPLIT_VERIFY
+    gs->splitVerify = options->splitVerify;
+#endif
 #endif
 
     /*
@@ -977,11 +1026,6 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
      * Stackmap computer
      */
     CVMstackmapComputerInit();
-
-    /*
-     * Random number generator
-     */
-    CVMrandomInit();
 
 #ifdef CVM_TIMESTAMPING
     /*
@@ -1056,22 +1100,17 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
 #endif /* CVM_DEBUG */
 #endif /* CVM_DEBUG_STACKTRACES */
 
-#ifdef CVM_TRACE_ENABLED
-    /*
-     * Turn off all debugging flags by default.
-     */
-
-    if (options->traceFlagsStr != NULL) {
-	gs->debugFlags = strtol(options->traceFlagsStr, NULL, 0);
-    } else {
-	gs->debugFlags = 0;
-    }
-    CVMtraceInit();
-#endif /* CVM_TRACE_ENABLED */
-
     /* For GC statistics */
     gs->measureGC = CVM_FALSE;
     gs->totalGCTime = CVMint2Long(0);
+
+#ifdef CVM_JIT
+    if (!CVMjitInit(ee, &gs->jit, options->jitAttributesStr)) {
+	CVMconsolePrintf("Cannot start VM "
+			 "(jit failed to initialize)\n");
+	return CVM_FALSE;
+    }
+#endif
 
     if (!CVMgcInitHeap(options)) {
 	goto out_of_memory;
@@ -1128,21 +1167,28 @@ CVMBool CVMinitVMGlobalState(CVMGlobalState *gs, CVMOptions *options)
     gs->fullShutdown = CVM_TRUE;
 #endif
 
+    gs->hangOnStartup = options->hangOnStartup;
+
 #ifdef CVM_JVMTI
     /* jvmti global variables initialization */
-    CVMjvmtiStaticsInit(&gs->jvmtiStatics);
+    CVMjvmtiInitializeGlobals(&gs->jvmti);
 #endif
 
 #ifdef CVM_JVMPI
     CVMjvmpiInitializeGlobals(ee, &gs->jvmpiRecord);
 #endif
 
-#ifdef CVM_JIT
-    if (!CVMjitInit(ee, &gs->jit, options->jitAttributesStr)) {
-	CVMconsolePrintf("Cannot start VM "
-			 "(jit failed to initialize)\n");
-	return CVM_FALSE;
+    /* Open up the cvm binary as a shared library for locating JNI methods */
+    if (CVMglobals.cvmDynHandle == NULL) {
+        CVMglobals.cvmDynHandle = CVMdynlinkOpen(NULL);
+        if (CVMglobals.cvmDynHandle == NULL) {
+            CVMconsolePrintf("Cannot start VM "
+                             "(Could not open cvm as a shared library)\n");
+            return CVM_FALSE;
+        }
     }
+
+#ifdef CVM_JIT
     /* Initialize the invoker cost of all ROMized methods */
     CVMpreloaderInitInvokeCost();
 #endif
@@ -1179,6 +1225,11 @@ void CVMdestroyVMGlobalState(CVMExecEnv *ee, CVMGlobalState *gs)
     CVMjvmpiDestroyGlobals(ee, &gs->jvmpiRecord);
 #endif
 
+#ifdef CVM_JVMTI
+    /* Free jvmti global variables */
+    CVMjvmtiDestroyGlobals(&gs->jvmti);
+#endif
+
     /* 
      * Destroy dynamically loaded classes.
      */
@@ -1192,11 +1243,18 @@ void CVMdestroyVMGlobalState(CVMExecEnv *ee, CVMGlobalState *gs)
 #endif
 
     if (gs->preallocatedOutOfMemoryError != NULL) {
-	CVMID_freeGlobalRoot(ee, gs->preallocatedStackOverflowError);
-    }
-    if (gs->preallocatedStackOverflowError != NULL) {
 	CVMID_freeGlobalRoot(ee, gs->preallocatedOutOfMemoryError);
     }
+    if (gs->preallocatedStackOverflowError != NULL) {
+	CVMID_freeGlobalRoot(ee, gs->preallocatedStackOverflowError);
+    }
+
+#if defined(CVM_HAVE_DEPRECATED) || defined(CVM_THREAD_SUSPENSION)
+    if (CVMglobals.suspendCheckerInitialized) {
+	CVMsuspendCheckerDestroy();
+	CVMglobals.suspendCheckerInitialized = CVM_FALSE;
+    }
+#endif
 
     CVMeeSyncDestroyGlobal(ee, gs);
 
@@ -1207,6 +1265,10 @@ void CVMdestroyVMGlobalState(CVMExecEnv *ee, CVMGlobalState *gs)
     CVMgcLockerDestroy(&gs->inspectorGCLocker);
 #endif
     CVMcondvarDestroy(&gs->threadCountCV);
+
+    CVMdetachExecEnv(ee);
+    CVMdestroyExecEnv(ee);
+    CVMremoveThread(ee, ee->userThread);
 
     /*
      * destroy all of the global sys mutexes.
@@ -1235,17 +1297,6 @@ void CVMdestroyVMGlobalState(CVMExecEnv *ee, CVMGlobalState *gs)
 
     CVMdestroyJNIJavaVM(&gs->javaVM);
 
-#if defined(CVM_HAVE_DEPRECATED) || defined(CVM_THREAD_SUSPENSION)
-    if (CVMglobals.suspendCheckerInitialized) {
-	CVMsuspendCheckerDestroy();
-	CVMglobals.suspendCheckerInitialized = CVM_FALSE;
-    }
-#endif
-
-    CVMdetachExecEnv(ee);
-    CVMdestroyExecEnv(ee);
-    CVMremoveThread(ee, ee->userThread);
-
     /*
      * Destroy class related data structures
      * Including those for preloaded classes.
@@ -1260,10 +1311,15 @@ void CVMdestroyVMGlobalState(CVMExecEnv *ee, CVMGlobalState *gs)
      */
     CVMstackmapComputerDestroy();
 
+/* Java SE Zip doesn't have this function.  Comment out for now.
+   FIXME - make sure this doesn't introduce a leak.
+*/
+#ifndef JAVASE
     /*
      * Destroy zip_util related data structures
      */
     CVMzutilDestroyZip();
+#endif
 
 #ifndef CDC_10
     /* free assertion command line options */
@@ -1280,11 +1336,6 @@ void CVMdestroyVMGlobalState(CVMExecEnv *ee, CVMGlobalState *gs)
     if (gs->appClassPath.pathString != NULL) {
         free(gs->appClassPath.pathString);
     }
-#endif
-
-#ifdef CVM_JVMTI
-    /* Free jvmti global variables */
-    CVMjvmtiStaticsDestroy(&gs->jvmtiStatics);
 #endif
 
     CVMdestroyJNIStatics();

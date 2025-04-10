@@ -1,7 +1,7 @@
 /*
  * @(#)Win32FileSystem.java	1.26 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -31,11 +31,14 @@ import java.security.AccessController;
 import sun.security.action.GetPropertyAction;
 
 
-class Win32FileSystem extends FileSystem {
+// Common Unicode-aware filesystem class for Windows NT
+// and Windows CE
+abstract class Win32FileSystem extends FileSystem {
 
     private final char slash;
     private final char altSlash;
     private final char semicolon;
+    private final boolean hasDrives; // Windows CE?
 
     public Win32FileSystem() {
 	slash = ((String) AccessController.doPrivileged(
@@ -43,6 +46,7 @@ class Win32FileSystem extends FileSystem {
 	semicolon = ((String) AccessController.doPrivileged(
               new GetPropertyAction("path.separator"))).charAt(0);
 	altSlash = (this.slash == '\\') ? '/' : '\\';
+	hasDrives = (listRoots0() != 0);
     }
 
     private boolean isSlash(char c) {
@@ -208,7 +212,7 @@ class Win32FileSystem extends FileSystem {
 	    if (c1 == slash) return 2;	/* Absolute UNC pathname "\\\\foo" */
 	    return 1;			/* Drive-relative "\\foo" */
 	}
-	if (isLetter(c0) && (c1 == ':')) {
+	if (hasDrives && isLetter(c0) && (c1 == ':')) {
 	    if ((n > 2) && (path.charAt(2) == slash))
 		return 3;		/* Absolute local pathname "z:\\foo" */
 	    return 2;			/* Directory-relative "z:foo" */
@@ -262,11 +266,11 @@ class Win32FileSystem extends FileSystem {
 
     public boolean isAbsolute(File f) {
 	int pl = f.getPrefixLength();
-	return (((pl == 2) && (f.getPath().charAt(0) == slash))
-		|| (pl == 3));
+	return ((pl == 2) && (f.getPath().charAt(0) == slash))
+	    || (hasDrives ? (pl == 3) : (pl == 1));
     }
 
-    protected native String getDriveDirectory(int drive);
+    protected abstract String getDriveDirectory(int drive);
 
     private static String[] driveDirCache = new String[26];
 
@@ -292,7 +296,7 @@ class Win32FileSystem extends FileSystem {
 	return normalize(System.getProperty("user.dir"));
     }
 
-    private String getDrive(String path) {
+    String getDrive(String path) {
 	int pl = prefixLength(path);
 	return (pl == 3) ? path.substring(0, 2) : null;
     }
@@ -305,8 +309,11 @@ class Win32FileSystem extends FileSystem {
 	if (pl == 3)
 	    return path;			/* Absolute local */
 	if (pl == 0)
-	    return getUserPath() + slashify(path); /* Completely relative */
+	    return resolve(getUserPath(), path); /* Completely relative */
 	if (pl == 1) {				/* Drive-relative */
+	    if (!hasDrives) {
+		return path;
+	    }
 	    String up = getUserPath();
 	    String ud = getDrive(up);
 	    if (ud != null) return ud + path;
@@ -498,7 +505,7 @@ class Win32FileSystem extends FileSystem {
 	}
     }
 
-    private static native int listRoots0();
+    protected abstract int listRoots0();
 
     public File[] listRoots() {
 	int ds = listRoots0();

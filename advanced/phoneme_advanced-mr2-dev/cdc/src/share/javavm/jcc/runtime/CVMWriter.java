@@ -1,7 +1,7 @@
 /*
  * @(#)CVMWriter.java	1.153	06/10/27
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -103,6 +103,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
     protected boolean			noPureCode = false;
 
     private boolean			doShared;
+    private Vector			sharedConstantPools;
     private String			sharedConstantPoolName;
     private int				sharedConstantPoolSize;
 
@@ -162,7 +163,9 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	stringTable = new CVMStringTable(initInfo);
     }
 
-    public void init( boolean classDebug, boolean lossless, ClassnameFilterList nativeTypes, boolean verbose, int maxSegmentSize, boolean mutableMBs ){
+    public void init(boolean classDebug, boolean lossless,
+                     ClassnameFilterList nativeTypes, boolean verbose,
+                     int maxSegmentSize, boolean mutableMBs) {
 	this.verbose = verbose;
 	this.classDebug = classDebug;
 	this.lossless = lossless;
@@ -234,15 +237,15 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
      * But if this is a segmented output job, then the name given
      * serves as a prefix, and we open a whole bunch of files and
      * set up a whole bunch of state:
-     *		filename+"List"  - file containing names of all .c files generated
-     *				   opened as listOut;
+     *		filename+"List"  - file containing names of all .c files
+     *				   generated opened as listOut;
      *		filename+".h"    - header file, as usual
-     *		filename+"Aux.c" - file containing all type, string, and other miscellanious
-     *				   generated stuff.
+     *		filename+"Aux.c" - file containing all type, string, and other
+     *				   miscellanious generated stuff.
      *				   opened as auxOut;
-     *		filename+"Class"+n+".c" - files containing directly class-related data,
-     *				   whole classes, and a max of this.maxClasses of them
-     *				   apiece.
+     *		filename+"Class"+n+".c" - files containing directly class-
+     *                             related data, whole classes, and a max of
+     *                             this.maxClasses of them apiece.
      */
     public boolean open( String filename ){
 	if ( classOut != null ) close();
@@ -294,7 +297,9 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		globalHeaderOut = new CCodeWriter ( www );
 		zzz = new java.io.FileOutputStream( filename+"Aux.c");
 		auxOut = new CCodeWriter( zzz );
-		listOut = new BufferedPrintStream( new java.io.FileOutputStream( outputFileName+"List" ));
+		listOut = new BufferedPrintStream(
+                              new java.io.FileOutputStream(outputFileName +
+                                                           "List"));
 		listOut.println( filename+"Aux.c");
 		openNextClassFile();
 	    } catch ( java.io.IOException e ){
@@ -506,12 +511,14 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    classOut.print( codeBlockName );
 	    classOut.print( "Master" );
 
-	    initInfo.addInfo( "&"+codeBlockName+"Master", "&"+codeBlockName, "sizeof( struct "+descriptorTypeTag+")" );
+            initInfo.addInfo("&" + codeBlockName + "Master",
+                             "&" + codeBlockName,
+                             "sizeof( struct " + descriptorTypeTag + ")");
 	} else {
-	    classOut.print( codeBlockName );
+            classOut.print(codeBlockName);
 	}
 
-	classOut.print( " = {\n    { CVM_INIT_JAVA_METHOD_DESCRIPTOR(" );
+        classOut.print(" = {\n    { CVM_INIT_JAVA_METHOD_DESCRIPTOR(");
 	/*
 	 * Make sure locals are big enough for any return value.
 	 */
@@ -553,9 +560,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    classOut.println(",\n    {");
 	    for ( int i = 0; i < nTryCatch; i++ ){
 		ExceptionEntry e = mi.exceptionTable[i];
-		classOut.println("\t{ "+e.startPC+", "+e.endPC+", "+e.handlerPC+", "
-			    +(e.catchType == null ? 0 : e.catchType.index)
-			    +"},");
+                classOut.println("\t{ " + e.startPC + ", " + e.endPC + ", " +
+                                 e.handlerPC + ", " +
+                                 (e.catchType == null ? 0 : e.catchType.index) +
+                                 "},");
 	    }
 	    classOut.print("    }");
 	    ncatchframes += nTryCatch;
@@ -579,8 +587,9 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		int typeid = CVMDataType.parseSignature(getUTF(e.sig));
 		int nameid = CVMMemberNameEntry.lookupEnter(getUTF(e.name));
 		classOut.println("\t{ "+e.pc0+", "+e.length+", "+e.slot+
-				 ", RAW_TYPEID_NAME_PART(0x" + Integer.toHexString(nameid) + 
-				 "), RAW_TYPEID_TYPE_PART(0x" + Integer.toHexString(typeid) + ")},");
+                    ", RAW_TYPEID_NAME_PART(0x" + Integer.toHexString(nameid) +
+                    "), RAW_TYPEID_TYPE_PART(0x" + Integer.toHexString(typeid) +
+                    ")},");
 	    }
 	    classOut.print("    }");
 	}
@@ -630,7 +639,8 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	int nmethods = c.methods.length;
 	String methodArrayFlavor = "struct CVMMethodArray"+nmethods;
 	String methodArrayImmutFlavor = "struct CVMMethodArrayImmut"+nmethods;
-	String methodArrayImmutCompFlavor = "struct CVMMethodArrayImmutCompressed"+nmethods;
+	String methodArrayImmutCompFlavor =
+            "struct CVMMethodArrayImmutCompressed"+nmethods;
 	String immutFlavor;
 	String immutableType;
 	java.util.BitSet methArrSizes;
@@ -684,7 +694,8 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    declare(methodArrayFlavor+" "+thisTableName, classOut); 
 	    classOut.println(";");
 	    */
-	    globalHeaderOut.println("    "+methodArrayFlavor+" "+thisTableName+";");
+            globalHeaderOut.println("    " + methodArrayFlavor + " " +
+                                    thisTableName + ";");
 	    initInfoForMBs.addInfo( "&"+masterName );
 	    declare( "const "+immutFlavor+" "+masterName, classOut );
 	} else {
@@ -775,7 +786,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    //
 	    String invoker = isAbstract ? "CVM_INVOKE_ABSTRACT_METHOD"
 			  : isNative ? (
-				isClassCNI(c.ci.className) ?
+				isClassCNI(c.classInfo.className) ?
 				    "CVM_INVOKE_CNI_METHOD" : (
 				synchro ? "CVM_INVOKE_JNI_SYNC_METHOD"
 					: "CVM_INVOKE_JNI_METHOD" ))
@@ -788,13 +799,15 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    // and add to that array as necessary.
 	    //
 	    int exceptions;
-	    if ( (meth.method.exceptionsThrown != null) && (meth.method.exceptionsThrown.length!=0) ){
+	    if ((meth.method.exceptionsThrown != null) &&
+                (meth.method.exceptionsThrown.length != 0)) {
 		ClassConstant thrown[] = meth.method.exceptionsThrown;
 		int net = thrown.length;
 	        exceptions = currCheckedException;
 		checkedExceptionVector[currCheckedException++] = net;
 		for ( int j = 0; j < net; j++ ){
-		    checkedExceptionVector[currCheckedException++] = thrown[j].index;
+		    checkedExceptionVector[currCheckedException++] =
+                        thrown[j].index;
 		}
 	    } else {
 		// Note we have changed this from ((unsigned short)
@@ -888,9 +901,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    int access = meth.CVMflags();
 	    if (!emittedNativeHeader &&
 		((access&CVM_METHOD_ACC_NATIVE)!=0)) {
-		String subdir = isClassCNI(c.ci.className) ? "cni/" : "jni/";
+		String subdir;
+		subdir = isClassCNI(c.classInfo.className) ? "cni/" : "jni/";
 		headerOut.println("#include \"generated/" + subdir +
-		    Util.convertToClassName(c.ci.className)+".h\"");
+		    Util.convertToClassName(c.classInfo.className)+".h\"");
 		emittedNativeHeader = true;
 	    }
 	    boolean synchro = (access&CVM_METHOD_ACC_SYNCHRONIZED)!=0;
@@ -899,7 +913,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 
 	    String invoker = isAbstract ? "CVM_INVOKE_ABSTRACT_METHOD"
 			  : isNative ? (
-				isClassCNI(c.ci.className) ?
+				isClassCNI(c.classInfo.className) ?
 				    "CVM_INVOKE_CNI_METHOD" : (
 				synchro ? "CVM_INVOKE_JNI_SYNC_METHOD"
 					: "CVM_INVOKE_JNI_METHOD" ))
@@ -941,7 +955,8 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    cbDeclaration = "CVM_INIT_METHODARRAY_CB_WITH_UNCOMPRESSED_MBS";
 	}
 	
-	classOut.print( " = {\n\t"+cbDeclaration+"(&"+classBlockName+"),\n\t{\n" );
+	classOut.print(" = {\n\t" + cbDeclaration + "(&" + classBlockName +
+                       "),\n\t{\n");
 
 	for ( int i = 0; i < nmethod; i++ ){
 	    CVMMethodInfo meth = m[i];
@@ -950,8 +965,11 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    }
 	    int mbIndex = i % cbRepeat;
 	    int typeid = meth.sigType.entryNo;
-	    int nameid = CVMMemberNameEntry.lookupEnter(getUTF(meth.method.name));
-	    String nameAndType = "RAW_TYPEID(0x" + Integer.toHexString(nameid) + ", 0x" + Integer.toHexString(typeid) + ")";
+	    int nameid = CVMMemberNameEntry.lookupEnter(
+                             getUTF(meth.method.name));
+	    String nameAndType = "RAW_TYPEID(0x" +
+                                 Integer.toHexString(nameid) + ", 0x" +
+                                 Integer.toHexString(typeid) + ")";
 	    int access = meth.CVMflags();
 
 	    boolean synchro = (access&CVM_METHOD_ACC_SYNCHRONIZED)!=0;
@@ -964,7 +982,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	       except native methods. Compilation might change
 	       invoker function */
 	    String jitInvoker = isNative ? (
-				    isClassCNI(c.ci.className) ?
+				    isClassCNI(c.classInfo.className) ?
 				        "CVMCCMinvokeCNIMethod" :
 				        "CVMCCMinvokeJNIMethod" )
 		                : "CVMCCMletInterpreterDoInvoke";
@@ -974,13 +992,15 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    // note the offset in the exception array,
 	    // and add to that array as necessary.
 	    int exceptions;
-	    if ( (meth.method.exceptionsThrown != null) && (meth.method.exceptionsThrown.length!=0) ){
+	    if ((meth.method.exceptionsThrown != null) &&
+                (meth.method.exceptionsThrown.length != 0)) {
 		ClassConstant thrown[] = meth.method.exceptionsThrown;
 		int net = thrown.length;
 	        exceptions = currCheckedException;
 		checkedExceptionVector[currCheckedException++] = net;
 		for ( int j = 0; j < net; j++ ){
-		    checkedExceptionVector[currCheckedException++] = thrown[j].index;
+		    checkedExceptionVector[currCheckedException++] =
+                        thrown[j].index;
 		}
 	    } else {
 		// Note we have changed this from ((unsigned short)
@@ -1014,43 +1034,54 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		//
 		// entryIdx encapsulates argssize, invoker, and access flags
 		int entryIdx = meth.statsEntry.getIdx();
-		classOut.print("	CVM_INIT_METHODBLOCK_IMMUTABLE_COMPRESSED("+cbname_comma+nameAndType+","+tableIndex+","+entryIdx+","+mbIndex+","+exceptions+",");
+		classOut.print("\tCVM_INIT_METHODBLOCK_IMMUTABLE_COMPRESSED(" +
+                               cbname_comma + nameAndType + "," + tableIndex +
+                               "," + entryIdx + "," + mbIndex + "," +
+                               exceptions + ",");
 	    } else if (writableMethods) {
-		classOut.print("	CVM_INIT_METHODBLOCK_IMMUTABLE("+cbname_comma+nameAndType+","+tableIndex+","+argssize+","+invoker+","+access+","+mbIndex+","+exceptions+",");
+		classOut.print("\tCVM_INIT_METHODBLOCK_IMMUTABLE(" +
+                               cbname_comma + nameAndType + "," + tableIndex +
+                               "," + argssize + "," + invoker + "," + access +
+                               "," + mbIndex + "," + exceptions + ",");
 	    } else {
-		classOut.print("	CVM_INIT_METHODBLOCK("+cbname_comma+jitInvoker+","+nameAndType+","+tableIndex+","+argssize+","+invoker+","+access+","+mbIndex+","+exceptions+",");
+		classOut.print("\tCVM_INIT_METHODBLOCK(" + cbname_comma +
+                               jitInvoker + "," + nameAndType + "," +
+                               tableIndex + "," + argssize + "," +
+                               invoker + "," + access + "," + mbIndex +
+                               "," + exceptions + ",");
 	    }
 	    
 	    if ( isAbstract ){
 		classOut.print("(CVMJavaMethodDescriptor*)"+i+"),\n");
 	    } else if ( isNative ){
-		if (isClassCNI(c.ci.className)) {
+		if (isClassCNI(c.classInfo.className)) {
 		    String jniName = meth.method.getNativeName(true);
 		    String eniName = "CNI" + jniName.substring(5);
-		    classOut.print("(CVMJavaMethodDescriptor*)&"+eniName+"),\n");
+		    classOut.print("(CVMJavaMethodDescriptor*)&" + eniName +
+                                   "),\n");
 		} else {
-		    classOut.print("(CVMJavaMethodDescriptor*)&"+
+		    classOut.print("(CVMJavaMethodDescriptor*)&" +
 			meth.method.getNativeName(true)+"),\n");
 		}
 	    } else {
-		classOut.print("&("+meth.getNativeName()+".u.jmd)),\n" );
+		classOut.print("&(" + meth.getNativeName() + ".u.jmd)),\n");
 	    }
-		
 	}
 	classOut.print("}};\n");
         this.nmethods += nmethod;
-	if ( writableMethods ){
+	if (writableMethods) {
 	    nClassesWithWritableMethodBlocks += 1;
 	    nWritableMethodBlocks += nmethod;
 	}
 	//
 	// now, if there are any exception-catch clauses
 	// that need to be represented, print out the table.
-	if ( nCheckedExceptions != 0 ){
-	    classOut.println("STATIC const CVMUint16 "+thisExceptionName+"[] = {");
+	if (nCheckedExceptions != 0) {
+	    classOut.println("STATIC const CVMUint16 " + thisExceptionName +
+                             "[] = {");
 	    int j = 0;
-	    for ( int i = 0; i < nCheckedExceptions; i++ ){
-		if ( j >= 8 ){
+	    for (int i = 0; i < nCheckedExceptions; i++) {
+		if (j >= 8) {
 		    classOut.print("\n    ");
 		    j = 0;
 		} else {
@@ -1069,8 +1100,8 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
     private void
     writeInnerClasses(CVMClass c) { 
 	//Write information about each inner class contained in this class.
-	int innerClassCount = c.ci.innerClassAttr.getInnerClassCount();
-	InnerClassAttribute ica = c.ci.innerClassAttr;
+	int innerClassCount = c.classInfo.innerClassAttr.getInnerClassCount();
+	InnerClassAttribute ica = c.classInfo.innerClassAttr;
 	classOut.println("    " + innerClassCount + ", {");
 	for (int j=0; j < innerClassCount; j++) {
 	    // write out the indexes and access flags of this inner class.
@@ -1110,7 +1141,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
     private void declareFieldArray( CVMClass c ){
 	// Note: Should deal with > 255 fields.
 	// Today is not that day. Just do the simple case.
-	FieldInfo m[] = c.ci.fields;
+	FieldInfo m[] = c.classInfo.fields;
 	int nfields = m.length;
 	String thisTableName = c.getNativeName()+"_fields";
 	String fieldArrayFlavor = "struct CVMFieldArray"+nfields;
@@ -1147,7 +1178,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
     void writeFields(CVMClass c) {
 	// Note: Should deal with > 255 fields.
 	// Today is not that day. Just do the simple case.
-	FieldInfo m[] = c.ci.fields;
+	FieldInfo m[] = c.classInfo.fields;
 	if ( (m == null) || (m.length== 0)){
 	    fieldTableName = "0";
 	    fieldTableSize = 0;
@@ -1161,9 +1192,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    FieldInfo f = m[i];
 	    int typeid = CVMDataType.parseSignature(getUTF(f.type));
 	    int nameid = CVMMemberNameEntry.lookupEnter(getUTF(f.name));
-	    String nameAndType = "RAW_TYPEID(0x" + Integer.toHexString(nameid) + ", 0x" + Integer.toHexString(typeid) + ")";
+	    String nameAndType = "RAW_TYPEID(0x" + Integer.toHexString(nameid) +
+                                 ", 0x" + Integer.toHexString(typeid) + ")";
 	    //System.out.println( nameAndType+" => "+Integer.toHexString(typeid) );
-	    int access = CVMDataAccessFlags( f.access );
+	    int access = CVMDataAccessFlags(f.access);
 	    int offset = f.instanceOffset;
 	    /* field offsets are always mod cbRepeat and we have to emit a cb
 	     * entry before each block of cbRepeat fields. */
@@ -1175,10 +1207,14 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    }
 	    // static members use simple byte offset
 	    // instance members include size of header info
-	    if ( f.isStaticMember() ){
-		classOut.print("	CVM_INIT_FIELDBLOCK("+nameAndType+","+access+","+fbIndex+", CVM_STATIC_OFFSET("+offset+")),\n");
+	    if (f.isStaticMember()) {
+		classOut.print("\tCVM_INIT_FIELDBLOCK(" + nameAndType +
+                               "," + access + "," + fbIndex +
+                               ", CVM_STATIC_OFFSET(" + offset + ")),\n");
 	    } else {
-		classOut.print("	CVM_INIT_FIELDBLOCK("+nameAndType+","+access+","+fbIndex+", CVM_FIELD_OFFSET("+offset+")),\n");
+		classOut.print("\tCVM_INIT_FIELDBLOCK(" + nameAndType +
+                               "," + access + "," + fbIndex +
+                               ", CVM_FIELD_OFFSET(" + offset + ")),\n");
 	    }
 	}
 	classOut.println("}};");
@@ -1199,10 +1235,14 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	 * to determine whether a class has writable methods has been
 	 * added to CVMClass.  
 	 */
-	if (mutableMBs || ec.hasWritableMethods())
-	    return "&CVMROMGlobals."+ec.getNativeName()+"_methods.mb"+(n/cbRepeat+1)+"["+n%cbRepeat+"]"; // had better not be an interface.
+        if (mutableMBs || ec.hasWritableMethods()) {
+            // had better not be an interface.
+            return "&CVMROMGlobals." + ec.getNativeName() + "_methods.mb" +
+                   (n/cbRepeat+1) + "[" + n%cbRepeat + "]";
+        }
 	// had better not be an interface.
-	return "&"+ec.getNativeName()+"_methods.mb"+(n/cbRepeat+1)+"["+n%cbRepeat+"]"; 
+        return "&" + ec.getNativeName() + "_methods.mb" + (n/cbRepeat+1) +
+               "[" + n%cbRepeat + "]"; 
     }
 
     private static String fieldBlockAddress( FieldInfo f ){
@@ -1311,20 +1351,25 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 
  
     // return address of this constant pool.
-    private String writeConstants(ConstantObject constants[], 
+    private String writeConstants(ConstantPool cp, 
 				  String name,
 				  boolean export) {
-	boolean doTypeTable = false;
+	ConstantObject constants[] = cp.getConstants();
 	int clen = constants.length;
 	if ( (clen == 0) || (clen == 1 ) ){
 	    return "0";
 	}
-	for ( int i = 1; i < clen; i+=constants[i].nSlots ){
-	    if ( ! constants[i].isResolved() ){
-		doTypeTable = true;
-		break;
-	    }
-	}
+
+	// Check if we need a type table.  When we write the class, we
+	// check for unquickened bytecodes.  If we find any, we mark
+	// the constant pool as needing a type table.  The check for
+	// unresolved entries should be redundant, because unreferenced
+	// entries should have been removed, and referenced entries
+	// should have an unquickened reference.
+
+	boolean doTypeTable = cp.needsTypeTable() ||
+	    ClassClass.isPartiallyResolved(cp);
+
 	if ( doTypeTable && !classLoading ){
 	    // in future, do something more useful here.
 	    System.err.println(Localizer.getString("cwriter.no_class_loading"));
@@ -1363,16 +1408,21 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
     private void declareClassblock( CVMClass c, int innerClassCount ){
 	String myName = c.getNativeName();
 	String classblockFlavor = "struct CVMClassBlock"+innerClassCount;
-	if ( !classblockSizes.get( innerClassCount ) ){
+        if (!classblockSizes.get(innerClassCount)) {
 	    // need to declare a classblock-like struct with innerClassCount
 	    // elements in its CVMInnerClassInfo array
 	    if ( innerClassCount < 1 ){
-		headerOut.println(classblockFlavor+" { CVMClassBlock classclass; };");
+		headerOut.println(classblockFlavor +
+                                  " { CVMClassBlock classclass; };");
 	    } else {
-		headerOut.println(classblockFlavor+" { CVMClassBlock classclass; CVMUint32 innerClassesCount; CVMInnerClassInfo innerClasses[ "+(innerClassCount)+"]; };");
+                headerOut.println(classblockFlavor +
+                                  " { CVMClassBlock classclass; " +
+                                  "CVMUint32 innerClassesCount; " +
+                                  "CVMInnerClassInfo innerClasses[ " +
+                                  innerClassCount + "]; };");
 	    }
-	    classblockSizes.set( innerClassCount );
-	    }
+            classblockSizes.set(innerClassCount);
+        }
 	declare( "const "+classblockFlavor+" "+myName+"_Classblock", classOut);
     }
 
@@ -1399,13 +1449,13 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
     private String classBitMap( CVMClass c ){
 	if ( c.isArrayClass() ){
 	    // either an array of primitive or an array of objects.
-	    ArrayClassInfo ac = (ArrayClassInfo)(c.ci);
+	    ArrayClassInfo ac = (ArrayClassInfo)(c.classInfo);
 	    if ( (ac.depth==1) && (ac.baseType!=T_CLASS) )
 		return "0"; // contains no references
 	    else
 		return "1"; // contains nothing but references.
 	}
-	ClassInfo ci = c.ci;
+	ClassInfo ci = c.classInfo;
 	FieldInfo ft[] = ci.slottable;
 	if ( (ft==null) || (ft.length==0) ) return "0";
 	int nslots;
@@ -1416,13 +1466,15 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    // hard case.
 	    String myName = c.getNativeName()+"_gcBits";
 	    int    nWords = (nslots+31)/32;
-	    classOut.print( "STATIC const struct { CVMUint16 maplen; CVMUint32 map["+nWords+"]; } ");
+	    classOut.print( "STATIC const struct { " + 
+			    "CVMUint16 maplen; CVMUint32 map["+nWords+"]; } ");
 	    classOut.print( myName );
 	    classOut.print( " = { ");
 	    classOut.print( nWords );
 	    classOut.print( ",\n    {" );
 	    for ( int i = 0; i < nslots; i+= 32 ){
-		classOut.print( "0x"+Integer.toHexString(GCbits( ft, i, Math.min( i+32, nslots))) );
+		classOut.print("0x"+Integer.toHexString(GCbits(ft, i,
+						    Math.min( i+32, nslots))));
 		classOut.print(", ");
 	    }
 	    classOut.println("} };");
@@ -1436,20 +1488,20 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	if (c.hasStaticInitializer) {
 	    nClinits++;
 	}
-	String superName    = ( c.ci.superClassInfo == null )
+	String superName    = (c.classInfo.superClassInfo == null)
 			    ? ("0")
 			    : ("&" + cbName((CVMClass)
-					    (c.ci.superClassInfo.vmClass)));
+                                         c.classInfo.superClassInfo.vmClass));
 	String myStaticName = (c.nStaticWords == 0) 
 			    ? ("0")
 			    : ("(CVMJavaVal32*)STATIC_STORE_ADDRESS(0)");
-	int innerClassCount = (c.ci.innerClassAttr == null)
+	int innerClassCount = (c.classInfo.innerClassAttr == null)
 			    ? (0)
-			    : (c.ci.innerClassAttr.getInnerClassCount());
-	String runtimeFlags = (c.hasStaticInitializer || c.nStaticWords > 0)
+			    : (c.classInfo.innerClassAttr.getInnerClassCount());
+	String runtimeFlags = (c.hasStaticInitializer)
 			    ? ("CVM_ROMCLASS_WCI_INIT")
 			    : ("CVM_ROMCLASS_INIT");
-	MethodInfo vtbl[]   = c.ci.methodtable;
+	MethodInfo vtbl[]   = c.classInfo.methodtable;
 	String methodTableName;
 	int methodTableCount;
 	String gcBits;
@@ -1469,6 +1521,8 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    if (methodTableCount > 0) {
 		methodTableName = c.getNativeName()+"_mt";
 	    } else if (c.isArrayClass()) {
+                methodTableCount =
+                    c.classInfo.superClassInfo.methodtable.length;
 		methodTableName = "java_lang_Object_mt";
 	    } else { /* must be an interface */
 		methodTableName = "0";
@@ -1480,11 +1534,12 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 
 	declareClassblock( c, innerClassCount );
 
-	int classid = c.classid();
+	int classid = c.getClassId();
 	//System.out.println( c.ci.className+" => "+Integer.toHexString(classid) );
 
 	classOut.println(" = {\n    CVM_INIT_CLASSBLOCK( "+gcBits+", " +
-		    "RAW_TYPEID(0, 0x" + Integer.toHexString(classid) + "), \""+c.ci.className+"\",");
+                         "RAW_TYPEID(0, 0x" + Integer.toHexString(classid) +
+                         "), \"" + c.classInfo.className + "\",");
 	classOut.println("    "+superName+",");
 	classOut.println("    "+constantPoolName+", ");
 	classOut.println("    "+interfaceTableName+",");
@@ -1503,8 +1558,9 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	classOut.println("    (CVMExecEnv**)&CVMROMGlobals."+staticStoreName+
 					"["+nStaticWords+" + "+clinitIdx+"],");
 	classOut.println("    "+checkedExceptionName+", ");
-	if (classDebug && c.ci.sourceFileAttr != null) {
-	    classOut.println("    \""+c.ci.sourceFileAttr.sourceName+"\", ");
+	if (classDebug && c.classInfo.sourceFileAttr != null) {
+	    classOut.println("    \"" + c.classInfo.sourceFileAttr.sourceName +
+                             "\", ");
 	} else {
 	    classOut.println("    0, ");
 	}
@@ -1513,9 +1569,9 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	classOut.println("    " + methodTableName + ",");
 
 	/* write out the ClassLoader and ProtectionDomain */
-	int id = c.ci.loader.getID();
+	int id = c.classInfo.loader.getID();
 	if (id != 0) {
-	    int clIDOff = 1; // first cl ID (boot == 0)
+	    int clIDOff = 2; // first cl ID (boot == 0, all == 1)
 	    int off = clRefOff + (id - clIDOff) * 2;
 	    classOut.println("    (CVMClassLoaderICell *)" +
 		"STATIC_STORE_ADDRESS(" + off + "), " +
@@ -1526,7 +1582,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	}
 
 	/* write out the InnerClassesInfo */
-	if (c.ci.innerClassAttr != null) {
+	if (c.classInfo.innerClassAttr != null) {
 	    classOut.println("    &" + c.getNativeName() +
 			     "_Classblock.innerClassesCount),");
 	    writeInnerClasses(c);
@@ -1534,11 +1590,38 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    classOut.println("    0)");
 	}
 
+	// TODO :: BEGIN
+        // This is for adding class version number and signature later.
+        // This code needs to be further reviewed and tested before enabling
+        // it.
+        if (false) { // disabled for now.
+	    classOut.println("    /* major_version */ " +
+                             c.classInfo.majorVersion + ",");
+	    classOut.println("    /* minor_version */ " +
+                             c.classInfo.minorVersion + ",");
+	    classOut.print  ("    /* CB genSig     */ ");
+	    //if (c.ci.signatureAttr != null) {
+	    //  classOut.print("\""+c.ci.signatureAttr.signature+"\""); // !Not Working
+	    //} else {
+	        classOut.print(0);
+	    //}
+	    classOut.println(",");
+	    classOut.println("    /* FB genSig *   */ " +
+			     0 + ",");
+	    classOut.println("    /* MB getSig *   */ " +
+			     0 +"), ");
+
+	    if (c.classInfo.innerClassAttr != null) {
+		writeInnerClasses(c);
+	    }
+        }
+        // TODO :: END
+
 	classOut.println("};");
     }
 
     void writeMethodTable(CVMClass c) {
-	MethodInfo vtbl[] = c.ci.methodtable;
+	MethodInfo vtbl[] = c.classInfo.methodtable;
 	int        vtblSize;
 
 	/*
@@ -1557,22 +1640,24 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	if (vtblSize > 0) {
 	    /* write out the methodtable. */
 	    String methodTableName = c.getNativeName()+"_mt"+"["+vtblSize+"]";
-	    if (c.ci.superClass == null) { // is it java/lang/Object
+	    if (c.classInfo.superClass == null) { // is it java/lang/Object
 		// java/lang/Object needs an extern methodTable declaration.
 		/* Added another const (for the pointer, which is also
 		 * const here, not just the data) 
 		 */
-		declare( "const CVMMethodBlock* const "+methodTableName, classOut);
+		declare("const CVMMethodBlock* const " + methodTableName,
+                        classOut);
 	    } else {
-		/* 
-		 * Added another const (for the pointer, which is also const here, not just the data)
+		/* Added another const (for the pointer, which is also const
+                   here, not just the data)
 		 */
-		classOut.print( "STATIC const CVMMethodBlock* const "+methodTableName);
+		classOut.print("STATIC const CVMMethodBlock* const " +
+                               methodTableName);
 	    }
 	    classOut.println(" = {");
-	    for ( int i = 0; i < vtblSize; i++ ){
-		classOut.println( "    (CVMMethodBlock*)"+
-				  methodBlockAddress( vtbl[i] )+",");
+	    for (int i = 0; i < vtblSize; i++) {
+		classOut.println("    (CVMMethodBlock*)"+
+				  methodBlockAddress(vtbl[i]) + ",");
 	    }
 	    classOut.println("};\n");
 	}
@@ -1611,19 +1696,25 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	switch ( value.tag ){
 	case Const.CONSTANT_INTEGER:
 	case Const.CONSTANT_FLOAT:
-	     /* 
-	      * add INTEGER macro like the one for LONG and DOUBLE
-	      * to have the possibility to change the representation
-	      * platform dependent
-	      */
-	     /* 
-	      * Add prefix to macro to get correct version.
-	      */
-	     out.print( prefix + "INTEGER(" );
-	     writeIntegerValue(((SingleValueConstant)value).value, out);
-	     out.print( ")" );
-	     break;
+	    /* 
+	     * add INTEGER macro like the one for LONG and DOUBLE
+	     * to have the possibility to change the representation
+	     * platform dependent
+	     */
+	    /* 
+	     * Add prefix to macro to get correct version.
+	     */
+            if (value.tag == Const.CONSTANT_INTEGER) {
+                if (verbose) out.print("/* int */ ");
+            } else {
+                if (verbose) out.print("/* flt */ ");
+            }
+	    out.print( prefix + "INTEGER(" );
+	    writeIntegerValue(((SingleValueConstant)value).value, out);
+	    out.print( ")" );
+	    break;
 	case Const.CONSTANT_UTF8:
+	    if (verbose) out.print("/* utf */ ");
 	    out.print("(CVMInt32)");
 	    out.write('"');
 	    out.print( Util.unicodeToUTF(((UnicodeConstant)value).string ));
@@ -1637,6 +1728,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    /* CVM_BIGTYPEID: RS, 10/08/02:
 	     * Use ADDR() macro to print out address.
 	     */
+	    if (verbose) out.print("/* str */ ");
 	    out.print(prefix  + "ADDR(&CVMROMGlobals."+stringArrayName+"[");
 	    if ( ((StringConstant)value).unicodeIndex == -1 ) {
 		// Uninitialized, very bad
@@ -1653,6 +1745,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    /*
 	     * Add prefix to macro to get correct version.
 	     */
+	    if (verbose) out.print("/* lng */ ");
 	    writeLongValue( "LONG",  dval.highVal, dval.lowVal, out );
 	    }
 	    break;
@@ -1661,22 +1754,28 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    /*
 	     * Add prefix to macro to get correct version.
 	     */
+	    if (verbose) out.print("/* dbl */ ");
 	    writeLongValue( "DOUBLE",  dval.highVal, dval.lowVal, out );
 	    }
 	    break;
 	case Const.CONSTANT_CLASS:
-	    if ( value.isResolved() ){
+	    if (value.isResolved()) {
 		/* 
 		 * Use ADDR() macro to print out address.
 		 */
-		out.print(prefix + "ADDR(&"+cbName( (CVMClass)(((ClassConstant)value).find().vmClass)) + ")");
+		if (verbose) out.print("/* cls */ ");
+		out.print(prefix + "ADDR(&" +
+                    cbName((CVMClass)(((ClassConstant)value).find().vmClass)) +
+                    ")");
 	    } else {
 		int classid = CVMDataType.lookupClassname(
 		    getUTF(((ClassConstant)value).name) );
 		/*
 		 * Use TYPEID() macro to create typeid from type part.
 		 */
-		out.print(prefix + "TYPEID(0, 0x"+ Integer.toHexString(classid) +")");
+		if (verbose) out.print("/* cID */ ");
+		out.print(prefix + "TYPEID(0, 0x" +
+                          Integer.toHexString(classid) + ")");
 	    }
 	    break;
 	case Const.CONSTANT_METHOD:
@@ -1685,8 +1784,14 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		/*
 		 * Use ADDR() macro to print out address.
 		 */
+		if (value.tag == Const.CONSTANT_METHOD) {
+		    if (verbose) out.print("/* mb  */ ");
+		} else {
+		    if (verbose) out.print("/* imb */ ");
+		}
 		out.print(prefix + "ADDR(");
-		out.print(methodBlockAddress( ((MethodConstant)value).find()) + ")");
+		out.print(methodBlockAddress(((MethodConstant)value).find()) +
+                          ")");
 	    } else {
 		FMIrefConstant ref = (FMIrefConstant)value;
 		/* 
@@ -1696,8 +1801,13 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		 * constant.
 		 * It is not a typeId.
 		 */
+		if (value.tag == Const.CONSTANT_METHOD) {
+		    if (verbose) out.print("/* mID */ ");
+		} else {
+		    if (verbose) out.print("/* iID */ ");
+		}
 		out.print(prefix + 
-		    "MEMBER_REF(0x"+Integer.toHexString(ref.clas.getIndex()) + 
+		    "MEMBER_REF(0x"+Integer.toHexString(ref.clas.getIndex()) +
 		    ", 0x"+Integer.toHexString(ref.sig.getIndex())+")");
 	    }
 	    break;
@@ -1710,6 +1820,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		/*
 		 * Add prefix to macro to get correct version.
 		 */
+		if (verbose) out.print("/* fb  */ ");
 		out.print(prefix + "ADDR(" + fieldBlockAddress(ftarget) + ")");
 	    } else {
 		FMIrefConstant ref = (FMIrefConstant)value;
@@ -1720,6 +1831,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		 * constant.
 		 * It is not a typeId.
 		 */
+		if (verbose) out.print("/* fID */ ");
 		out.print(prefix + 
 		    "MEMBER_REF(0x"+Integer.toHexString(ref.clas.getIndex()) + 
 		    ", 0x"+Integer.toHexString(ref.sig.getIndex())+")");
@@ -1735,7 +1847,9 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    /* 
 	     * Use TYPEID() macro to create typeid from parts.
 	     */
-	    out.print("TYPEID(0x" + Integer.toHexString(nameid) + ", 0x" + Integer.toHexString(typeid) +")");
+	    if (verbose) out.print("/* n&t */ ");
+            out.print("TYPEID(0x" + Integer.toHexString(nameid) + ", 0x" +
+                      Integer.toHexString(typeid) +")");
 	    break;
 	}
     }
@@ -1802,7 +1916,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	for ( int cno = 0; cno < nclass; cno++ ){
 	    CVMClass c = (CVMClass)(cvec[cno]);
 	    FieldInfo f[] = c.statics;
-	    if ( (f == null) || (f.length == 0 ) ) continue; // this class has none
+	    if ((f == null) || (f.length == 0)) continue; // this class has none
 	    int     nFields = f.length;
 	    for ( int i = 0; i < nFields; i++ ){
 		FieldInfo fld = f[i];
@@ -1914,8 +2028,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved globals to CVMROMGlobals.
 	 */
-	initInfo.addInfo( "&"+masterStaticStoreName, "CVMROMGlobals."+staticStoreName, 
-	    "("+nStaticWords+" + "+maxClinitIdx+")"+"*sizeof(CVMAddr)" );
+        initInfo.addInfo("&" + masterStaticStoreName,
+                         "CVMROMGlobals." + staticStoreName, 
+                         "(" + nStaticWords + " + " + maxClinitIdx + ")" +
+                             "*sizeof(CVMAddr)");
 
 	return nStaticWords;
     }
@@ -2008,26 +2124,31 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	" *",
 	" * The following just return the typeids and their parts as their native types:",
 	" *",
-	" * RAW_TYPEID_NAME_PART(namePart) : Use this, if you want to write the name part of a typeid.",
-	" * RAW_TYPEID_TYPE_PART(typePart) : Use this, if you want to write the type part of a typeid.",
-	" * RAW_TYPEID(namePart, typePart) : Use this, if you want to write a typeid consisting",
+	" * RAW_TYPEID_NAME_PART(namePart) : " +
+            "Use this, if you want to write the name part of a typeid.",
+	" * RAW_TYPEID_TYPE_PART(typePart) : " +
+            "Use this, if you want to write the type part of a typeid.",
+	" * RAW_TYPEID(namePart, typePart) : " +
+            "Use this, if you want to write a typeid consisting",
 	" *                                  of the given name and type parts.",
 	" */",
 	"",
 	"#define RAW_TYPEID_NAME_PART(namePart) \\",
-	"        ((CVMTypeIDNamePart) (namePart))",
+	"    ((CVMTypeIDNamePart) (namePart))",
 	"",
 	"#define RAW_TYPEID_TYPE_PART(typePart) \\",
-	"        ((CVMTypeIDTypePart) (typePart))",
+	"    ((CVMTypeIDTypePart) (typePart))",
 	"",
 	"#define RAW_TYPEID(namePart, typePart) \\",
-	"        CVMtypeidCreateTypeIDFromParts(RAW_TYPEID_NAME_PART((namePart)), RAW_TYPEID_TYPE_PART((typePart)))",
+	"    CVMtypeidCreateTypeIDFromParts(RAW_TYPEID_NAME_PART((namePart)), \\",
+        "                                   RAW_TYPEID_TYPE_PART((typePart)))",
 	"",
 	"",
 	"#if !defined(CVM_64)",
 	"#    define TYPEID(namePart, typePart) RAW_TYPEID((namePart), (typePart))",
 	"#else",
-	"#    define TYPEID(namePart, typePart) INTEGER(RAW_TYPEID((namePart), (typePart)))",
+	"#    define TYPEID(namePart, typePart) \\",
+        "         INTEGER(RAW_TYPEID((namePart), (typePart)))",
 	"#endif",
 	"",
 	"",
@@ -2036,7 +2157,8 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	"",
 	"#ifdef CVM_64",
 	"",
-	"#    define LONG(high, low) (((CVMAddr) (high) << 32) | ((CVMAddr) (low) & 0x0ffffffff)), 0",
+	"#    define LONG(high, low) \\",
+        "         (((CVMAddr)(high)<<32) | ((CVMAddr)(low) & 0x0ffffffff)), 0",
 	"#    define DOUBLE(high, low) LONG((high), (low))",
 	"",
 	"#    if (CVM_ENDIANNESS == CVM_BIG_ENDIAN)",
@@ -2070,9 +2192,11 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
         "#define CP_DOUBLE(high, low) DOUBLE((high), (low))",
 	"#define CP_TYPEID(namePart, typePart) TYPEID((namePart), (typePart))",
 	"#if (CVM_ENDIANNESS == CVM_BIG_ENDIAN)",
-	"#    define CP_MEMBER_REF(classPart,typePart) INTEGER((((classPart)<<16)+(typePart)))",
+	"#    define CP_MEMBER_REF(classPart,typePart) \\",
+        "         INTEGER((((classPart)<<16)+(typePart)))",
 	"#else",
-	"#    define CP_MEMBER_REF(classPart,typePart) INTEGER((((typePart)<<16)+(classPart)))",
+	"#    define CP_MEMBER_REF(classPart,typePart) \\",
+        "         INTEGER((((typePart)<<16)+(classPart)))",
 	"#endif",
 	"",
 	"",
@@ -2176,18 +2300,21 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	writeFields(c);
 
 	if (c.isArrayClass()) {
-	    ArrayClassInfo info = (ArrayClassInfo)c.ci;
+	    ArrayClassInfo info = (ArrayClassInfo)c.classInfo;
 	    constantPoolName = writeArrayInfo(info, c.getNativeName() );
 	    constantPoolSize = 0;
 	} else {
 	    if ( doShared ) {
-		constantPoolName = sharedConstantPoolName + "_cp";
-		constantPoolSize = sharedConstantPoolSize;
+                ConstantPool cpool = c.classInfo.getConstantPool();
+
+                int i = sharedConstantPools.indexOf(cpool);
+		constantPoolName = sharedConstantPoolName + Integer.toString(i)+ "_cp";
+		constantPoolSize = cpool.getLength();
 	    } else {
-		ConstantObject cpool[] = c.ci.constants;
+		ConstantPool cpool = c.classInfo.getConstantPool();
 		constantPoolName = writeConstants(cpool, c.getNativeName(),
 						  false);
-		constantPoolSize = cpool.length;
+		constantPoolSize = cpool.getLength();
 	    }
 	}
 
@@ -2196,11 +2323,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 
     }
 
-    private void processStrings( ConstantObject cp[] ){
-	if ( cp == null ) return;
-	int n = cp.length;
+    private void processStrings( ConstantPool cp ){
+	int n = cp.getLength();
 	for ( int i = 1; i < n; ){
-	    ConstantObject obj = cp[i];
+	    ConstantObject obj = cp.elementAt(i);
 	    if ( obj instanceof StringConstant ){
 		stringTable.intern( (StringConstant) obj );
 	    }
@@ -2212,7 +2338,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	FieldInfo f[] = c.fields;
 	int fieldCount = ( f== null ) ? 0 : f.length;
 	if ( ! doShared ){
-	    processStrings( c.constants );
+	    processStrings( c.getConstantPool() );
 	}
 	//
 	// make sure that strings appearing ONLY as static final
@@ -2228,15 +2354,19 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 
     private void instantiateAllStrings(){
 	njavastrings = stringTable.writeStrings( auxOut, masterStringArrayName);
-	globalHeaderOut.println("    struct java_lang_String "+stringArrayName+"["+njavastrings+"];");
+	globalHeaderOut.println("    struct java_lang_String " +
+                                stringArrayName + "[" + njavastrings + "];");
 	auxOut.println("const int CVM_nROMStrings = "+njavastrings+";");
-	auxOut.println("CVMArrayOfChar* const CVM_ROMStringsMasterDataPtr = (CVMArrayOfChar* const)&CVM_ROMStringsMaster_data.hdr;");
+	auxOut.println("CVMArrayOfChar* const CVM_ROMStringsMasterDataPtr = " +
+                       "(CVMArrayOfChar* const)&CVM_ROMStringsMaster_data.hdr;");
 
 	/* 
 	 * Moved global variables to CVMROMGlobals
-	 * That makes it necessary to pass the global header out file into writeStringInternTable.
+	 * That makes it necessary to pass the global header out file into
+         * writeStringInternTable.
          */
-	stringTable.writeStringInternTable( auxOut, globalHeaderOut, "CVMInternTable", stringArrayName ); 
+        stringTable.writeStringInternTable(auxOut, globalHeaderOut,
+                                           "CVMInternTable", stringArrayName);
     }
 
     /*
@@ -2257,6 +2387,26 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	return v;
     }
 
+    // This must be called before enumerateMethodTypes() if 
+    // there are unresolved CP entries.
+    // Find NameAndType constants for unresolved MethodRefs
+    // so they are added to MethodTypes.
+    private void lookupUnresolvedMethodSignatures(ConstantPool cp) {
+	ConstantObject constants[] = cp.getConstants();
+	int clen = constants.length;
+	for (int i = 1; i < clen; i += constants[i].nSlots) {
+	    ConstantObject co = constants[i];
+	    if (co.tag == CONSTANT_NAMEANDTYPE) {
+		NameAndTypeConstant ntcon = (NameAndTypeConstant)co;
+		int nameid = CVMMemberNameEntry.lookupEnter(getUTF(ntcon.name));
+		String sigString = getUTF(ntcon.type);
+		if  (sigString.charAt(0)==SIGC_METHOD) {
+		    CVMMethodType mt = CVMMethodType.parseSignature(sigString);
+		}
+	    }
+	}
+    }
+
     private void
     enumerateMethodTypes(){
 	methodTypes = new CVMMethodType[4];
@@ -2270,7 +2420,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    nMethodTypes[v] += 1; }
 	int curTypeNo = 0;
 	for ( int i = 0; i < 4; i++ ){
-	    for( CVMMethodType mt = methodTypes[i]; mt!= null; mt = mt.listNext ){
+            for (CVMMethodType mt = methodTypes[i]; mt!= null; mt = mt.listNext) {
 		mt.entryNo = curTypeNo++;
 	    }
 	}
@@ -2310,20 +2460,27 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	 * Moved global variables to CVMROMGlobals
          */
 	globalHeaderOut.println("    struct scalarTableSegment * dummyNextCell;");
-	initInfo.addInfo( "NULL", "&CVMROMGlobals.dummyNextCell", "sizeof(CVMROMGlobals.dummyNextCell)" );
-	auxOut.println("const struct { SCALAR_TABLE_SEGMENT_HEADER struct scalarTableEntry data["+nData+"]; }\nCVMFieldTypeTable = {" );
-	auxOut.println("\t"+(CVMTypeCode.CVMtypeLastScalar+1)+", 0, -1,"+nData+", &CVMROMGlobals.dummyNextCell, {" );
-	for ( int i = 0; i < nData; i++ ){
+        initInfo.addInfo("NULL", "&CVMROMGlobals.dummyNextCell",
+                         "sizeof(CVMROMGlobals.dummyNextCell)");
+        auxOut.println("const struct { SCALAR_TABLE_SEGMENT_HEADER " +
+                       "struct scalarTableEntry data["  +nData +
+                       "]; }\nCVMFieldTypeTable = {");
+        auxOut.println("\t" + (CVMTypeCode.CVMtypeLastScalar+1) + ", 0, -1," +
+                       nData + ", &CVMROMGlobals.dummyNextCell, {");
+        for (int i = 0; i < nData; i++) {
 	    CVMDataType o = (CVMDataType)allDataTypes.elementAt( i );
 	    /* Yet more debugging output ....
 		if ( o != null && i != o.entryNo ){
-		    System.out.println("Datatype entry "+o+" misplaced: is at vector["+i+"] and expected at ["+o.entryNo+"]");
+		    System.out.println("Datatype entry " + o +
+                                       " misplaced: is at vector[" + i +
+                                       "] and expected at [" + o.entryNo + "]");
 		}
 	    */
 	    if ( o instanceof CVMClassDataType ){
 		CVMClassDataType ctype = (CVMClassDataType) o;
 		String next;
-		next = (ctype.next == null ) ? "TYPEID_NOENTRY" : ("SCALARTYPE_NO("+ctype.next.typeNo+")");
+                next = (ctype.next == null ) ? "TYPEID_NOENTRY" :
+                           ("SCALARTYPE_NO(" + ctype.next.typeNo + ")");
 		// int nameHash = CVMDataType.computeHash(ctype.classInPackage);
 		int nameLength = ctype.classInPackage.length();
 		if (nameLength > 255 )
@@ -2335,8 +2492,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    } else {
 		CVMArrayDataType atype = (CVMArrayDataType) o;
 		String next;
-		next = (atype.next == null ) ? "TYPEID_NOENTRY" : ("SCALARTYPE_NO("+atype.next.typeNo+")");
-		auxOut.println("	INIT_ARRAYTYPE( "+next+", "+atype.depth+", "+atype.baseType+"),");
+		next = (atype.next == null ) ? "TYPEID_NOENTRY" :
+                           ("SCALARTYPE_NO(" + atype.next.typeNo + ")");
+		auxOut.println("	INIT_ARRAYTYPE( " + next + ", " +
+                               atype.depth + ", " + atype.baseType + "),");
 	    }
 	}
 	auxOut.println("}};");
@@ -2363,26 +2522,32 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	Vector allPackages = CVMpkg.pkgVector; 
 	int    nPkg = allPackages.size();
 
-	auxOut.println("STATIC const struct pkg CVM_ROMpackagesMaster["+(nPkg)+"] = {" );
+	auxOut.println("STATIC const struct pkg CVM_ROMpackagesMaster[" + (nPkg) +
+                       "] = {");
 	for ( int i= 0; i < nPkg; i++ ){
 	    CVMpkg p = (CVMpkg) (allPackages.elementAt(i));
 	    writeAnCVMpkg( p );
 	    /* DEBUG
 		if ( p.entryNo != i ){
-		    System.out.println("Package entry "+p.pkgName+" misplaced: is at vector["+i+"] and expected at ["+p.entryNo+"]");
+		    System.out.println("Package entry " + p.pkgName +
+                                       " misplaced: is at vector[" + i +
+                                       "] and expected at [" + p.entryNo + "]");
 		}
 	    */
 	}
 	auxOut.println("};");
 
-	initInfo.addInfo( "CVM_ROMpackagesMaster", "CVMROMGlobals.CVM_ROMpackages", nPkg+"*sizeof(struct pkg)" );
+	initInfo.addInfo("CVM_ROMpackagesMaster",
+                         "CVMROMGlobals.CVM_ROMpackages",
+                         nPkg + "*sizeof(struct pkg)");
 
 	// that was the packages themselves.
 	// this is the hash table that is the basis of looking them up.
 	// this needs to be writable, since we add at the front of the
 	// linked list.
-	auxOut.print("STATIC const struct pkg * const CVM_PkgHashtableMaster["+CVMpkg.NPACKAGEHASH+"] = {");
-	for ( int i = 0; i< CVMpkg.NPACKAGEHASH; i++ ){
+	auxOut.print("STATIC const struct pkg * const CVM_PkgHashtableMaster[" +
+                     CVMpkg.NPACKAGEHASH + "] = {");
+	for (int i = 0; i < CVMpkg.NPACKAGEHASH; i++) {
 	    CVMpkg p = CVMpkg.packages[i];
 	    if ( i%5 == 0 ){
 		auxOut.print("\n\t");
@@ -2393,8 +2558,11 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved globals to CVMROMGlobals.
 	 */
-	globalHeaderOut.println("    struct pkg *CVM_pkgHashtable["+CVMpkg.NPACKAGEHASH+"];");
-	initInfo.addInfo( "CVM_PkgHashtableMaster", "CVMROMGlobals.CVM_pkgHashtable", CVMpkg.NPACKAGEHASH+"*sizeof(struct pkg*)" );
+	globalHeaderOut.println("    struct pkg *CVM_pkgHashtable[" +
+                                CVMpkg.NPACKAGEHASH + "];");
+	initInfo.addInfo("CVM_PkgHashtableMaster",
+                         "CVMROMGlobals.CVM_pkgHashtable",
+                         CVMpkg.NPACKAGEHASH + "*sizeof(struct pkg*)");
 
 	/* 
 	 * Made this const (never changed)
@@ -2407,7 +2575,8 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	//int    nameHash = CVMDataType.computeHash(p.pkgName);
 	auxOut.print("    { \""+p.pkgName+"\", "+next+", INROM, MAX_COUNT, {");
 	for( int i = 0; i < CVMpkg.NCLASSHASH; i++ ){
-	    String hashp = (p.typeData[i]==null)? "TYPEID_NOENTRY" : ("SCALARTYPE_NO("+p.typeData[i].typeNo+")");
+	    String hashp = (p.typeData[i]==null)? "TYPEID_NOENTRY" :
+                               ("SCALARTYPE_NO(" + p.typeData[i].typeNo + ")");
 	    if ( i%3==0){
 		auxOut.print("\n\t");
 	    }
@@ -2439,8 +2608,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved global variables to CVMROMGlobals
          */
-	globalHeaderOut.println("    struct methodTypeTableSegment *methodTypeDummy;");
-	initInfo.addInfo( "NULL", "&CVMROMGlobals.methodTypeDummy", "sizeof(CVMROMGlobals.methodTypeDummy)");
+        globalHeaderOut.println(
+            "    struct methodTypeTableSegment *methodTypeDummy;");
+        initInfo.addInfo("NULL", "&CVMROMGlobals.methodTypeDummy",
+                         "sizeof(CVMROMGlobals.methodTypeDummy)");
 
 	// write the specific declaration we need for this
 	// set of types.
@@ -2466,20 +2637,25 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	    if ( (i&2) == 0 ){
 		// inline form
 		// This used to be auxOut.print("unsigned int formdata; ");
-		auxOut.print("union {CVMUint32 formdata; struct sigForm * formp;} form; ");
+		auxOut.print("union {CVMUint32 formdata; " +
+                                     "struct sigForm * formp;} form; ");
 	    } else {
 		// outline form
 		// This used to be auxOut.print("struct sigForm * formp; ");
-		auxOut.print("union {struct sigForm * formp; CVMUint32 formdata;} form; ");
+		auxOut.print("union {struct sigForm * formp; " +
+                                    "CVMUint32 formdata;} form; ");
 	    }
 	    if ( (i&1) == 0 ){
 		// inline details
 		// This used to be auxOut.print("unsigned short data[2]; ");
-		auxOut.print("union {CVMTypeIDTypePart data[2]; const CVMTypeIDTypePart * datap; } details; ");
+		auxOut.print("union {CVMTypeIDTypePart data[2]; " +
+                                    "const CVMTypeIDTypePart * datap; } " +
+                             "details; ");
 	    } else {
 		// outline details
 		// This used to be auxOut.print("const short* datap; ");
-		auxOut.print("union {const CVMTypeIDTypePart * datap; CVMTypeIDTypePart data[2]; } details; ");
+		auxOut.print("union {const CVMTypeIDTypePart * datap; " +
+                                    "CVMTypeIDTypePart data[2]; } details; ");
 	    }
 	    auxOut.print(" }typesig");
 	    auxOut.println( i+"["+nMethodTypes[i]+"];");
@@ -2490,31 +2666,40 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved global variables to CVMROMGlobals
          */
-	auxOut.println("    0, 0, -1, "+totalMethodTypes+", &CVMROMGlobals.methodTypeDummy,");
+	auxOut.println("    0, 0, -1, " + totalMethodTypes +
+                       ", &CVMROMGlobals.methodTypeDummy,");
 
 	// and the actual data.
-	for ( int i = 0; i < 4; i++ ){
-	    if ( nMethodTypes[i] == 0 ) continue;
+        for (int i = 0; i < 4; i++) {
+            if (nMethodTypes[i] == 0) continue;
 	    auxOut.println("    {");
-	    for ( CVMMethodType m = methodTypes[i]; m != null; m = m.listNext ){
-		String next = (m.next==null) ? "TYPEID_NOENTRY" : String.valueOf(m.next.entryNo);
-		auxOut.print("	{"+next+", MAX_COUNT, ROMSTATE "+(m.form.nSyllables-2));
+	    for (CVMMethodType m = methodTypes[i]; m != null; m = m.listNext) {
+                String next = (m.next==null) ? "TYPEID_NOENTRY" :
+                                               String.valueOf(m.next.entryNo);
+                auxOut.print("	{" + next + ", MAX_COUNT, ROMSTATE " +
+                             (m.form.nSyllables-2));
 		CVMSigForm f = m.form;
 		if ( (i&2) == 0 ){
 		    // inline form
-		    // This used to be auxOut.print(", 0x"+Integer.toHexString( f.data[0] ));
+		    // This used to be
+                    //     auxOut.print(", 0x"+Integer.toHexString(f.data[0]));
 		    auxOut.print(", {0x"+Integer.toHexString( f.data[0] )+"}");
 		} else {
 		    // outline form
-		    // This used to be auxOut.print(", (struct sigForm*)(&CVM_ROMforms.form"+f.listNo+"["+f.entryNo+"])");
-		    auxOut.print(", {(struct sigForm*)(&CVM_ROMforms.form"+f.listNo+"["+f.entryNo+"])}");
+		    // This used to be
+                    //     auxOut.print(", (struct sigForm*)" +
+                    //                  "(&CVM_ROMforms.form" + f.listNo +
+                    //                  "[" + f.entryNo + "])");
+                    auxOut.print(", {(struct sigForm*)(&CVM_ROMforms.form" +
+                                 f.listNo + "[" + f.entryNo + "])}");
 		}
 		if ( (i&1) == 0 ){
 		    // inline details
 		    auxOut.print(", {{");
-		    for ( int j=0; j<2; j++){
+		    for (int j=0; j<2; j++) {
 			auxOut.print("RAW_TYPEID_TYPE_PART(0x");
-			auxOut.print( Integer.toHexString((j<m.nDetails)?m.details[j]:0) );
+			auxOut.print(Integer.toHexString((j < m.nDetails) ?
+                                                         m.details[j] : 0));
 			auxOut.print("),");
 		    }
 		    auxOut.print("}}");
@@ -2535,15 +2720,18 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved global variables to CVMROMGlobals
 	 */
-	globalHeaderOut.println("    CVMTypeIDTypePart CVMMethodTypeHash[NMETHODTYPEHASH];");
+	globalHeaderOut.println(
+            "    CVMTypeIDTypePart CVMMethodTypeHash[NMETHODTYPEHASH];");
 	/* 
 	 * Added extra precautions to ensure we use the same hash function.
 	 */
 	auxOut.println("#if NMETHODTYPEHASH != " +  CVMMethodType.NHASH);
-	auxOut.println("#error \"CVMMethodType.NHASH and NMETHODTYPEHASH are not the same\"");
+	auxOut.println("#error \"CVMMethodType.NHASH and NMETHODTYPEHASH " +
+                       "are not the same\"");
 	auxOut.println("#endif");
 
-	auxOut.print("STATIC const CVMTypeIDTypePart CVMMethodTypeHashMaster[NMETHODTYPEHASH]={");
+	auxOut.print("STATIC const CVMTypeIDTypePart CVMMethodTypeHashMaster" +
+                     "[NMETHODTYPEHASH]={");
 
 	for ( int i = 0 ; i < CVMMethodType.NHASH; i++ ){
 	    CVMMethodType mt = CVMMethodType.hashTable[i];
@@ -2561,7 +2749,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved global variables to CVMROMGlobals
 	 */
-	initInfo.addInfo( "CVMMethodTypeHashMaster", "CVMROMGlobals.CVMMethodTypeHash", CVMMethodType.NHASH+"*sizeof(CVMROMGlobals.CVMMethodTypeHash[0])" );
+	initInfo.addInfo("CVMMethodTypeHashMaster",
+                         "CVMROMGlobals.CVMMethodTypeHash",
+                         CVMMethodType.NHASH +
+                             "*sizeof(CVMROMGlobals.CVMMethodTypeHash[0])");
     }
 
     /*
@@ -2577,7 +2768,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	int curOffset = 0;
 	auxOut.print("STATIC const CVMTypeIDTypePart msig_details[] = {");
 	for ( int i = 1; i<4; i+= 2 ){ // i.e. for i in {1,3}
-	    for ( CVMMethodType m = methodTypes[i]; m!=null; m = m.listNext ){
+	    for (CVMMethodType m = methodTypes[i]; m!=null; m = m.listNext) {
 		m.detailOffset = curOffset;
 		int ndetail = m.nDetails;
 		int details[] = m.details;
@@ -2585,7 +2776,8 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		    if ( curOffset%6==0){
 			auxOut.print("\n	");
 		    }
-		    auxOut.print("RAW_TYPEID_TYPE_PART(0x" + Integer.toHexString(details[j]) + ")");
+		    auxOut.print("RAW_TYPEID_TYPE_PART(0x" +
+                                 Integer.toHexString(details[j]) + ")");
 		    auxOut.write(',');
 		    auxOut.write(' ');
 		    curOffset+= 1;
@@ -2603,13 +2795,15 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	 * custom declaration.
 	 */
 	auxOut.println("STATIC const struct {");
-	for ( int i = 1; i < CVMSigForm.listLength.length; i++ ){
-	    if ( CVMSigForm.listLength[i] == 0 ) continue; // never mind...
+	for (int i = 1; i < CVMSigForm.listLength.length; i++) {
+	    if (CVMSigForm.listLength[i] == 0) continue; // never mind...
 	    /* 
-	     * Added symbol DUMMY (which is never used, but in VC++ on Win32 the preprocessor barks
-	     * if it doesn't get an argument here)
+	     * Added symbol DUMMY (which is never used, but in VC++ on Win32
+             * the preprocessor barks if it doesn't get an argument here)
 	     */
-	    auxOut.println("	DECLARE_SIG_FORM_N( DUMMY"+i+" /* never used */, "+(i+1)+") form"+i+"["+CVMSigForm.listLength[i]+"];");
+            auxOut.println("	DECLARE_SIG_FORM_N( DUMMY" + i +
+                           " /* never used */, " + (i+1) + ") form" + i +
+                           "[" + CVMSigForm.listLength[i] + "];");
 	}
 	auxOut.println("} CVM_ROMforms = {");
 	/*
@@ -2617,16 +2811,18 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	 * which we construct (last-to-first) as we go.
 	 */
 	String link = "0";
-	for ( int i = 1; i < CVMSigForm.listLength.length; i++ ){
+	for (int i = 1; i < CVMSigForm.listLength.length; i++) {
 	    int n = CVMSigForm.listLength[i];
 	    if ( n == 0 ) continue; // never mind...
 	    String segname = "&CVM_ROMforms.form"+i;
 	    auxOut.println("    {");
 	    int fno = 0;
-	    for ( CVMSigForm f = CVMSigForm.formList[i]; f!= null; f = f.listNext ){
+            CVMSigForm f;
+            for (f = CVMSigForm.formList[i]; f!= null; f = f.listNext) {
 		auxOut.print("	");
-		auxOut.print("{ (struct sigForm*)"+link+", MAX_COUNT, ROMSTATE ");
-		auxOut.print( (f.nSyllables-2)+", { ");
+                auxOut.print("{ (struct sigForm*)" + link +
+                             ", MAX_COUNT, ROMSTATE ");
+                auxOut.print((f.nSyllables-2) + ", { ");
 		int nWordsLess1 = f.data.length-1;
 		for ( int k=0; k<=nWordsLess1; k++ ){
 		    auxOut.printHexInt( f.data[k] );
@@ -2648,9 +2844,11 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved globals to CVMROMGlobals.
 	 */
-	globalHeaderOut.println("    struct sigForm *	CVMformTable;");
-	auxOut.println("STATIC const struct sigForm * const CVMformTableMaster = (struct sigForm *)"+link+";");
-	initInfo.addInfo( "&CVMformTableMaster", "&CVMROMGlobals.CVMformTable", "sizeof(CVMformTableMaster)" );
+        globalHeaderOut.println("    struct sigForm *	CVMformTable;");
+        auxOut.println("STATIC const struct sigForm * const " +
+                       "CVMformTableMaster = (struct sigForm *)" + link + ";");
+        initInfo.addInfo("&CVMformTableMaster", "&CVMROMGlobals.CVMformTable",
+                         "sizeof(CVMformTableMaster)");
     }
 
     private void
@@ -2659,14 +2857,22 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved global variables to CVMROMGlobals
 	 */
-	globalHeaderOut.println("    struct memberNameTableSegment * dummyNextMembernameCell;");
-	initInfo.addInfo( "NULL", "&CVMROMGlobals.dummyNextMembernameCell", "sizeof(CVMROMGlobals.dummyNextMembernameCell)" );
-	auxOut.println("const struct { MEMBER_NAME_TABLE_SEGMENT_HEADER struct memberName data["+ndata+"]; }\nCVMMemberNames = {" );
-	auxOut.println("    0, 0, -1, "+ndata+", &CVMROMGlobals.dummyNextMembernameCell, {" );
+        globalHeaderOut.println(
+            "    struct memberNameTableSegment * dummyNextMembernameCell;");
+        initInfo.addInfo("NULL", "&CVMROMGlobals.dummyNextMembernameCell",
+                         "sizeof(CVMROMGlobals.dummyNextMembernameCell)");
+        auxOut.println("const struct { MEMBER_NAME_TABLE_SEGMENT_HEADER " +
+                       "struct memberName data[" + ndata +
+                       "]; }\nCVMMemberNames = {" );
+        auxOut.println("    0, 0, -1, " + ndata +
+                       ", &CVMROMGlobals.dummyNextMembernameCell, {");
 	for ( int i = 0; i < ndata; i++ ){
-	    CVMMemberNameEntry mne = (CVMMemberNameEntry)(CVMMemberNameEntry.table.elementAt( i ));
-	    String next    = (mne.next==null) ? "TYPEID_NOENTRY" : ("NAME_NO("+mne.next.entryNo+")");
-	    auxOut.println("\t{"+next+", MAX_COUNT, ROMSTATE \""+mne.name+"\"},");
+            CVMMemberNameEntry mne =
+                (CVMMemberNameEntry)(CVMMemberNameEntry.table.elementAt(i));
+            String next = (mne.next == null) ?
+                "TYPEID_NOENTRY" : ("NAME_NO(" + mne.next.entryNo + ")");
+	    auxOut.println("\t{" + next + ", MAX_COUNT, ROMSTATE \"" +
+                           mne.name + "\"},");
 	}
 	auxOut.println("}};");
 
@@ -2674,9 +2880,11 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved global variables to CVMROMGlobals
 	 */
-	globalHeaderOut.println("    CVMTypeIDNamePart CVMMemberNameHash[NMEMBERNAMEHASH];");
+	globalHeaderOut.println(
+            "    CVMTypeIDNamePart CVMMemberNameHash[NMEMBERNAMEHASH];");
 
-	auxOut.print("STATIC const CVMTypeIDNamePart CVMMemberNameHashMaster[NMEMBERNAMEHASH]={");
+	auxOut.print("STATIC const CVMTypeIDNamePart " +
+                     "CVMMemberNameHashMaster[NMEMBERNAMEHASH]={");
 	for ( int i = 0 ; i < CVMMemberNameEntry.NMEMBERNAMEHASH; i++ ){
 	    CVMMemberNameEntry mne = CVMMemberNameEntry.hash[i];
 	    if ( i%4 == 0 ){
@@ -2693,7 +2901,10 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved global variables to CVMROMGlobals
 	 */
-	initInfo.addInfo( "CVMMemberNameHashMaster", "CVMROMGlobals.CVMMemberNameHash", CVMMemberNameEntry.NMEMBERNAMEHASH+"*sizeof(CVMROMGlobals.CVMMemberNameHash[0])" );
+	initInfo.addInfo("CVMMemberNameHashMaster",
+                         "CVMROMGlobals.CVMMemberNameHash",
+                         CVMMemberNameEntry.NMEMBERNAMEHASH +
+                         "*sizeof(CVMROMGlobals.CVMMemberNameHash[0])");
     }
 
     /* Write the invokeCost array for romized methods. */
@@ -2711,111 +2922,210 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	String  name;
 	int	nClasses;
 	CVMClass classVector[];
-	boolean foundFirstVector;
-	boolean foundLastVector;
-	boolean foundFirstNonPrimitive;
-	int	firstVector;
-	int	lastVector;
-	int	firstNonPrimitive;
+	Vector  classes;
+        boolean foundFirstSingleDimensionArrayClass;
+        boolean foundLastSingleDimensionArrayClass;
+        boolean foundFirstNonPrimitiveClass;
+        int	firstSingleDimensionArrayClass;
+        int	lastSingleDimensionArrayClass;
+	int	firstNonPrimitiveClass;
 
 	ClassTable( int nMax, String nm ){
 	    name = nm;
-	    classVector = new CVMClass[nMax];
 	    nClasses = 0;
-	    foundFirstVector = false;
-	    foundLastVector = false;
+            foundFirstSingleDimensionArrayClass = false;
+            foundLastSingleDimensionArrayClass = false;
+	    classes = new Vector(nMax);
 	}
 
-	void addClass(CVMClass c){
+        /**
+         * Called by CVMWriter.writeClassList() to add a presorted list of
+         * classes into this ClassTable.  The list of classes are expected to
+         * have already been sorted as follows:
+         *
+         *    .---------------------------------------.
+         *    |  Primtive classes                     |
+         *    |---------------------------------------|
+         *    |  Regular Loaded classes               | <= e1
+         *    |  e.g. java.lang.Object                |
+         *    |                                       |
+         *    |  Big Array classes                    |
+         *    |  i.e. depth exceeds or equals the     |
+         *    |  the value of CVMtypeArrayMask.       |
+         *    |
+         *    |---------------------------------------|
+         *    |  Single Dimension Array classes       | <= e2
+         *    |  e.g. [I or [Ljava.lang.Object;       |
+         *    |                                       | <= e3
+         *    |---------------------------------------|
+         *    |  Multi Dimension Array classes        |
+         *    |  e.g. [[I or [[Ljava.lang.Object; or  |
+         *    |       [[[I, etc.                      |
+         *    |                                       |
+         *    '---------------------------------------'
+         *
+         * In the above illustration, entry e1 is the first entry in the
+         * Regular Loaded classes section.  Entry e2 is the first entry in the
+         * Single Dimension Array classes section, and entry e3 is the
+         * last entry in this same section.
+         *
+         * The Regular Loaded classes section currectly also holds the Big
+         * Array classes whose dimension depth exceeds or equals the bits
+         * in CVMtypeArrayMask (currently 3).  In the current implemetation
+         * the Big Array classes always come at the end of this section after
+         * the Regular Loaded classes.
+         *
+         * We want firstNonPrimitiveClass to be the index of entry e1,
+         * firstSingleDimensionArrayClass to be the index of entry e2, and
+         * lastSingleDimensionArrayClass to be the index of entry e3. 
+         *
+         * ClassTable.addClass() will keep a look out for entries e1, e2, and
+         * e3 and set firstNonPrimitiveClass, firstSingleDimensionArrayClass,
+         * and lastSingleDimensionArrayClass accordingly.
+         */
+        void addClass(CVMClass c) {
 	    int hashCode = 0;
-	    int classid = c.classid();
-	    if ( (! foundFirstNonPrimitive ) & ! c.isPrimitiveClass() ){
-		firstNonPrimitive = nClasses;
-		foundFirstNonPrimitive = true;
+            int classid = c.getClassId();
+
+            /* If we haven't found the first non-primitive class yet and
+               this class is not a primitive class, then set the
+               firstNonPrimitiveClass index: */
+            if ((!foundFirstNonPrimitiveClass) & !c.isPrimitiveClass()) {
+                firstNonPrimitiveClass = nClasses;
+                foundFirstNonPrimitiveClass = true;
 	    }
+
+            /* In the following we'll be looking for the first and the last
+               single dimension array class.  To do that, it will check for
+               the first single dimension array class and the first array
+               class with a dimension greater than 1.  The last single
+               dimension array class will be the one before the first array
+               class with a dimension greater than 1.
+
+               Since Big Array classes are kept in the regular loaded
+               classes section which preceeds the single dimension array
+               classes, we should ignore them.
+            */
             int classid_depth = classid & CVMTypeCode.CVMtypeArrayMask;
-	    if ((classid_depth != 0) && 
-		(classid_depth != CVMTypeCode.CVMtypeBigArray)) {
-		if ( !foundFirstVector ){
-		    firstVector = nClasses;
-		    foundFirstVector = true;
+            if ((classid_depth != 0) && 
+                (classid_depth != CVMTypeCode.CVMtypeBigArray)) {
+
+                // Look for the first single dimension array class:
+                if (!foundFirstSingleDimensionArrayClass) {
+                    firstSingleDimensionArrayClass = nClasses;
+                    foundFirstSingleDimensionArrayClass = true;
 		}
-		if ( ((classid>>CVMTypeCode.CVMtypeArrayShift) > 1)
-		    && !foundLastVector ){
-			lastVector = nClasses-1;
-			foundLastVector = true;
+                // Look for the last single dimension array class:
+                if (((classid>>CVMTypeCode.CVMtypeArrayShift) > 1)
+                    && !foundLastSingleDimensionArrayClass) {
+                    lastSingleDimensionArrayClass = nClasses-1;
+                    foundLastSingleDimensionArrayClass = true;
 		}
 	    }
-	    classVector[nClasses++] = c;
+	    if (classid_depth == 0) {
+		int tid = classid - CVMTypeCode.CVMtypeLastScalar - 1;
+		while (tid > nClasses) {
+		    ++nClasses;
+		    classes.add(null);
+		}
+	    }
+	    ++nClasses;
+	    classes.add(c);
 	}
 
-	void writeClasslistInfo(){
-	    if (!foundFirstVector) {
-		// If, by now, we've not found the first vector, then there is no
-		//     preloaded array type.  Point the first vector to the end of
-		//     the array:
-		firstVector = nClasses;
-		foundFirstVector = true;
-		lastVector = nClasses;
-		foundLastVector = true;
-	    } else if (!foundLastVector) {
-		// If we get here, then we must have found the first vector but
-		//     have not found the last vector.  This means that there are
-		//     array types of depth 1 in the list but no array types of
-		//     depth greater than 1.  Point the last vector to the last
-		//     entry in the list:
-		lastVector = nClasses - 1;
-		foundLastVector = true;
+        /**
+         * Writes out miscellaneous info about the classes that were just listed
+         * by ClassTable.writeClassList().  It is expected that the values of
+         * firstArrayClass, firstSingleDimensionArrayClass, and
+         * lastSingleDimensionArrayClass would have been determined (if
+         * applicable) by previous calls to ClassTable.addClass() iterated over
+         * the presorted list of classes.
+         *
+         * See the comments for ClassTable.addClass() above for details on the
+         * expected sorting order of the list of classes.
+         */
+        void writeClassListInfo() {
+            if (!foundFirstSingleDimensionArrayClass) {
+		// If, by now, we've not found the first single dimension array
+                //     class, then there is no preloaded array type.  Point the
+                //     firstSingleDimensionArrayClass index to the end of the
+                //     list of classes:
+                firstSingleDimensionArrayClass = nClasses;
+                foundFirstSingleDimensionArrayClass = true;
+                lastSingleDimensionArrayClass = nClasses;
+                foundLastSingleDimensionArrayClass = true;
+
+            } else if (!foundLastSingleDimensionArrayClass) {
+                // If we get here, then we must have found the first single
+                //     dimension array class but have not found the last one.
+                //     This means that there are array types of depth 1 in the
+                //     list but no array types of depth greater than 1.  Point
+                //     the lastSingleDimensionArrayClass index to the last
+                //     entry in the list:
+                lastSingleDimensionArrayClass = nClasses - 1;
+                foundLastSingleDimensionArrayClass = true;
 	    }
-	    auxOut.println("const int CVM_n"+name+"ROMClasses = "+String.valueOf(nClasses)+";");
-	    auxOut.print("const int CVM_"+name+"firstROMVectorClass = ");
-	    auxOut.print(firstVector);
-	    auxOut.print(";\nconst int CVM_"+name+"lastROMVectorClass = ");
-	    auxOut.print(lastVector);
+	    auxOut.println("const int CVM_n" + name + "ROMClasses = " +
+                           String.valueOf(nClasses) + ";");
+            auxOut.print("const int CVM_"+name+
+                         "firstROMSingleDimensionArrayClass = ");
+            auxOut.print(firstSingleDimensionArrayClass);
+            auxOut.print(";\nconst int CVM_"+name+
+                         "lastROMSingleDimensionArrayClass = ");
+            auxOut.print(lastSingleDimensionArrayClass);
 	    auxOut.println(";");
 	    auxOut.print("const int CVM_"+name+"firstROMNonPrimitiveClass = ");
-	    auxOut.print(firstNonPrimitive);
+            auxOut.print(firstNonPrimitiveClass);
 	    auxOut.println(";");
 	}
 
-	void writeClasslist(){
+        void writeClassList() {
+	    classVector = new CVMClass[nClasses];
+	    classes.copyInto(classVector);
+
 	    int n = nClasses;
 	    CVMClass classes[] = classVector;
-	    //auxOut.println("const CVMClassBlock * const CVM_"+name+"ROMClassBlocks[] = {" );
+	    //auxOut.println("const CVMClassBlock * const CVM_" + name +
+            //               "ROMClassBlocks[] = {");
 	    for (int i=0; i<n; i++){
 		CVMClass c = classVector[i];
-		auxOut.print("    &");
-		auxOut.print(cbName(c));
-		auxOut.println(",");
+		if (c == null) {
+		    auxOut.println("(const CVMClassBlock *)0,");
+		} else {
+		    auxOut.print("    &");
+		    auxOut.print(cbName(c));
+		    auxOut.println(",");
+		}
 	    }
 	    //auxOut.println("};");
 	}
 
     }
 
-    public void writeClassList( ){
-	boolean  foundFirstNonPrimitive = false;
-	int	 firstNonPrimitive = 0;
-	int n = (classes == null) ? 0 : classes.length;
+    public void writeClassList() {
+        int n = (classes == null) ? 0 : classes.length;
 	ClassTable classTable = new ClassTable(n, "");
 	globalHeaderOut.println(
 	    "    struct java_lang_Class CVM_ROMClassBlocks["
 	    +String.valueOf(n)+"];");
-	auxOut.println("const int CVM_nTotalROMClasses = "+String.valueOf(n)+";");
+	auxOut.println("const int CVM_nTotalROMClasses = " +
+                       String.valueOf(n) + ";");
 	/* 
 	 * Moved globals to CVMROMGlobals
 	 */
-	globalHeaderOut.println("    struct java_lang_Class CVM_ROMClasses["+n+"];");
-	for ( int i = 0; i < n; i++ ){
+        globalHeaderOut.println("    struct java_lang_Class CVM_ROMClasses[" +
+                                n + "];");
+        for (int i = 0; i < n; i++) {
 	    int hashCode = 0;
 	    CVMClass c = classes[i];
-	    int classid = c.classid();
+	    int classid = c.getClassId();
 	    classTable.addClass(c);
 	}
-	auxOut.println("const CVMClassBlock * const CVM_ROMClassblocks[] = {" );
-	classTable.writeClasslist();
+
+        auxOut.println("const CVMClassBlock * const CVM_ROMClassblocks[] = {");
+        classTable.writeClassList();
 	auxOut.println("};" );
-	classTable.writeClasslistInfo();
+        classTable.writeClassListInfo();
 	 
 	//
 	// array of stack map indirect cells
@@ -2823,35 +3133,42 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	/* 
 	 * Moved global variables to CVMROMGlobals
          */
-	declare("const CVMClassICell CVM_classICell[]", auxOut );
+        declare("const CVMClassICell CVM_classICell[]", auxOut);
 	auxOut.println(" = {");
-	for ( int i = 0; i < n; i++ ){
-	    auxOut.println("    { (CVMObject*)(&CVMROMGlobals.CVM_ROMClasses["+i+"])}," );
+        for (int i = 0; i < n; i++) {
+            auxOut.println("    { (CVMObject*)(&CVMROMGlobals.CVM_ROMClasses[" +
+                           i + "])},");
 	}
 	auxOut.println("};");
     }
     
-    public boolean writeClasses(ConstantPool sharedconsts, boolean doWrite){
+    public boolean writeClasses(Vector sharedCPs, boolean doWrite){
+        int i;
 
 	// getClassVector sorts the classes with
 	// super before sub, for reasonable processing without recursion.
 	ClassClass arrayOfClasses[] = ClassClass.getClassVector( classMaker );
 	ClassClass.setTypes();
 	int nClasses = arrayOfClasses.length;
-	ConstantObject[] sharedConstantsArray = null;
+        ConstantPool sharedconsts;
 
 	classes = new CVMClass[nClasses];
 
-	if (sharedconsts != null) {
+	if (sharedCPs != null) {
 	    doShared = true;
+            sharedConstantPools = sharedCPs;
 	    sharedConstantPoolName = "CVMSharedConstantPool";
-	    sharedConstantsArray = sharedconsts.getConstants();
-	    sharedConstantPoolSize = sharedConstantsArray.length;
-	    if (sharedConstantPoolSize > 0xffff) {
-		// More than 64K constants are not allowed
-		throw new Error("Constant pool overflow: 64k constants"+
-				" allowed, have "+sharedConstantPoolSize);
-	    }
+
+            for (i = 0; i < sharedCPs.size(); i++) {
+                int cpSize;
+                sharedconsts = (ConstantPool)sharedCPs.get(i);
+	        cpSize = sharedconsts.getLength();
+	        if (cpSize > 0xffff) {
+		    // More than 64K constants are not allowed
+		    throw new Error("Constant pool overflow: 64k constants"+
+				" allowed, have "+cpSize);
+	        }
+           }
 	}
 	
 	/*
@@ -2867,21 +3184,38 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 	System.arraycopy( arrayOfClasses, 0, classes, 0, nClasses );
         Arrays.sort(classes, (java.util.Comparator)classMaker);
 
-	enumerateMethodTypes();// after all classes processed once by classMaker
-				  // ... but before we write the classes.
+        // after all classes processed once by classMaker
+        // ... but before we write the classes.
+	if (doShared) {
+            for (i = 0; i < sharedCPs.size(); i++) {
+                sharedconsts = (ConstantPool)sharedCPs.get(i);
+	        lookupUnresolvedMethodSignatures(sharedconsts);
+            }
+	} else {
+	    for (i = 0; i < nClasses; ++i) {
+		ConstantPool cp = classes[i].classInfo.getConstantPool();
+		lookupUnresolvedMethodSignatures(cp);
+	    }
+	}
+	enumerateMethodTypes();
 	
 	// write out some constant pool stuff here,
 	// if we're doing one big shared one...
 	// gutted out for now...
-	if ( doShared ) processStrings( sharedConstantsArray );
+	if ( doShared ) {
+            for (i = 0; i < sharedCPs.size(); i++) {
+                sharedconsts = (ConstantPool)sharedCPs.get(i);
+                processStrings( sharedconsts );
+            }
+        }
 
 	if (verbose && doWrite) {
 	    System.out.println(Localizer.getString("cwriter.writing_classes"));
 	}
 	try {
 	    //mungeAllIDsAndWriteExternals(classes);
-	    for ( int i = 0; i < nClasses; i++ ){
-		classProcessStrings( classes[i].ci, doShared );
+	    for ( i = 0; i < nClasses; i++ ){
+		classProcessStrings(classes[i].classInfo, doShared);
 	    }
 
 	    if (doWrite) {
@@ -2889,12 +3223,6 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		CVMInterfaceMethodTable.writeInterfaceTables(classes,
 		    auxOut, headerOut);
 		int nStaticWords = writeStaticStore( classes );
-		if (doShared) {
-		    // Dump the shared constant pool
-		    writeConstants(sharedConstantsArray, 
-				   sharedConstantPoolName,
-				   true /* export c.p. ref */);
-		}
 
 		/* The number of necessary slots for clinitEE + 1.
 		 * Index of a class that doesn't have <clinit> is always 0.
@@ -2904,7 +3232,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		 * First off, check compression opportunities. Look over all
 		 * methods to see variations
 		 */
-		for ( int i = 0; i < nClasses; i++ ){
+		for ( i = 0; i < nClasses; i++ ){
 		    CVMClass c = classes[i];
 		    analyzeMethodsForCompression( c );
 		}
@@ -2919,7 +3247,7 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		/*
 		 * Now do the writing 
 		 */
-		for ( int i = 0; i < nClasses; i++ ){
+		for ( i = 0; i < nClasses; i++ ){
 		    CVMClass c = classes[i];
 		    int clinitIdx = c.hasStaticInitializer ? maxClinitIdx++ : 0;
 		    writeClass( i, c, clinitIdx, nStaticWords );
@@ -2928,6 +3256,19 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 			openNextClassFile();
 		    }
 		}
+
+		if (doShared) {
+		    // Dump the shared constant pool
+                    for (i = 0; i < sharedCPs.size(); i++) {
+                        String cpName = sharedConstantPoolName +
+                                            Integer.toString(i);
+                        sharedconsts = (ConstantPool)sharedCPs.get(i);
+		        writeConstants(sharedconsts, 
+				   cpName,
+				   true /* export c.p. ref */);
+                    }
+		}
+
 		writeClassList();
 
 		writeCVMNameAndTypeTables();
@@ -2956,34 +3297,43 @@ public class CVMWriter implements CoreImageWriter, Const, CVMConst {
 		headerOut.flush();
 	    }
 	}
-	return (!formatError) && (!doWrite || ((! classOut.checkError()) && (! headerOut.checkError())));
+	return (!formatError) &&
+               (!doWrite ||
+                (!classOut.checkError() && !headerOut.checkError()));
     }
 
-    public boolean writeClasses(boolean doWrite) {
-	return writeClasses(null, doWrite);
-    }
-
-
-    public void printSpaceStats( java.io.PrintStream o ){
-	//ClassClass classes[] = ClassClass.getClassVector( classMaker );
-	o.println("	"+Localizer.getString("cwriter.total_classes", Integer.toString(classes.length)));
-	    o.println("		... of which "+nClinits+" classes have static initializers ");
-	    o.println("		    ("+CodeHacker.checkinitQuickenings+"/"+
-		      CodeHacker.quickenings+" quickening sites)" );
-	o.println("		"+Localizer.getString("cwriter.method_blocks", Integer.toString(nmethods)));
-	if ( nWritableMethodBlocks != 0 ){
-	    o.println("		... of which "+nWritableMethodBlocks+" blocks are writable" );
-	    o.println("		... for "+nClassesWithWritableMethodBlocks+" classes");
-	}
-	if (nMethodsWithCheckinitInvokes > 0) {
-	    o.println("		... of which "+nMethodsWithCheckinitInvokes+" have checkinit opcodes in the code" );
-	}
-	o.println("		"+Localizer.getString("cwriter.bytes_java_code", Integer.toString(ncodebytes)));
-	o.println("		"+Localizer.getString("cwriter.catch_frames", Integer.toString(ncatchframes)));
-	o.println("		"+Localizer.getString("cwriter.field_blocks", Integer.toString(nfields)));
-	o.println("		"+Localizer.getString("cwriter.inner_classes", Integer.toString(ninnerclasses)));
-	o.println("		"+Localizer.getString("cwriter.constant_pool_entries", Integer.toString(nconstants)));
-	o.println("		"+Localizer.getString("cwriter.java_strings",Integer.toString(njavastrings)));
+    public void printSpaceStats(java.io.PrintStream o) {
+        //ClassClass classes[] = ClassClass.getClassVector(classMaker);
+        o.println("\t" + Localizer.getString("cwriter.total_classes",
+                                             Integer.toString(classes.length)));
+        o.println("\t\t... of which " + nClinits +
+                  " classes have static initializers ");
+        o.println("\t\t    (" + CodeHacker.checkinitQuickenings + "/" +
+                  CodeHacker.quickenings + " quickening sites)");
+        o.println("\t\t" + Localizer.getString("cwriter.method_blocks",
+                                               Integer.toString(nmethods)));
+        if (nWritableMethodBlocks != 0) {
+            o.println("\t\t... of which " + nWritableMethodBlocks +
+                      " blocks are writable" );
+            o.println("\t\t... for " + nClassesWithWritableMethodBlocks +
+                      " classes");
+        }
+        if (nMethodsWithCheckinitInvokes > 0) {
+            o.println("\t\t... of which " + nMethodsWithCheckinitInvokes +
+                      " have checkinit opcodes in the code");
+        }
+        o.println("\t\t" + Localizer.getString("cwriter.bytes_java_code",
+                                               Integer.toString(ncodebytes)));
+        o.println("\t\t" + Localizer.getString("cwriter.catch_frames",
+                                               Integer.toString(ncatchframes)));
+        o.println("\t\t" + Localizer.getString("cwriter.field_blocks",
+                                               Integer.toString(nfields)));
+        o.println("\t\t" + Localizer.getString("cwriter.inner_classes",
+                                             Integer.toString(ninnerclasses)));
+        o.println("\t\t" + Localizer.getString("cwriter.constant_pool_entries",
+                                               Integer.toString(nconstants)));
+        o.println("\t\t" + Localizer.getString("cwriter.java_strings",
+                                               Integer.toString(njavastrings)));
     }
 
 }

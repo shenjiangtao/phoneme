@@ -1,7 +1,7 @@
 /*
  * @(#)VMConst.java	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -27,7 +27,7 @@
 
 package vm;
 
-/*
+/**
  * Constants used by the Java linker which are not exported in any
  * direct way from the Java runtime or compiler.
  * These are constants of the VM implementation.

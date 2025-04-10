@@ -1,7 +1,7 @@
 /*
  * @(#)verifyformat.c	1.64 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -39,7 +39,7 @@ typedef unsigned short unicode;
 
 #define JAVA_CLASSFILE_MAGIC                 0xCafeBabe
 #define JAVA_MIN_SUPPORTED_VERSION           45
-#define JAVA_MAX_SUPPORTED_VERSION           48
+#define JAVA_MAX_SUPPORTED_VERSION           50
 #define JAVA_MAX_SUPPORTED_MINOR_VERSION     0
 
 /* align byte code */
@@ -145,13 +145,22 @@ static void ParseExceptions(CFcontext *);
 static void ParseLocalVars(CFcontext *, unsigned long code_length);
 #ifdef CVM_SPLIT_VERIFY
 static void ParseStackMap(CFcontext *, CVMUint32 codeLength, 
-			    CVMUint32 maxLocals, CVMUint32 maxStack);
+			  CVMUint32 maxLocals, CVMUint32 maxStack);
+static void ParseStackMapTable(CFcontext *, CVMUint32 codeLength, 
+			       CVMUint32 maxLocals, CVMUint32 maxStack);
 #endif
 
 static void CFerror(CFcontext *context, char *fmt, ...);
 static void CNerror(CFcontext *context, char *name);
 static void UVerror(CFcontext *context);
 static void CFnomem(CFcontext *context);
+
+/* JAVA SE 1.4 reports different error on bytecode verification */
+#if JAVASE == 14
+static void CVerror(CFcontext *context, char *fmt, ...);
+#else
+#define CVerror CFerror
+#endif
 
 static void 
 verify_static_constant(CFcontext *context, utf_str *sig, unsigned int index);
@@ -205,6 +214,7 @@ skip_over_field_signature(char *name, jboolean void_okay,
  * -2: class format error
  * -3: unsupported version error
  * -4: bad class name error
+ * -5: generic verification errors
  *
  * Also fills in the class_size_info structure which contains size 
  * information of verious class components.
@@ -214,6 +224,7 @@ skip_over_field_signature(char *name, jboolean void_okay,
 #define CF_ERR (-2)
 #define CF_UVERR (-3)
 #define CF_BADNAME (-4)
+#define CF_VERR (-5)
 #define LOCAL_BUFFER_SIZE 75
 
 jint
@@ -573,7 +584,7 @@ verify_innerclasses_attribute(CFcontext *context)
 	unsigned short ooff  = (unsigned short)get2bytes(context); /* outer_class_info_index */
 	unsigned short inoff = (unsigned short)get2bytes(context); /* inner_name_index       */
 	unsigned short iacc  = (unsigned short)get2bytes(context); /* inner_class_access_flg */
-    
+
 	verify_constant_entry(context, ioff, JVM_CONSTANT_Class,
 			      "inner_class_info_index");
 	
@@ -752,6 +763,9 @@ static void ParseCode(CFcontext *context, utf_str *mb_name,
     unsigned int i;
     unsigned int maxstack;
     unsigned int nlocals;
+#ifdef CVM_SPLIT_VERIFY
+    jboolean hasSeenStackMapTableAttribute = JNI_FALSE;
+#endif
 
     if (context->major_version == 45 && context->minor_version <= 2) { 
 	maxstack = get1byte(context);
@@ -802,7 +816,7 @@ static void ParseCode(CFcontext *context, utf_str *mb_name,
 	 */
 	if (start_pc >= code_length || end_pc > code_length ||
             end_pc <= start_pc || handler_pc >= code_length)
-	    CFerror(context, "Invalid start_pc/length in exception table");
+	    CVerror(context, "Invalid start_pc/length in exception table");
 
 	if (catch_type_entry != 0){
 	    verify_constant_entry(context, catch_type_entry, JVM_CONSTANT_Class,
@@ -818,6 +832,14 @@ static void ParseCode(CFcontext *context, utf_str *mb_name,
 	} else if (utfcmp(attr_name, "LocalVariableTable") == 0) {
 	    ParseLocalVars(context, code_length);
 #ifdef CVM_SPLIT_VERIFY
+	} else if (utfcmp(attr_name, "StackMapTable") == 0 &&
+	    context->major_version >= 50)
+	{
+	    if (hasSeenStackMapTableAttribute) {
+		CFerror(context, "Multiple StackMapTable attributes");
+	    }
+	    hasSeenStackMapTableAttribute = JNI_TRUE;
+	    ParseStackMapTable(context, code_length, nlocals, maxstack);
 	} else if (utfcmp(attr_name, "StackMap") == 0) {
 	    ParseStackMap(context, code_length, nlocals, maxstack);
 #endif
@@ -828,16 +850,17 @@ static void ParseCode(CFcontext *context, utf_str *mb_name,
     }
 
     if (context->ptr != end_ptr) 
-	CFerror(context, "Code segment has wrong length");
+	CVerror(context, "Code segment has wrong length");
 }
 
 #ifdef CVM_SPLIT_VERIFY
 
-static void
+static int
 ParseMapElements(
     CFcontext* context,
     int nElements,
     int codeLength,
+    int currSlot,
     int maxSlot)
 {
     int nSlot = 0;
@@ -884,9 +907,170 @@ ParseMapElements(
 	}
 	nSlot += 1;
     }
-    if (nSlot > maxSlot){
+    if (currSlot + nSlot > maxSlot) {
 	CFerror(context, "Stackmap entries for too many stack slots");
     }
+    return nSlot;
+}
+
+
+static void
+ParseStackMapTable(CFcontext *context, CVMUint32 codeLength, 
+    CVMUint32 maxLocals, CVMUint32 maxStack)
+{
+    CVMInt32		  	nEntries;
+    CVMInt32			lastPC = -1;
+    CVMUint32			length = get4bytes(context);
+    int				nLocalSlots = 0;
+    int				nStackSlots = 0;
+    const unsigned char *	endPtr = context->ptr  + length;
+    char *			locals;
+    int				nLocals;
+
+    /*
+     * These asserts are here to remind us that the format of these
+     * things changes for big methods.
+     */
+    CVMassert(codeLength <= 65535);
+    CVMassert(maxLocals  <= 65535);
+    CVMassert(maxStack   <= 65535);
+
+    locals = calloc(1, maxLocals);
+
+    if (locals == NULL) {
+	CFerror(context, "Out of memory");
+    }
+
+#if 0
+    /* Initialize locals from args */
+    /*
+       The following code is just an example.  We don't have an mb
+       yet so we really need to parse the signature string.
+    */
+{
+    CVMterseSigIterator sig;
+    int typeSyllable;
+
+    CVMtypeidGetTerseSignatureIterator(CVMmbNameAndTypeID(mb), &sig);
+
+    nLocals = 0;
+    if (!CVMmbIs(mb, STATIC)) {
+	locals[nLocals++] = 1;
+    }
+    while ((typeSyllable=CVM_TERSE_ITER_NEXT(sig)) != CVM_TYPEID_ENDFUNC) {
+        switch (typeSyllable) {
+        case CVM_TYPEID_LONG:
+        case CVM_TYPEID_DOUBLE:
+	    locals[nLocals++] = 2;
+	    break;
+        default:
+	    locals[nLocals++] = 1;
+        }
+    }
+}
+#else
+    /* We don't support code that rewrites the arguments, so start at 0 */
+    nLocals = 0;
+#endif
+
+    nEntries = get2bytes(context);
+    while (nEntries-- > 0) {
+	int tag = get1byte(context);
+	int frame_type = tag;
+	int offset_delta;
+	int thisPC;
+
+	if (tag < 64) {
+	    /* 0 .. 63 SAME */
+	    nStackSlots = 0;
+	    offset_delta = frame_type;
+	    thisPC = lastPC + offset_delta + 1;
+	} else if (tag < 128) {
+	    /* 64 .. 127 SAME_LOCALS_1_STACK_ITEM */
+	    offset_delta = frame_type - 64;
+	    thisPC = lastPC + offset_delta + 1;
+	    nStackSlots = ParseMapElements(context, 1,
+		codeLength, 0, maxStack);
+	} else if (tag == 255) {
+	    /* 255 FULL_FRAME */
+	    int i, l, s;
+	    offset_delta = get2bytes(context);
+	    thisPC = lastPC + offset_delta + 1;
+	    l = get2bytes(context);
+	    nLocalSlots = 0;
+	    nLocals = 0;
+	    for (i = 0; i < l; ++i) {
+		int slots = ParseMapElements(context, 1,
+		    codeLength, nLocalSlots, maxLocals);
+		nLocalSlots += slots;
+		locals[nLocals + i] = slots;
+	    }
+	    nLocals += l;
+	    CVMassert(nLocals <= maxLocals);
+	    s = get2bytes(context);
+	    nStackSlots = ParseMapElements(context, s,
+		codeLength, 0, maxStack);
+	} else if (tag >= 252) {
+	    /* 252 .. 254 APPEND */
+	    int i;
+	    int k = frame_type - 251;
+	    offset_delta = get2bytes(context);
+	    thisPC = lastPC + offset_delta + 1;
+	    if (nLocals + k > maxLocals) {
+		CFerror(context, "Stackmap entry too many locals ");
+	    }
+	    for (i = 0; i < k; ++i) {
+		int slots = ParseMapElements(context, 1,
+		    codeLength, nLocalSlots, maxLocals);
+		nLocalSlots += slots;
+		locals[nLocals + i] = slots;
+	    }
+	    nLocals += k;
+	    nStackSlots = 0;
+	    CVMassert(nLocals <= maxLocals);
+	} else if (tag == 251) {
+	    /* 251 SAME_FRAME_EXTENDED */
+	    offset_delta = get2bytes(context);
+	    nStackSlots = 0;
+	    thisPC = lastPC + offset_delta + 1;
+	} else if (tag >= 248) {
+	    /* 248 .. 250 CHOP */
+	    int i;
+	    int k = 251 - frame_type;
+	    if (k > nLocals) {
+		CFerror(context, "Stackmap entry args chopped!");
+	    }
+	    for (i = 0; i < k; ++i) {
+		nLocalSlots -= locals[--nLocals];
+	    }
+	    offset_delta = get2bytes(context);
+	    nStackSlots = 0;
+	    thisPC = lastPC + offset_delta + 1;
+	} else if (tag == 247) {
+	    /* 247 SAME_LOCALS_1_STACK_ITEM_EXTENDED */
+	    offset_delta = get2bytes(context);
+	    thisPC = lastPC + offset_delta + 1;
+	    nStackSlots = ParseMapElements(context, 1,
+		codeLength, 0, maxStack);
+	} else {
+	    thisPC = -1;
+	    CFerror(context, "Stackmap entry unsupported tag value");
+	}
+
+	if (thisPC >= codeLength){
+	    CFerror(context, "Stackmap entry PC out of range");
+	}
+	lastPC = thisPC;
+
+	if (context->ptr > endPtr){
+	    CFerror(context, "Stackmap info too long");
+	}
+
+    }
+    if (context->ptr != endPtr){
+	CFerror(context, "Stackmap info too short");
+    }
+    free(locals);
 }
 
 static void
@@ -920,10 +1104,10 @@ ParseStackMap(CFcontext *context, CVMUint32 codeLength,
 	lastPC = thisPC;
 
 	nLocalElements = get2bytes(context);
-	ParseMapElements(context, nLocalElements, codeLength, maxLocals);
+	ParseMapElements(context, nLocalElements, codeLength, 0, maxLocals);
 
 	nStackElements = get2bytes(context);
-	ParseMapElements(context, nStackElements, codeLength, maxStack);
+	ParseMapElements(context, nStackElements, codeLength, 0, maxStack);
 
 	if (context->ptr > endPtr){
 	    CFerror(context, "Stackmap info too long");
@@ -1246,6 +1430,32 @@ verify_legal_class_modifiers(CFcontext *context, unsigned int access)
     if (MEASURE_ONLY)
         return;
 
+    /* Need the following version number check in order to pass the following
+       tests in the CDC TCK:
+       1. vm/classfmt/atr/atrinc211/atrinc21101m1/atrinc21101m1.html
+          classfile version: 45.3, class access flags: 0xfe90
+       2. vm/classfmt/clf/clfacc006/clfacc00601m1/clfacc00601m1.html
+          classfile version: 45.3, class access flags: 0x7001
+       3. vm/classfmt/clf/clfacc006/clfacc00603m1/clfacc00603m1.html:
+          classfile version: 45.3, class access flags: 0x7031
+
+       In all these cases, the class access flags have illegal bits set for
+       classfile version 45.3.  The VM spec says that unused bits should be
+       set to zero for future use.  If these bits have values set, a VM which
+       is capable of digesting a later classfile version should be able to
+       throw a ClassFormatError if these bits are malformed.  In the case of
+       the above TCK tests, the access flag bits are malformed.  However,
+       the tests are erroneously expecting the VM to ignore these bits
+       instead.
+
+       This check has been added here to work around these bug that have been
+       filed against in the CDC TCK (CR 6574335, 6574338).  This check may
+       be eliminated later depending on how the TCK bugs are resolved.
+     */
+    if (context->major_version < 49) {
+	access &= ~(JVM_ACC_SYNTHETIC | JVM_ACC_ANNOTATION | JVM_ACC_ENUM);
+    }
+
 #ifdef CVM_DUAL_STACK
     if (!context->isCLDCClass) {
 #endif
@@ -1259,8 +1469,13 @@ verify_legal_class_modifiers(CFcontext *context, unsigned int access)
     }
 #endif
 
+    if (access & JVM_ACC_ANNOTATION) {
+	if (!(access & JVM_ACC_INTERFACE)) {
+	    goto failed;
+	}
+    }
     if (access & JVM_ACC_INTERFACE) {
-        if ((access & JVM_ACC_ABSTRACT) == 0)
+        if (!(access & JVM_ACC_ABSTRACT))
 	    goto failed;
 	if (access & JVM_ACC_FINAL)
 	    goto failed;
@@ -1296,7 +1511,8 @@ verify_legal_field_modifiers(CFcontext *context, unsigned int access,
 	    goto failed;
     } else {
         /* interface fields */
-        if (access & ~(JVM_ACC_STATIC | JVM_ACC_FINAL | JVM_ACC_PUBLIC))
+        if (access & ~(JVM_ACC_STATIC | JVM_ACC_FINAL | JVM_ACC_PUBLIC |
+		       JVM_ACC_SYNTHETIC))
 	    goto failed;
         if (!(access & JVM_ACC_STATIC) ||
 	    !(access & JVM_ACC_FINAL) ||
@@ -1318,12 +1534,8 @@ verify_legal_method_modifiers(CFcontext *context, unsigned int access,
 
     /* Abstract methods cannot have these other flags set. */
     if ((access & JVM_ACC_ABSTRACT) &&
-        ((access & JVM_ACC_FINAL) ||
-         (access & JVM_ACC_NATIVE) ||
-         (access & JVM_ACC_PRIVATE) ||
-         (access & JVM_ACC_STATIC) ||
-         (access & JVM_ACC_STRICT) ||
-         (access & JVM_ACC_SYNCHRONIZED))) {
+        (access & (JVM_ACC_FINAL | JVM_ACC_NATIVE | JVM_ACC_PRIVATE |
+		   JVM_ACC_STATIC | JVM_ACC_STRICT | JVM_ACC_SYNCHRONIZED))) {
         goto failed;
     }
 
@@ -1331,23 +1543,9 @@ verify_legal_method_modifiers(CFcontext *context, unsigned int access,
         /* class or instance methods */
         if (utfcmp(name, "<init>") == 0) {
             /* The STRICT bit is new as of 1.2. */
-            if (access & ~(JVM_ACC_PUBLIC
-                            | JVM_ACC_PROTECTED
-                            | JVM_ACC_PRIVATE
-                            | JVM_ACC_STRICT))
-	        goto failed;
-        } else {
-	    if (access & JVM_ACC_ABSTRACT) {
-	        if ((access & JVM_ACC_FINAL) ||
-		    (access & JVM_ACC_NATIVE) /* || 
-	            This is commented out until after javac is fixed so that it 
-	            rejects abstract synchronized methods.
-		    (access & JVM_ACC_SYNCHRONIZED)*/)
-		    goto failed;
-	    }
-	    if ((access & JVM_ACC_PRIVATE) && (access & JVM_ACC_ABSTRACT))
-	        goto failed;
-	    if ((access & JVM_ACC_STATIC) && (access & JVM_ACC_ABSTRACT))
+            if (access & ~(JVM_ACC_PUBLIC | JVM_ACC_PROTECTED |
+			   JVM_ACC_PRIVATE | JVM_ACC_STRICT |
+			   JVM_ACC_VARARGS | JVM_ACC_SYNTHETIC))
 	        goto failed;
         }
     } else {
@@ -2007,6 +2205,33 @@ CFerror(CFcontext *context, char *format, ...)
     context->err_code = CF_ERR;
     longjmp(context->jump_buffer, 1);
 }
+
+/*
+ * Some of the JCK 1.4 VM tests are not compatible with JCK 1.5
+ * and CDC TCK VM tests. For exmaple the 
+ * javasoft.sqe.tests.vm.classsfmttt.atr.atrcod006.atrccccod00601m1.atrrcod00601m1
+ * test. The tests in JCK 1.4 expect VerifyError, while the tests in
+ * JCK 1.5 and CDC TCK expect ClassFormatError. So provide a special
+ * CVerror for 1.4.
+ */
+#if JAVASE == 14
+static void
+CVerror(CFcontext *context, char *format, ...)
+{
+    va_list args;
+    int n = 0;
+    va_start(args, format);
+    if (context->class_name)
+        n = jio_snprintf(context->msg, context->msg_len, "%s (", 
+			 context->class_name);
+    n += jio_vsnprintf(context->msg + n, context->msg_len - n, format, args);
+    if (context->class_name)
+        jio_snprintf(context->msg + n, context->msg_len - n, ")");
+    va_end(args);
+    context->err_code = CF_VERR;
+    longjmp(context->jump_buffer, 1);
+}
+#endif
 
 static void
 CNerror(CFcontext *context, char *name)

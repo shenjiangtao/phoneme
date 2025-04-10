@@ -1,27 +1,28 @@
 /*
  * @(#)jvmpi.c	1.33 06/10/10
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -55,7 +56,7 @@
 #include "javavm/include/porting/doubleword.h"
 #include "javavm/include/porting/endianness.h"
 
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 #include "generated/offsets/java_lang_Thread.h"
 #include "generated/offsets/java_lang_ThreadGroup.h"
 
@@ -297,7 +298,7 @@ CVMjvmpiEventInfoIsNotAvailable(CVMJvmpiEventInfo *self, CVMInt32 event); */
 /* Purpose: Initializer. */
 static void CVMjvmpiEventInfoInit(CVMJvmpiEventInfo *self, CVMExecEnv *ee)
 {
-    CVMsysMicroLock(ee, CVM_JVMPI_MICROLOCK);
+    CVMsysMicroLock(ee, CVM_TOOLS_MICROLOCK);
 
     /* Fill in default event info for enabling/disabling event notification: */
 
@@ -357,38 +358,38 @@ static void CVMjvmpiEventInfoInit(CVMJvmpiEventInfo *self, CVMExecEnv *ee)
 
 #undef CVMjvmpiEventInfoDisableX
 
-    CVMsysMicroUnlock(ee, CVM_JVMPI_MICROLOCK);
+    CVMsysMicroUnlock(ee, CVM_TOOLS_MICROLOCK);
 }
 
 /* Purpose: Disable notification of the specified Event. */
 static void CVMjvmpiEventInfoDisable(CVMJvmpiEventInfo *self, CVMExecEnv *ee,
                                      CVMInt32 event)
 {
-    CVMsysMicroLock(ee, CVM_JVMPI_MICROLOCK);
+    CVMsysMicroLock(ee, CVM_TOOLS_MICROLOCK);
     self->eventInfoX[event] = CVMJvmpiEventInfo_DISABLED;
-    CVMsysMicroUnlock(ee, CVM_JVMPI_MICROLOCK);
+    CVMsysMicroUnlock(ee, CVM_TOOLS_MICROLOCK);
 }
 
 /* Purpose: Marks all event notifications as being disabled. */
 static void CVMjvmpiEventInfoDisableAll(CVMJvmpiEventInfo *self, CVMExecEnv *ee)
 {
     int i;
-    CVMsysMicroLock(ee, CVM_JVMPI_MICROLOCK);
+    CVMsysMicroLock(ee, CVM_TOOLS_MICROLOCK);
     for (i = 0; i <= JVMPI_MAX_EVENT_TYPE_VAL; i++) {
         if (!CVMjvmpiEventInfoIsNotAvailable(self, i)) {
             self->eventInfoX[i] = CVMJvmpiEventInfo_DISABLED;
         }
     }
-    CVMsysMicroUnlock(ee, CVM_JVMPI_MICROLOCK);
+    CVMsysMicroUnlock(ee, CVM_TOOLS_MICROLOCK);
 }
 
 /* Purpose: Enable notification of the specified Event. */
 static void CVMjvmpiEventInfoEnable(CVMJvmpiEventInfo *self, CVMExecEnv *ee,
                                     CVMInt32 event)
 {
-    CVMsysMicroLock(ee, CVM_JVMPI_MICROLOCK);
+    CVMsysMicroLock(ee, CVM_TOOLS_MICROLOCK);
     self->eventInfoX[event] = CVMJvmpiEventInfo_ENABLED;
-    CVMsysMicroUnlock(ee, CVM_JVMPI_MICROLOCK);
+    CVMsysMicroUnlock(ee, CVM_TOOLS_MICROLOCK);
 }
 
 /*=============================================================================
@@ -915,7 +916,7 @@ static jint CVMdumperDumpClass(CVMDumper *self, CVMObject *clazz)
     CVMassert(CVMjvmpiGCIsDisabled() || CVMgcIsGCThread(CVMgetEE()));
 
     /* If the class has not been initialized yet, then we cannot dump it: */
-    if (!CVMcbCheckRuntimeFlag(cb, SUPERCLASS_LOADED))
+    if (!CVMcbInitializationDoneFlag(ee, cb))
         return JVMPI_FAIL;
 
     /* %comment l029 */
@@ -1709,6 +1710,7 @@ static void CVMdumperDumpHeap(CVMDumper *self, CVMExecEnv *ee)
 
     if (CVMgcEnsureStackmapsForRootScans(ee)) {
         CVMGCOptions gcOpts = {
+        /* isUpdatingObjectPointers */ CVM_FALSE,
             /* discoverWeakReferences   */ CVM_FALSE,
             /* isProfilingPass          */ CVM_TRUE
         };
@@ -2940,6 +2942,10 @@ static jint CVMjvmpiPostHeapDumpEvent(CVMExecEnv *ee, int dumpLevel)
     /* NOTE: We won't get any interference from GC because this thread
         holds the heapLock.  This is effectively equivalent to disabling
         GC. */
+#ifdef CVM_JIT
+    CVMsysMutexLock(ee, &CVMglobals.jitLock);
+#endif
+
     CVMsysMutexLock(ee, &CVMglobals.heapLock);
 
     while (!done) {
@@ -2992,6 +2998,9 @@ static jint CVMjvmpiPostHeapDumpEvent(CVMExecEnv *ee, int dumpLevel)
 
 doCleanUpAndExit:
     CVMsysMutexUnlock(ee, &CVMglobals.heapLock);
+#ifdef CVM_JIT
+    CVMsysMutexUnlock(ee, &CVMglobals.jitLock);
+#endif
 
     return result;
 }
@@ -3443,6 +3452,9 @@ static jint CVMjvmpiPostMonitorDumpEvent(CVMExecEnv *ee)
     dumper = &dumperInstance;
     CVMdumperInit(dumper, JVMPI_DUMP_LEVEL_2);
 
+#ifdef CVM_JIT
+    CVMsysMutexLock(ee, &CVMglobals.jitLock);
+#endif
     CVMsysMutexLock(ee, &CVMglobals.heapLock);
 
     /* And get the rest of the GC locks: */
@@ -3523,6 +3535,9 @@ doCleanUpAndExit:
     CVMlocksForGCRelease(ee);
 
     CVMsysMutexUnlock(ee, &CVMglobals.heapLock);
+#ifdef CVM_JIT
+    CVMsysMutexUnlock(ee, &CVMglobals.jitLock);
+#endif
 
     return result;
 }
@@ -4112,7 +4127,7 @@ CVMjvmpiPostStartupClassLoadHookEvents(CVMExecEnv *ee,
 
     if (CVMjvmpiEventClassLoadHookIsEnabled()) {
         CVMUint8 *buffer = (CVMUint8 *)classfile;
-        CVMUint32 bufferSize = classfileSize;
+        CVMInt32 bufferSize = classfileSize;
 
         CVMjvmpiPostClassLoadHookEvent(&buffer, &bufferSize,
                                        (void *(*)(unsigned int))&malloc);

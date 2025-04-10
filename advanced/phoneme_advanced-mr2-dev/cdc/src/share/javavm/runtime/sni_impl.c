@@ -1,7 +1,7 @@
 /*
  * @(#)sni_impl.c	1.2 06/10/10 10:06:46
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -46,7 +46,7 @@ SNI_NewArrayImpl(CVMExecEnv* ee,
                           CVMsystemClass(java_lang_String));
             type = CVM_T_CLASS;
         } else {
-            CVMassert(SNI_BOOLEAN_ARRAY <= type <= SNI_LONG_ARRAY);
+            CVMassert(SNI_BOOLEAN_ARRAY <= type && type <= SNI_LONG_ARRAY);
             arrayCb = (CVMClassBlock*)CVMbasicTypeArrayClassblocks[type];
         }
         CVMID_allocNewArray(ee, type, arrayCb,

@@ -1,7 +1,7 @@
 /*
  * @(#)mtask.c	1.37 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -26,16 +26,11 @@
  */
 
 #include <stdio.h>
-#include <stddef.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
@@ -50,12 +45,8 @@
 #include "portlibs/posix/mtask.h"
 
 #include <jump_messaging.h>
-#include <dirent.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
 #include <dlfcn.h>
-/* FIXME: why is this using porting/JUMPMessageQueue.h instead of
-   jump_messaging.h? */
+
 #include "porting/JUMPMessageQueue.h"
 #include "porting/JUMPProcess.h"
 
@@ -301,6 +292,7 @@ createLogFile(char* prefix, char* kind, int pid)
     if (fd == -1) {
 	perror(fileName);
     }
+    free(fileName);
     return fd;
 }
 
@@ -325,46 +317,6 @@ printExitStatusString(FILE* out, int status)
     } else if (WIFSTOPPED(status)) {
 	fprintf(out, "<stopped with signal %d>\n", WSTOPSIG(status));
     } 
-}
-
-static void
-cleanMessageQueuesOf(int cpid)
-{
-    struct dirent* ptr;
-    DIR* dir;
-    char prefix[40];
-    char filename[60];
-    int prefixLen;
-    
-    snprintf(prefix, 40, "jump-mq-%d-", cpid);
-    prefixLen = strlen(prefix);
-    
-    dir = opendir("/tmp");
-    if (dir == NULL) {
-	perror("opendir");
-	return;
-    }
-    
-    while ((ptr = readdir(dir)) != NULL) {
-  	if (!strcmp(ptr->d_name, ".") || !strcmp(ptr->d_name, "..")) {
-	    continue;
-	}
-	if (!strncmp(ptr->d_name, prefix, prefixLen)) {
-	    key_t k;
-	    int mq;
-	    
-	    snprintf(filename, 60, "/tmp/%s", ptr->d_name);
-	    printf("Exiting process %d has message queue %s\n",
-		   cpid, filename);
-	    if (remove(filename) == -1) {
-		perror("mq file delete");
-		continue;
-	    } else {
-		printf("  removed file %s\n", filename);
-	    }
-	}
-    }
-    closedir(dir);
 }
 
  /*
@@ -413,10 +365,7 @@ doReapChildren(ServerState* state, int options)
 
 	fprintf(stderr, "Reaping child process %d\n", cpid);
 
-	/* TODO: Should this be part of the porting layer? 
-	   Or is the fact that we are using the mtask.c code indicative
-	   of Linux already? */
-	cleanMessageQueuesOf(cpid);
+	jumpMessageQueueCleanQueuesOf(cpid);
 	
 	printExitStatusString(stderr, status);
 	fprintf(stderr, "\t user time %ld.%02d sec\n",
@@ -724,19 +673,46 @@ dumpMessage(JUMPMessage m, char* intro)
 static char*
 oneString(JUMPMessage m)
 {
-    char* string;
     JUMPMessageReader r;
     JUMPPlatformCString* strings;
-    uint32 len, i;
+    uint32 len;
     
-    string = (char*)calloc(1024, 1);
     jumpMessageReaderInit(&r, m);
     strings = jumpMessageGetStringArray(&r, &len);
-    for (i = 0; i < len; i++) {
-	strcat(string, strings[i]);
-	strcat(string, " ");
+    if (r.status != JUMP_SUCCESS) {
+	return NULL;
     }
-    return string;
+
+    if (strings != NULL) {
+	uint32 i;
+	uint32 bufSize = 1; /* for the string null terminator */
+	char* string;
+
+        /* first figure out the size of the buffer we need to allocate */
+        for (i = 0; i < len; i++) {
+            if (strings[i] != NULL) {
+	        bufSize += strlen(strings[i]) + 1 /* for the " " */;
+            }
+        }
+
+        /* allocate the buf and start copying */
+        string = calloc(bufSize, sizeof(char));
+	if (string != NULL) {
+	    for (i = 0; i < len; i++) {
+		if (strings[i] != NULL) {
+		    strcat(string, strings[i]);
+		    strcat(string, " ");
+		}
+	    }
+	}
+
+	jumpMessageFreeStringArray(strings, len);
+
+	return string;
+    }
+    else {
+	return calloc(1, sizeof(char));
+    }
 }
 
 /* Returns a JUMPMessage when there is a message to process.  There
@@ -883,7 +859,7 @@ prepareJNative(char *procName, char *soLibName)
     char *libName;
     JUMPMessageQueueStatusCode code = 0;
     unsigned char *type; 
-    void *symbol;
+    void *symbol = NULL;
 
     /*
      * trying to find native method.
@@ -914,11 +890,9 @@ prepareJNative(char *procName, char *soLibName)
 	if (dsoHandle != NULL) {
 	    symbol = dlsym(dsoHandle, procName);
 	    /* FIXME: should we do "dlclose()" somewhere? */
-	} else {
-	    fprintf(stderr, "MTASK: Can't find lib: %s\n", soLibName);
-	    return NULL;
 	}
-    } else {
+    } 
+    if (symbol == NULL) {
 	symbol = dlsym(RTLD_DEFAULT, procName);
     }
 

@@ -1,7 +1,7 @@
 /*
  * @(#)net_util.h	1.28 01/11/13
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -104,12 +104,10 @@ void
 NET_AllocSockaddr(struct sockaddr **him, int *len);
 
 void
-NET_InetAddressToSockaddr(JNIEnv *env, jobject iaObj, int port, struct sockaddr *him, int *len, jboolean isLocalAddr);
+NET_InetAddressToSockaddr(JNIEnv *env, jobject iaObj, int port, struct sockaddr *him, int *len);
 
 jobject
 NET_SockaddrToInetAddress(JNIEnv *env, struct sockaddr *him, int *port);
-
-void initLocalAddrTable ();
 
 void
 NET_SetTrafficClass(struct sockaddr *him, int trafficClass);

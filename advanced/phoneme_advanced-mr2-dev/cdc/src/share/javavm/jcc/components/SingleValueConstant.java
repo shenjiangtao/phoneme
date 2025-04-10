@@ -1,7 +1,7 @@
 /*
  * @(#)SingleValueConstant.java	1.9 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -37,18 +37,22 @@ class SingleValueConstant extends ConstantObject
 {
     public int value;
 
-    private SingleValueConstant( int t, int v ){
-	tag = t;
+    private SingleValueConstant(int tag, int v) {
+	super(tag);
 	value = v;
-	nSlots = 1;
     }
 
-    public SingleValueConstant( int ival ){
+    public SingleValueConstant(int ival) {
 	this( Const.CONSTANT_INTEGER, ival );
     }
 
-    public static ConstantObject read( int t, DataInput i ) throws IOException{
-	return new SingleValueConstant( t, i.readInt() );
+    /**
+     * Factory method to construct a SingleValueConstant instance from the
+     * constant pool data stream.  This method is only called from the
+     * ConstantObject.readObject() factory.
+     */
+    static ConstantObject read(int tag, DataInput i) throws IOException {
+	return new SingleValueConstant(tag, i.readInt());
     }
 
     public void write( DataOutput o ) throws IOException{

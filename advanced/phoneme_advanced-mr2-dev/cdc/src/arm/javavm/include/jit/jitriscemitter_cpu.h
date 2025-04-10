@@ -1,7 +1,7 @@
 /*
  * @(#)jitriscemitter_cpu.h	1.97 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -165,7 +165,7 @@ CVMARMalurhsEncodeToken(CVMJITCompilationContext* con,
 
 /* MemSpec query APIs: ==================================================== */
 
-#define CVMARMisMode2Instruction(opcode) (((opcode) & 0x0f000000) != 0)
+#define CVMARMisMode2Instruction(opcode) ((opcode >> 26) == 0x1)
 
 #define CVMCPUmemspecIsEncodableAsImmediate(value) \
     ((-0xfff <= ((CVMInt32)(value))) && (((CVMInt32)(value)) <= 0xfff))
@@ -174,6 +174,7 @@ CVMARMalurhsEncodeToken(CVMJITCompilationContext* con,
     (CVMARMisMode2Instruction(opcode) ? \
      CVMCPUmemspecIsEncodableAsImmediate(value) : ((value) <= 255))
 
+#define CVMARMisMode5Instruction(opcode) ((opcode >> 26) == 0x3)
 
 /* MemSpec token encoder APIs: ============================================ */
 
@@ -346,6 +347,17 @@ CVMCPUInstruction
 CVMARMgetBranchInstruction(CVMCPUCondCode condCode, int offset, CVMBool link);
 
 /**************************************************************
+ * Memory barrier emitters
+ **************************************************************/
+#ifdef CVM_MP_SAFE
+#define CVMCPUemitMemBarAcquire(con) \
+    CVMCPUemitMemBar(con)
+
+#define CVMCPUemitMemBarRelease(con) \
+    CVMCPUemitMemBar(con)
+#endif
+
+/**************************************************************
  * CPU C Call convention abstraction - The following are prototypes of calling
  * convention support functions required by the RISC emitter porting layer.
  **************************************************************/
@@ -431,5 +443,23 @@ CVMARMCCALLgetRequired(CVMJITCompilationContext *con,
             CVMCPU_SP_REG, CVMCPU_SP_REG, stackWords, CVMJIT_NOSETCC); \
     }                                                                  \
 }
+
+#ifdef CVM_JIT_USE_FP_HARDWARE
+/* Purpose: Emits instructions to move register contents 
+ *          to and from fp registers */
+void
+CVMARMemitMoveFloatFP(CVMJITCompilationContext* con,
+                 int opcode, int destRegID, int srcRegID);
+
+void
+CVMARMemitMoveDoubleFP(CVMJITCompilationContext* con,
+                 int opcode, int fpRegID, int regID);
+
+/* Purpose: Emits instructions to move system register contents 
+ *          to and from ARM registers */
+void
+CVMARMemitStatusRegisterFP(CVMJITCompilationContext* con,
+                 int opcode, int statusReg, int regID);
+#endif /* CVM_JIT_USE_FP_HARDWARE */
 
 #endif /* _INCLUDED_ARM_JITRISCEMITTER_CPU_H */

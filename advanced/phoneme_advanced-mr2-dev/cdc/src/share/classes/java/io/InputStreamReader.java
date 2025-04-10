@@ -1,7 +1,7 @@
 /*
  * @(#)InputStreamReader.java	1.35 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -192,7 +192,7 @@ public class InputStreamReader extends Reader {
 	    if (nBytes != -1) {
 		if ((nc > 0) && !inReady())
 		    break;	/* Block at most once */
-		nBytes = in.read(bb);
+                nBytes = in.read(bb, 0, Math.min(end - off, bb.length));
 	    }
 
 	    if (nBytes == -1) {

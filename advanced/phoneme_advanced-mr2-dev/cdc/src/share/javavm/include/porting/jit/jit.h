@@ -1,7 +1,7 @@
 /*
  * @(#)jit.h	1.52 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -321,6 +321,12 @@ CVMJITinitCompilerBackEnd(void);
 extern void
 CVMJITdestroyCompilerBackEnd(void);
 
+#ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
+/* Purpose: back-end PMI initialization. */
+extern CVMBool
+CVMJITPMIinitBackEnd(void);
+#endif
+
 /******************************************************************
  * The following two code cache functions are called if 
  * the macro CVMJIT_HAVE_PLATFORM_SPECIFIC_ALLOC_FREE_CODECACHE
@@ -345,37 +351,35 @@ CVMJITfreeCodeCache(void *start);
  * #define'd.
  */
 
+/* Don't use fixed address for AOT codecache by default. */
+#undef CVMAOT_USE_FIXED_ADDRESS
+
 /* Purpose: Find AOT code from the persistent storage. Initialize
  *          following AOT related global variables:
  *              jgs->codeCacheAOTStart
  *              jgs->codeCacheAOTEnd
  *              jgs->codeCacheAOTCodeExist
  *          The return value is the size of the AOT code.
+ *          If there is no existing AOT code, allocate a consecutive
+ *          code cache for bot h AOT and JIT compilation.
  */
 extern CVMInt32
-CVMfindAOTCodeCache();
+CVMfindAOTCode();
 
-/* 
- * The compiled code below the codeCacheDecompileStart will be saved
- * into persistent storage if there is no previouse saved AOT code, 
+/*
+ * The compiled code above the codeCacheDecompileStart will be saved
+ * into persistent storage if there is no previously saved AOT code,
  * and will be reloaded next time.
- * On linux, for example we write the AOT code size as the first word.
- * The saved code cache looks like the following:
- *
- *  ------------------------------------------------------
- *  |size|                                               |
- *  |-----                                               |
- *  |                                                    |
- *  |                 compiled code                      |
- *  .                                                    .
- *  .                                                    .
- *  .                                                    .
- *  |                                                    |
- *  ------------------------------------------------------
  */
 extern void
 CVMJITcodeCachePersist();
 
+/*
+ * Destroy AOT code cache. The return value indicates if 
+ * we need to free the JIT code cache separately.
+ */
+extern CVMBool
+CVMJITAOTcodeCacheDestroy();
 
 /******************************************************************/
 

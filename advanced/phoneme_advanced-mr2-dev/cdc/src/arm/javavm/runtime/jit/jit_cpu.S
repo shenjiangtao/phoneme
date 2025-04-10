@@ -1,27 +1,28 @@
 /*
  * @(#)jit_cpu.S	1.25 06/10/10
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -50,24 +51,24 @@
  * stack.  The interpreter and compiled code act like co-routines.
  */
 
+#ifdef WINCE
+#define CVMJITgoNative CVMgoNative0
 #ifdef CVMJIT_HAVE_STATIC_CODECACHE
 /* Currently this only applies to WinCE, because of the way
    it handles exceptions. */
-
 	SET_SECTION_EXEC_WRITE
-#define CVMJITgoNative CVMgoNative0
 #endif
-
+#endif
 /* 
  * Entry point from interpreted code: 
  * CVMMethodBlock* 
  * CVMJITgoNative(CVMObject* exceptionObject, CVMExecEnv* ee, 
  *	          CVMCompiledFrame *jfp, CVMUint8 *pc); 
  */
-#ifdef WINCE
+#if (defined(WINCE) && defined(CVMJIT_HAVE_STATIC_CODECACHE))
 	NESTED_ENTRY CVMJITgoNative
 #else
-	ENTRY( CVMJITgoNative )
+	ENTRY(CVMJITgoNative)
 #endif
 ENTRY1( CVMJITgoNative )
 	/* a1 = exceptionObject - unused unless returning to exception handler
@@ -81,7 +82,7 @@ ENTRY1( CVMJITgoNative )
 	stmfd	sp!, {v1-v7, fp, ip, lr}
 #ifdef CVMJIT_HAVE_STATIC_CODECACHE
 	/* Keep sp 64-bit aligned for AAPCS */
-	sub	sp, sp, #((CONSTANT_CVMCCExecEnv_size+7) & ~7)
+	sub	sp, sp, #((CONSTANT_CVMCCExecEnv_size+7) BIT_AND ~7)
 	PROLOG_END
 #endif
 
@@ -104,7 +105,7 @@ ENTRY1( CVMJITgoNative )
 	ldr	a3, [a2, #OFFSET_CVMExecEnv_interpreterStack+OFFSET_CVMStack_stackChunkEnd]
 #ifndef CVMJIT_HAVE_STATIC_CODECACHE
 	/* Keep sp 64-bit aligned for AAPCS */
-	sub	sp, sp, #((CONSTANT_CVMCCExecEnv_size+7) & ~7)
+	sub	sp, sp, #((CONSTANT_CVMCCExecEnv_size+7) BIT_AND ~7)
 #endif
 	str	a2, [sp, #OFFSET_CVMCCExecEnv_ee]
 	str	a3, [sp, #OFFSET_CVMCCExecEnv_stackChunkEnd]
@@ -156,7 +157,7 @@ CVMcodeCacheEnd
 #ifdef CVMJIT_HAVE_STATIC_CODECACHE
 	ALTERNATE_ENTRY CVMJITexitNative
 #else
-	ENTRY( CVMJITexitNative )
+	ENTRY(CVMJITexitNative)
 #endif
 ENTRY1( CVMJITexitNative )
 	/* a1 = ccee 
@@ -165,7 +166,7 @@ ENTRY1( CVMJITexitNative )
          * to take any further action on our behalf 
 	 */
 	/* Keep sp 64-bit aligned for AAPCS */
-	add	sp, a1, #((CONSTANT_CVMCCExecEnv_size+7) & ~7)
+	add	sp, a1, #((CONSTANT_CVMCCExecEnv_size+7) BIT_AND ~7)
         mov	a1,#0
 #ifdef WINCE
 	/* WinCE epilogue */
@@ -183,7 +184,7 @@ ENTRY1( CVMJITexitNative )
  * extern void
  * CVMJITfixupFrames(CVMFrame *);
  */
-	ENTRY ( CVMJITfixupFrames )
+	ENTRY(CVMJITfixupFrames)
 ENTRY1 ( CVMJITfixupFrames )
 #define CFP a1
 #define PREV a2

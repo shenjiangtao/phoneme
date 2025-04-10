@@ -1,7 +1,7 @@
-/*
+ /*
  * @(#)HttpURLConnection.java	1.86 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -48,6 +48,8 @@ import sun.net.www.http.ChunkedInputStream;
 import java.text.SimpleDateFormat;
 import java.util.TimeZone;
 import java.net.MalformedURLException;
+import sun.misc.NetworkMetrics;
+import sun.misc.NetworkMetricsInf;
 
 /**
  * A class to represent an HTTP connection to a remote object.
@@ -155,6 +157,10 @@ public class HttpURLConnection extends java.net.HttpURLConnection {
 
     /* If we decide we want to reuse a client, we put it here */
     private HttpClient reuseClient = null;
+
+    protected int netMetricCode = 0;
+    protected NetworkMetricsInf nm;
+    private boolean sentMetric = false;
 
     /*
      * privileged request password authentication 
@@ -301,7 +307,32 @@ public class HttpURLConnection extends java.net.HttpURLConnection {
 	    }
 	    setRequests=true;
 	}
-	http.writeRequests(requests, poster);
+	final int bytesWritten = http.writeRequests(requests, poster);
+        java.security.AccessController.doPrivileged(new java.security.PrivilegedAction() {
+            public Object run() {
+                if (NetworkMetrics.metricsAvailable()) {
+                    int methodType =
+                        (method.equals("POST") ? NetworkMetricsInf.POST :
+                         method.equals("HEAD") ? NetworkMetricsInf.HEAD :
+                         NetworkMetricsInf.GET);
+                    Class nmClass = NetworkMetrics.getImpl();
+                    if (nmClass == null) {
+                        return null;
+                    }
+                    try {
+                        nm = (NetworkMetricsInf) nmClass.newInstance();
+                    } catch (Exception e) {
+                        return null;
+                    }
+                    nm.initReq(NetworkMetricsInf.HTTP, getURL());
+                    nm.sendMetricReq(http.getServerSocket(), methodType,
+                                     bytesWritten);
+                    sentMetric = true;
+                }
+                return null;
+            }
+        });
+
 	if (ps.checkError()) {
 	    String proxyHost = http.getProxyHostUsed();
 	    int proxyPort = http.getProxyPortUsed();
@@ -643,7 +674,7 @@ public class HttpURLConnection extends java.net.HttpURLConnection {
 		http.parseHTTP(responses, pe);
 		inputStream = new HttpInputStream (http.getInputStream());
 
-		respCode = getResponseCode();
+		respCode = netMetricCode = getResponseCode();
 		if (respCode == HTTP_PROXY_AUTH) {
 		    AuthenticationHeader authhdr = new AuthenticationHeader (
 			"Proxy-Authenticate", responses
@@ -821,6 +852,10 @@ public class HttpURLConnection extends java.net.HttpURLConnection {
 	    throw e;
 	} catch (IOException e) {
 	    rememberedException = e;
+        if (inputStream != null) {
+            inputStream.close();
+            inputStream = null;
+        }
 	    throw e;
 	} finally {
 	    if (respCode == HTTP_PROXY_AUTH && proxyAuthentication != null) {
@@ -1562,9 +1597,31 @@ public class HttpURLConnection extends java.net.HttpURLConnection {
 	    super (is);
         }
 
+        public int read() throws IOException {
+            int ret = super.read();
+            return ret;
+        }
+
+        public int read(byte b[], int off, int len) throws IOException {
+            int ret = super.read(b, off, len);
+            return ret;
+        }
+
         public void close () throws IOException {
 	    try {
 		super.close ();
+                if (sentMetric && NetworkMetrics.metricsAvailable()) {
+                    java.security.AccessController.doPrivileged(new java.security.PrivilegedAction() {
+                        public Object run() {
+                            int totalBytesRead = http.getBytesRead();
+                            nm.sendMetricResponse(http.getServerSocket(),
+                                          netMetricCode, totalBytesRead);
+                            return null;
+                        }
+                    });
+                    netMetricCode = 0;
+                    sentMetric = false;
+                }
 	    } finally {
 		HttpURLConnection.this.http = null;
 	    	checkResponseCredentials (true);

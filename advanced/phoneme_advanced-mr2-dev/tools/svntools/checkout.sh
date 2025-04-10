@@ -1,26 +1,26 @@
 #!/bin/bash
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License version
-# 2 only, as published by the Free Software Foundation. 
+# 2 only, as published by the Free Software Foundation.
 # 
 # This program is distributed in the hope that it will be useful, but
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License version 2 for more details (a copy is
-# included at /legal/license.txt). 
+# included at /legal/license.txt).
 # 
 # You should have received a copy of the GNU General Public License
 # version 2 along with this work; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
-# 02110-1301 USA 
+# 02110-1301 USA
 # 
 # Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
 # Clara, CA 95054 or visit www.sun.com if you need additional
-# information or have any questions. 
+# information or have any questions.
 #
 
 OPTQ=-q
@@ -68,23 +68,42 @@ if [ $# -gt 0 -a -r "$1" ] ; then
     exec < $1
 fi
 
+docmd () {
+    echo $*
+    if [ ! "$OPTN" ]; then
+        "$@"
+    fi
+}
+
 while read repourl base ; do
     # echo '<' $repourl $base
     if [ ! -d $base ] ; then
-        cmd=(svn co $OPTQ $repourl $base)
+        docmd svn co $OPTQ $repourl $base
     elif svn info $base > $TMP ; then
         wcurl=$(awk '$1 == "URL:" { print $2 }' $TMP)
+        wcbase=$(awk '/^Repository Root:/ { print $3 }' $TMP)
+        wcuuid=$(awk '/^Repository UUID:/ { print $3 }' $TMP)
+	svn info $repourl > $TMP
+        repobase=$(awk '/^Repository Root:/ { print $3 }' $TMP)
+        repouuid=$(awk '/^Repository UUID:/ { print $3 }' $TMP)
+        if [ $repobase != $wcbase ]; then
+            if [ $repouuid != $wcuuid ]; then
+                echo UUID mismatch.  Skipping $repourl.
+                continue
+            fi
+            wcpath=$(awk -v X=$wcurl -v Y=$wcbase \
+                'BEGIN {print substr(X, length(Y)+2)}')
+            newurl=$repobase/$wcpath
+            docmd svn switch --relocate $OPTQ $wcurl $newurl $base
+	    svn info $base > $TMP
+            wcurl=$(awk '$1 == "URL:" { print $2 }' $TMP)
+        fi
         if [ "$repourl" = "$wcurl" ] ; then
-            cmd=(svn update $OPTQ $repourl $base)
+            docmd svn update $OPTQ $base
         else
-            cmd=(svn switch $OPTQ $repourl $base)
+            docmd svn switch $OPTQ $repourl $base
         fi
     else
         continue
-    fi
-
-    echo ${cmd[*]}
-    if [ ! "$OPTN" ]; then
-        "${cmd[@]}"
     fi
 done

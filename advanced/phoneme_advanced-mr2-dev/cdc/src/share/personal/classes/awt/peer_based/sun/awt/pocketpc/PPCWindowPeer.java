@@ -1,7 +1,7 @@
 /*
  * @(#)PPCWindowPeer.java	1.4 02/12/09
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -69,6 +69,11 @@ class PPCWindowPeer extends PPCPanelPeer implements WindowPeer
         _setResizable(resizable);
         ((Component)target).invalidate();  // Insets were updated.
     }
+
+    /* Dummy method */
+    public void setActive() {
+    }
+ 
     public native void _setResizable(boolean resizable);
     
     // Toolkit & peer internals

@@ -1,7 +1,7 @@
 /*
  * @(#)defs.h	1.93 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -131,6 +131,9 @@ CVM_STRUCT_TYPEDEF(CVMTransitionConstantPool);
 CVM_UNION_TYPEDEF (CVMConstantPoolEntry);
 CVM_STRUCT_TYPEDEF(CVMStackMapEntry);
 CVM_STRUCT_TYPEDEF(CVMStackMaps);
+#ifdef CVM_DUAL_STACK
+CVM_STRUCT_TYPEDEF(CVMClassRestrictions);
+#endif
 
 /*
  * Classes which the VM uses directly
@@ -247,13 +250,11 @@ typedef void (*CVMRefCallbackFunc)(CVMObject** refAddr, void* data);
  */
 typedef CVMBool (*CVMRefLivenessQueryFunc)(CVMObject** refAddr, void* data);
 
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
 /*
  * A per-object callback function, to be called during heap dumps
  */
 typedef CVMBool (*CVMObjectCallbackFunc)(CVMObject* obj, CVMClassBlock* cb, 
                                          CVMUint32  objSize, void* data);
-#endif
 
 /*
  * Scan all GC references in a frame. Each frame carries a pointer

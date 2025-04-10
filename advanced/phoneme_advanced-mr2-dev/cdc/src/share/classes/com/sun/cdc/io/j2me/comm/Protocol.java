@@ -1,7 +1,7 @@
 /*
  * @(#)Protocol.java	1.16 06/10/13
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -58,6 +58,9 @@ public class Protocol extends BufferedConnectionAdapter
 
     /* This object's device name */
     private String thisDeviceName = null;
+
+    /* This object's device mode  */
+    private int deviceMode = Connector.READ;
 
     /**
      * Class initializer
@@ -206,10 +209,43 @@ public class Protocol extends BufferedConnectionAdapter
     }
 
     /*
-     * throws SecurityException if MIDP permission check fails 
-     * nothing to do for CDC
-    */
-    protected void checkMIDPPermission(String name) {
+     * Throws SecurityException if permission check fails.
+     * Will be overriden by MIDP version of the protocol
+     * handler.
+     */
+    protected void checkPermission(String name) {
+        java.lang.SecurityManager sm = System.getSecurityManager();
+        if (sm != null) {
+            if (deviceMode == Connector.READ) {
+                sm.checkRead(name);
+            } else {
+                sm.checkWrite(name);
+            }
+        }
+        return;
+    }
+
+    /*
+     * Check permission when opening an OutputStream. MIDP
+     * versions of the protocol handler should override this
+     * with an empty method. Throw a SecurityException if
+     * the connection is not allowed. Currently the comm
+     * protocol handler does not make a permission check at
+     * this point so this method is empty.
+     */
+    protected void outputStreamPermissionCheck() {
+        return;
+    }
+
+    /*
+     * Check permission when opening an InputStream. MIDP
+     * versions of the protocol handler should override this
+     * with an empty method. A SecurityException will be
+     * raised if the connection is not allowed. Currently the
+     * comm protocol handler does not make a permission
+     * check at this point so this method is empty.
+     */
+    protected void inputStreamPermissionCheck() {
         return;
     }
 
@@ -266,6 +302,7 @@ public class Protocol extends BufferedConnectionAdapter
         String deviceName = null;
         int start = 0;
         int pos = 0;
+	deviceMode = mode;
 
         if (name.length() == 0) {
              throw new IllegalArgumentException("Missing port ID");
@@ -309,7 +346,7 @@ public class Protocol extends BufferedConnectionAdapter
         // blocking is handled at the Java layer so other Java threads can run
 
         if (deviceName != null) {
-            checkMIDPPermission(deviceName);
+            checkPermission(deviceName);
 	    /* 6231661: before checking if port is already open, 
 	       check if no open Streams (ensureNoStreamsOpen).  This is 
 	       done to throw the correct exception: IOException when 
@@ -324,7 +361,7 @@ public class Protocol extends BufferedConnectionAdapter
 	    handle = native_openByName(deviceName, baud,
 				       bbc|stop|parity|rts|cts);
         } else {
-            checkMIDPPermission("comm:" + portNumber);
+            checkPermission("comm:" + portNumber);
 	    handle = native_openByNumber(portNumber, baud,
 					 bbc|stop|parity|rts|cts);
         }
@@ -462,32 +499,41 @@ public class Protocol extends BufferedConnectionAdapter
     protected int nonBufferedRead(byte b[], int off, int len)
         throws IOException {
 
-        int bytesRead;
+        int bytesRead = 0;
 
-	if (b == null) {
-	    b = new byte[256];
-	}
+        try {
+            if (b == null) {
+                int chunk = 256;
+                b = new byte[chunk];
+                int end = off + len;
+                int tmp = chunk;
+                for (; off < end && tmp == chunk; off += chunk) {
+                    if (off + chunk > end) {
+                        chunk = end - off;
+                    }
+                    tmp = native_readBytes(handle, b, 0, chunk);
+                    if (tmp > 0) {
+                        bytesRead += tmp;
+                    }
+                }
+                if (tmp < 0) {
+                    eof = true;
+                }
+            } else {
+                bytesRead = native_readBytes(handle, b, off, len);
+            }
+        } finally {
+            if (iStreams == 0) {
+                throw new InterruptedIOException("Stream closed");
+            }
+        }
 
-	try {
-	    ///*                bytesRead = native_readBytes(handle, b, off, len);
-	    bytesRead = native_readBytes(handle, b, off, len);
-	} finally {
-	    if (iStreams == 0) {
-		throw new InterruptedIOException("Stream closed");
-	    }
-	}
+        if (bytesRead == -1) {
+            eof = true;
+        }
 
-	if (bytesRead == -1) {
-	    eof = true;
-	    return -1;
-	}
-
-	if (bytesRead != 0 || !blocking) {
-	    return bytesRead;
-	}
-
-	///            GeneralBase.iowait(); 
-					     return(bytesRead);
+        ///            GeneralBase.iowait(); 
+        return(bytesRead);
     }
 
     /**

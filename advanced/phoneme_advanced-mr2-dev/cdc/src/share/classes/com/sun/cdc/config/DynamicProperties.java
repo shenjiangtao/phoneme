@@ -1,7 +1,7 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -86,7 +86,10 @@ public class DynamicProperties {
         while (provKeys.hasMoreElements()) {
             String key = (String)provKeys.nextElement();
             PropertyProvider prov = (PropertyProvider)propProviders.get(key);
-            props.put(key, prov.getValue(key, ((Boolean)provCached.get(prov)).booleanValue()));
+            String value = prov.getValue(key, ((Boolean)provCached.get(prov)).booleanValue());
+            if (value != null) {
+                props.put(key, value);
+            }
         }
     
     }

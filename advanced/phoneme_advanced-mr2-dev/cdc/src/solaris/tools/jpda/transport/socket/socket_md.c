@@ -1,7 +1,7 @@
 /*
  * @(#)socket_md.c	1.11 06/10/26
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -46,6 +46,12 @@
 
 #include "socket_md.h"
 #include "sysSocket.h"
+
+int
+dbgsysInit(JavaVM *jvm)
+{
+    return 0;
+}
 
 int
 dbgsysListen(int fd, long count) {
@@ -134,9 +140,9 @@ dbgsysBind(int fd, struct sockaddr *name, int namelen) {
     return bind(fd, name, namelen);
 }
 
-UINT32
+U_SOCKINT32
 dbgsysInetAddr(const char* cp) {
-    return (UINT32)inet_addr(cp);
+    return (U_SOCKINT32)inet_addr(cp);
 }
 
 unsigned long

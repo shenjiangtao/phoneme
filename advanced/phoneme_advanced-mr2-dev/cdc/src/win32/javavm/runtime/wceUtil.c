@@ -1,7 +1,7 @@
 /*
  * @(#)wceUtil.c	1.13 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -127,15 +127,59 @@ char *getenv(const char* name) {
     return valTable[numVal++];
 }
 
+/* time from 01/01/1601 to 01/01/1970 in 100 ns. ticks*/
+
+#define EPOCH CONST64(0x19db1ded53e8000)
 
 JAVAI_API time_t time(time_t *tloc) {
-    CVMsystemPanic("time: not supported");
-    return 0;
+
+    SYSTEMTIME sysTimeStruct;
+    FILETIME fTime;
+    CVMInt64 int64time;
+    time_t tmpTT = 0;
+    
+    if ( tloc == NULL ) {
+        tloc = &tmpTT;
+    }
+    GetSystemTime( &sysTimeStruct );
+    if ( SystemTimeToFileTime( &sysTimeStruct, &fTime ) ) {
+        int64time = fTime.dwLowDateTime +
+          ((CVMInt64)fTime.dwHighDateTime << 32);
+        /* Subtract the value for 1970-01-01 00:00 (UTC) */
+        int64time -= EPOCH;
+        /* Convert to seconds. */
+        int64time /= CONST64(10000000);
+        *tloc = int64time;
+    }
+ 
+    return *tloc;
 }
 
+static char ctime_buf[32];
+
+static char *day_of_wk[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+
+static char *month[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+                          "Aug", "Sep", "Oct", "Nov", "Dec"};
+
 JAVAI_API char *ctime(const time_t *clock) {
-    CVMsystemPanic("ctime: not supported");
-    return NULL;
+
+    FILETIME ft, lft;
+    SYSTEMTIME st;
+    CVMInt64 myTime = (CVMInt64)*clock;
+
+    myTime *= CONST64(10000000);
+    myTime += EPOCH;
+    ft.dwLowDateTime = myTime & (CONST64(0xffffffff));
+    ft.dwHighDateTime = ((myTime & (CONST64(0xffffffff00000000))) >> 32) &
+      CONST64(0xffffffff);
+    FileTimeToLocalFileTime(&ft, &lft);
+    FileTimeToSystemTime(&lft, &st);
+    _snprintf(ctime_buf, 127, "%s %s %d %d:%d:%d %d\n",
+             day_of_wk[st.wDayOfWeek],
+             month[st.wMonth-1], st.wDay, st.wHour, st.wMinute, st.wSecond,
+             st.wYear);
+    return ctime_buf;
 }
 
 JAVAI_API time_t mktime(struct tm *timeptr) {
@@ -216,6 +260,22 @@ _wrename(const wchar_t* oldPath, const wchar_t* newPath)
     return 0;
 }
 
+int 
+rename(const char *oldpath, const char *newpath) 
+{
+    wchar_t woldpath[MAX_PATH];
+    wchar_t wnewpath[MAX_PATH];
+
+	if (oldpath == NULL || newpath == NULL) {
+		return -1;
+	}
+
+    mbstowcs(woldpath, oldpath, MAX_PATH);
+    mbstowcs(wnewpath, newpath, MAX_PATH);
+    return _wrename(woldpath, wnewpath);
+}
+
+
 /*
 int mkdir(const char* path) {
 
@@ -274,6 +334,28 @@ JAVAI_API DWORD GetCurrentDirectory(DWORD nBufferLength, char *lpBuffer) {
     return strlen(lpBuffer);
 }
 
+char* _getdcwd(int drive, char *buf, int maxlen) {
+    /* Drive parameter is not applicable for mobile devices */
+    (void)drive;
+
+    if (GetCurrentDirectory(maxlen, buf) > 0) {
+        return buf;
+    }
+	return NULL;
+}
+
+wchar_t* _wgetdcwd(int drive, wchar_t *wbuf, int maxlen) {
+    char buf[MAX_PATH];
+    /* Drive parameter is not applicable for mobile devices */
+    (void)drive;
+
+    if (GetCurrentDirectory(MAX_PATH, buf) > 0) {
+        if (mbstowcs(wbuf, buf, maxlen) > 0) {
+            return wbuf;
+        }
+    }
+	return NULL;
+}
 
 _CRTIMP void * __cdecl calloc(size_t num, size_t size) {
     size_t len = num * size;
@@ -305,14 +387,84 @@ int _waccess(const wchar_t* path, int amode)
     return 0;
 }
 
-wchar_t *
-_wfullpath(wchar_t *absPath, const wchar_t *relPath, size_t maxLength)
+int 
+_access(const char *path, int amode) 
 {
-    if (wcslen(relPath) >= maxLength) {
-	return NULL;
+    wchar_t wpath[MAX_PATH];
+
+	if (path == NULL) {
+		return -1;
+	}
+
+    mbstowcs(wpath, path, MAX_PATH);
+    return _waccess(wpath, amode);
+
+}
+
+/* Remove "." and ".." from the path */
+BOOL
+WINCEpathRemoveDots(wchar_t *dst0, const wchar_t *src, size_t maxLength)
+{
+    int comps;
+    wchar_t *dst = dst0;
+
+    /* Must be absolute */
+    if (src[0] != L'\\') {
+	SetLastError(ERROR_BAD_PATHNAME);
+	return CVM_FALSE;
     }
-    wcscpy(absPath, relPath);
-    return absPath;
+    if (maxLength < 2) {
+	goto fail;
+    }
+    *dst++ = *src++;
+    --maxLength;
+    comps = 0;
+    *dst = L'\0';
+
+    {
+	wchar_t *p;
+	do {
+	    size_t l;
+	    p = wcschr(src, L'\\');
+	    if (p != NULL) {
+		l = p - src;
+	    } else {
+		l = wcslen(src);
+	    }
+	    if (comps < 0) {
+		goto copy;
+	    }
+	    if (l == 1 && src[0] == L'.') {
+		/* / or ./ */
+		/* do nothing */
+	    } else if (l == 2 && wcsncmp(src, L"..", 2) == 0) {
+		/* ../ */
+		if (comps > 0) {
+		    --comps;
+		    dst[-1] = L'\0';
+		    dst = wcsrchr(dst0, L'\\') + 1;
+		    dst[0] = L'\0';
+		}
+	    } else {
+copy:
+		if (l + 1 >= maxLength) {
+		    goto fail;
+		}
+		wcsncpy(dst, src, l + 1);
+		if (dst == dst0 + 1 && dst[0] == L'\\') {
+		    /* UNC */
+		} else {
+		    ++comps;
+		}
+		dst += l + 1;
+	    }
+	    src += l + 1;
+	} while (p != NULL);
+    }
+    return CVM_TRUE;
+fail:
+    SetLastError(ERROR_BAD_PATHNAME);
+    return CVM_FALSE;
 }
 
 #if _WIN32_WCE < 300

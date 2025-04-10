@@ -1,7 +1,7 @@
 /*
  * @(#)invokeNative_mips.S	1.12 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -119,6 +119,8 @@
 */
 
 ENTRY(CVMjniInvokeNative)
+	.globl arg_jumps 
+	.globl ret_jumps
 
 /*
   Arguments:
@@ -179,7 +181,10 @@ ENTRY(CVMjniInvokeNative)
 
 	.mask	mask,frameoffset
 
-/* Set up registers for processing the signature, etc. */
+	/* setup %gp */
+	.set noreorder
+	.cpload $25
+	.set reorder
 
 	subu	sp, sp, framesize  /* grow stack */
 
@@ -190,18 +195,16 @@ ENTRY(CVMjniInvokeNative)
 
 	sw	ra,_ra(sp)
 	sw	fp,_fp(sp)
+	sw	gp,__gp(sp)
 	sw	s0,_s0(sp)
 
 	move	fp, sp
 
 /*
  * transferring arguments
- *
- * first 4 in register
-
- * The first argument (a0) is already the JNI env.
-
- * The next one is a2 or stk2 if it's non-zero (for static methods).
+ *  -first 4 in register
+ *  -The first argument (a0) is already the JNI env.
+ *  -The next one is a2 or stk2 if it's non-zero (for static methods).
  */
 
 	move	FuncPtr, a1
@@ -212,12 +215,12 @@ ENTRY(CVMjniInvokeNative)
 	andi	RETTYPE, SIGBUFF, TYPEMASK /* save return type for later use */
 	srl	SIGBUFF, SIGBUFF, TYPESHIFT
 
-	LA(SWITCHBASE, $arg_jumps)  /* load the base of the jump table */
+	la	SWITCHBASE, arg_jumps /* load the address of the jump table */
 
 	/*
 	 * java ints only take up one word on the java stack but 2 words
 	 * on the C stack on 64-bit systems. Also, on 32-bit systems a 32-bit
-	 * argument can take up w words if followed by a 64-bit argument
+	 * argument can take up 2 words if followed by a 64-bit argument
 	 * because of alignment requirements for 64-bit arguments. Because
 	 * of this we're extra conservative and multiply stk1 by 8
 	 * rather than take the time to count the actual number of words
@@ -348,8 +351,9 @@ $args_done:
 #endif /* CVMMIPS_FPR_ARG_AFTER_GPR_ARG */
 
 	jalr	FuncPtr
+	lw	gp, __gp(fp)  /* restore gp from the stack */
 
-	LA(SWITCHBASE, $ret_jumps)
+	la	SWITCHBASE, ret_jumps /* load the address of the jump table */
 
 	lw	a3, stk3		/* pointer to result buffer */
 
@@ -381,10 +385,12 @@ $ret_s32:
 	li	v0, 1	/* 1 indicates single-word return */
 	RETURN
 
+#ifndef __mips_soft_float
 $ret_f32:
 	swc1	$f0, (a3)
 	li	v0, 1	/* 1 indicates single-word return */
 	RETURN
+#endif
 
 $ret_s64:
 #ifdef CVMCPU_HAS_64BIT_REGISTERS
@@ -396,6 +402,7 @@ $ret_s64:
 	li	v0, 2	/* 2 indicates double-word return */
 	RETURN
 
+#ifndef __mips_soft_float
 $ret_f64:
 #ifdef CVMMIPS_HAS_64BIT_FP_REGISTERS
 	sdc1	$f0, (a3)
@@ -410,12 +417,16 @@ $ret_f64:
 #endif
 	li	v0, 2   /* 2 indicates double-word return */
 	RETURN
+#endif
 
 $ret_void:
 	li	v0, 0	/* 0 indicates void return */
 	RETURN
 
-$ret_jumps:		
+	SET_SIZE(CVMjniInvokeNative)
+
+	.data
+ret_jumps:		
 	.word	$ret_void	/* error */
 	.word	$ret_void	/* ENDFUNC shouldn't get called */
 	.word	$ret_void	/* void */
@@ -424,13 +435,18 @@ $ret_jumps:
 	.word	$ret_s32	/* char */
 	.word	$ret_s64	/* long */
 	.word	$ret_s32	/* byte */
+#ifndef __mips_soft_float
 	.word	$ret_f32	/* float */
 	.word	$ret_f64	/* double */
+#else
+	.word	$ret_s32	/* float */
+	.word	$ret_s64	/* double */
+#endif
 	.word	$ret_s32	/* bool */
 	.word	$ret_obj
 	.word	$ret_void	/* this is invalid and shouldn't get called */
 
-$arg_jumps:
+arg_jumps:
 	.word	$arg_reload	/* no more data this word: go get more */
 	.word	$args_done 	/* end-of-args */
 	.word	$ret_void	/* this is invalid and shouldn't get called */
@@ -448,5 +464,3 @@ $arg_jumps:
 	.word	$arg_32		/* bool */
 	.word	$arg_object
 	.word	$ret_void	/* this is invalid and shouldn't get called */
-
-	SET_SIZE(CVMjniInvokeNative)

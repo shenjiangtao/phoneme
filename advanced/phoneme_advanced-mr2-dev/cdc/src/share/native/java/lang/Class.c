@@ -1,7 +1,7 @@
 /*
  * @(#)Class.c	1.127 06/10/30
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -415,8 +415,10 @@ Java_java_lang_Class_notifyClassLoaded(JNIEnv *env, jclass cls)
     }
 #endif /* CVM_JVMPI */
 #ifdef CVM_JVMTI
-    if (CVMjvmtiEventsEnabled()) {
-	CVMjvmtiNotifyDebuggerOfClassLoad(ee, CVMcbJavaInstance(cb));
+    /* Note: May change CVMisArrayOfAnyBasicType to CVMisArrayClass */
+    if (CVMjvmtiIsEnabled() && !CVMisArrayOfAnyBasicType(cb) &&
+	!CVMjvmtiClassBeingRedefined(ee, cb)) {
+	CVMjvmtiPostClassLoadEvent(ee, CVMcbJavaInstance(cb));
     }
 #endif /* CVM_JVMTI */
 }

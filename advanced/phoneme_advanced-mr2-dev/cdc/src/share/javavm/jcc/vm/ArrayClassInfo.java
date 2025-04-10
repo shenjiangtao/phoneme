@@ -1,7 +1,7 @@
 /*
  * @(#)ArrayClassInfo.java	1.30 06/10/22
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -126,7 +126,6 @@ class ArrayClassInfo extends ClassInfo {
 	throws DataFormatException
     {
 	super(v);
-	constants = new ConstantObject[0];
 	arrayClassNumber = nFake++;
 	baseClass = base;
 	className = s;
@@ -172,7 +171,7 @@ class ArrayClassInfo extends ClassInfo {
     }
 
     public static boolean
-	collectArrayClass(String cname, boolean verbose)
+	collectArrayClass(String cname, components.ClassLoader classloader, boolean verbose)
     {
 	// cname is the name of an array class
 	// make sure it doesn't exist ( it won't if it came from a 
@@ -185,43 +184,52 @@ class ArrayClassInfo extends ClassInfo {
 
 	boolean good = true;
 	int lastBracket = cname.lastIndexOf('[');
-	ClassInfo bci = null;
+	ClassInfo baseClassInfo = null;
 	if ( lastBracket < cname.length()-2 ){
 	    // it is a [[[[[Lsomething;
 	    // isolate the something and see if its defined.
-	    String baseClass = cname.substring( lastBracket+2, cname.length()-1 );
-	    bci = ClassTable.lookupClass(baseClass);
-	    if ( bci == null ){
+	    String baseClass = cname.substring(lastBracket+2, cname.length()-1);
+	    baseClassInfo = ClassTable.lookupClass(baseClass, classloader);
+	    if (baseClassInfo == null) {
 		// base class not defined. punt this.
-		if ( verbose ){
-		    System.out.println(Localizer.getString("javacodecompact.array_class_not_instantiated", cname, baseClass ) );
+		if (verbose) {
+		    System.out.println(Localizer.getString(
+                        "javacodecompact.array_class_not_instantiated",
+                        cname, baseClass));
 		}
 		return good;
 	    }
 	} else {
-	    String baseClass = cname.substring( lastBracket+1, cname.length());
-	    bci = ClassTable.lookupPrimitiveClass(baseClass.charAt(0));
-	    if ( bci == null ){
+	    String baseClass = cname.substring(lastBracket+1, cname.length());
+	    baseClassInfo =
+                ClassTable.lookupPrimitiveClass(baseClass.charAt(0));
+	    if (baseClassInfo == null) {
 		// base class not defined. punt this.
-System.out.println(Localizer.getString("javacodecompact.array_class_not_instantiated", cname, baseClass ) );
-		if ( verbose ){
-		    System.out.println(Localizer.getString("javacodecompact.array_class_not_instantiated", cname, baseClass ) );
+                System.out.println(Localizer.getString(
+                    "javacodecompact.array_class_not_instantiated",
+                    cname, baseClass));
+		if (verbose) {
+		    System.out.println(Localizer.getString(
+                        "javacodecompact.array_class_not_instantiated",
+                        cname, baseClass));
 		}
 //		return false;
 	    }
 	}
-	components.ClassLoader l = bci.loader;
-	ClassConstant bcc = new ClassConstant(bci);
+	components.ClassLoader loader = baseClassInfo.loader;
+	ClassConstant baseClassConstant = new ClassConstant(baseClassInfo);
 	// enter sub-classes first
 	for (int i = lastBracket; i >= 0; --i) {
 	    String aname = cname.substring(i);
-	    ClassInfo ci = ClassTable.lookupClass(aname);
-	    if ( ci != null ){
-		continue; // this one exists. But subclasses may not, so keep going.
+	    ClassInfo cinfo = ClassTable.lookupClass(aname, loader);
+	    if (cinfo != null) {
+                // this one exists. But subclasses may not, so keep going.
+		continue;
 	    }
 	    try {
-		ClassInfo newArray = new ArrayClassInfo(verbose, aname, bcc);
-		ClassTable.enterClass(newArray, l);
+		ClassInfo newArray =
+                    new ArrayClassInfo(verbose, aname, baseClassConstant);
+		ClassTable.enterClass(newArray, loader);
 	    } catch ( DataFormatException e ){
 		e.printStackTrace();
 		good = false;

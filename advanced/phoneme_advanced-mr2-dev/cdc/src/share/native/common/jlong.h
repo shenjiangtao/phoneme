@@ -1,7 +1,7 @@
 /*
  * @(#)jlong.h	1.21 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -47,6 +47,10 @@
 #define jlong_div(l1, l2)       CVMlongDiv(l1, l2)
 #define jlong_low(l)            CVMlong2Int(l)
 #define jlong_high(l)           CVMlong2Int(CVMlongShr(l, 32))
+
+#ifdef JAVASE
+#define long_to_jlong           CVMint2Long
+#endif
 
 /* 
  * Useful on machines where jlong and jdouble have different endianness.

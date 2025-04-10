@@ -1,7 +1,7 @@
 /*
  * @(#)ConnectionBaseAdapter.java	1.7 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -135,7 +135,7 @@ public abstract class ConnectionBaseAdapter implements ConnectionBaseInterface,
      * @exception InterruptedIOException if I/O associated with permissions is interrupted
      */
     ///    protected void checkForPermission(SecurityToken token, String name)
-	protected void checkForPermission()
+    protected void checkForPermission()
 	throws SecurityException, InterruptedIOException
     {
 	throw new SecurityException("Permission not granted");
@@ -333,8 +333,10 @@ public abstract class ConnectionBaseAdapter implements ConnectionBaseInterface,
      * @exception IOException if the subclass throws one
      */
     protected void closeInputStream() throws IOException {
-        iStreams--;
-        closeCommon();
+        if (iStreams>0) {
+            iStreams--;
+            closeCommon();
+        }
     }
 
     /**
@@ -346,8 +348,10 @@ public abstract class ConnectionBaseAdapter implements ConnectionBaseInterface,
      * @exception IOException if the subclass throws one
      */
     protected void closeOutputStream() throws IOException {
-        oStreams--;
-        closeCommon();
+        if (oStreams>0) {
+            oStreams--;
+            closeCommon();
+        }
     }
 
     /**

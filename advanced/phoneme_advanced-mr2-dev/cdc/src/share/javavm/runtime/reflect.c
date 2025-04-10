@@ -1,7 +1,7 @@
 /*
  * @(#)reflect.c	1.72 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -44,7 +44,6 @@
 #include "generated/offsets/java_lang_reflect_AccessibleObject.h"
 #include "generated/offsets/java_lang_reflect_Constructor.h"
 #include "generated/offsets/java_lang_reflect_Field.h"
-#include "generated/offsets/java_lang_reflect_InvocationTargetException.h"
 #include "generated/offsets/java_lang_reflect_Method.h"
 #include "generated/jni/java_lang_reflect_Modifier.h"
 
@@ -1002,7 +1001,7 @@ CVMreflectNewJavaLangReflectMethod(CVMExecEnv* ee,
 			    CVM_FALSE);
     }
 abort:
-    CVMassert(CVMID_icellIsNull(result) == CVMexceptionOccurred(ee));
+    CVMassert(CVMID_icellIsNull(result) == CVMlocalExceptionOccurred(ee));
     CVMID_localrootEnd();
 }
 
@@ -1054,6 +1053,11 @@ CVMreflectMethods(CVMExecEnv* ee,
 
 	    /* All interface methods are public */
 	    WALK_INTERFACE_METHODS(cb, mb, cnt++);
+
+            if (cnt == 0) {
+                goto done;
+            }
+
             interfaceMBs = malloc(cnt * sizeof(CVMMethodBlock *));
             if (interfaceMBs == NULL) {
 	        CVMthrowOutOfMemoryError(ee, NULL);
@@ -1074,6 +1078,8 @@ CVMreflectMethods(CVMExecEnv* ee,
 		}
             });
             cnt = newCnt;
+        done:
+            ;
 
 	} else {
 	    /* Count public instance methods */
@@ -1114,7 +1120,7 @@ CVMreflectMethods(CVMExecEnv* ee,
 
 	    if (isInterface) {
                 int i;
-		CVMassert(interfaceMBs != NULL);
+		CVMassert(interfaceMBs != NULL || cnt == 0);
                 for(i =0; i < cnt; i++) {
 		    CVMMethodBlock *mb = interfaceMBs[i];
                     CVMassert(mb != NULL);
@@ -2059,7 +2065,7 @@ CVMreflectCheckAccess(CVMExecEnv* ee,
        let's make sure some invariants are met */
     CVMassert(CVM_METHOD_ACC_PROTECTED == CVM_FIELD_ACC_PROTECTED);
 
-#define IsProtected(x)	((x) & CVM_METHOD_ACC_PROTECTED)
+#define IsProtected(x)	CVMmemberPPPAccessIs((x), FIELD, PROTECTED)
 
     CVMassert(ee != NULL);
 

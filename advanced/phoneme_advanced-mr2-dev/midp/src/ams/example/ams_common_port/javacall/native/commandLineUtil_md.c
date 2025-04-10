@@ -1,24 +1,24 @@
 /*
  *
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
@@ -34,11 +34,13 @@
 #include <midp_logging.h>
 #include <javacall_defs.h>
 #include <javacall_dir.h>
+#include <javacall_platform_defs.h>
+#include <javautil_unicode.h>
 
 #define MAX_PATH_LEN JAVACALL_MAX_ROOT_PATH_LENGTH
 
 /**
- * Generates a correct MIDP home directory based on several rules. If
+ * Generates a correct application directory based on several rules. If
  * the <tt>MIDP_HOME</tt> environment variable is set, its value is used
  * unmodified. Otherwise, this function will search for the <tt>appdb</tt>
  * directory in the following order:
@@ -61,43 +63,58 @@
  *         <tt>NULL</tt>, this will be a static buffer, so that it safe
  *       to call this function before midpInitialize, don't free it
  */
-char* midpFixMidpHome(char *cmd) {
+char* getApplicationDir(char *cmd) {
 
     static javacall_utf16 path[MAX_PATH_LEN];
-    static char midpRealHome[MAX_PATH_LEN];
+    static char midpAppDir[MAX_PATH_LEN];
     javacall_result ret;
     int len = MAX_PATH_LEN - 1;
-    pcsl_string str = PCSL_STRING_NULL_INITIALIZER;
 
+    (void)cmd;
 
     ret = javacall_dir_get_root_path (path, &len);
 
     if ( ret != JAVACALL_OK ) {
-        REPORT_ERROR(LC_AMS,"midpFixMidpHome() << Root path query failed.");
+        REPORT_ERROR(LC_AMS,"getApplicationDir() << Root path query failed.");
         return NULL;
     }
 
-    if (PCSL_STRING_OK != pcsl_string_convert_from_utf16 (path, len, &str)) {
-        REPORT_ERROR(LC_AMS,"midpFixMidpHome() << pcsl_string conversion operation failed.");
+    ret = javautil_unicode_utf16_to_utf8(path, len, 
+                                         midpAppDir, MAX_PATH_LEN, 
+                                         (int*)&len);
+    if ( ret != JAVACALL_OK ) {
+        REPORT_ERROR(LC_AMS,"getApplicationDir() << Root path query failed.");
         return NULL;
     }
 
-    if (pcsl_string_utf8_length (&str) >= MAX_PATH_LEN) {
-        REPORT_ERROR(LC_AMS,"midpFixMidpHome() << Root path length is too large.");
-        pcsl_string_free (&str);
+    midpAppDir[len] = 0;
+    return midpAppDir;
+}
+
+char* getConfigurationDir(char *cmd) {
+
+    static javacall_utf16 path[MAX_PATH_LEN];
+    static char midpConfigDir[MAX_PATH_LEN];
+    javacall_result ret;
+    int len = MAX_PATH_LEN - 1;
+
+    (void)cmd;
+
+    ret = javacall_dir_get_config_path (path, &len);
+
+    if ( ret != JAVACALL_OK ) {
+        REPORT_ERROR(LC_AMS,"getConfigurationDir() << Root path query failed.");
         return NULL;
     }
 
-    if (PCSL_STRING_OK != pcsl_string_convert_to_utf8 (&str,
-                                                       (jbyte *)midpRealHome,
-                                                       MAX_PATH_LEN-1,
-                                                       &len)) {
-        REPORT_ERROR(LC_AMS,"midpFixMidpHome() << pcsl_string conversion operation failed.");
-        pcsl_string_free (&str);
+    ret = javautil_unicode_utf16_to_utf8(path, len, 
+                                         midpConfigDir, MAX_PATH_LEN, 
+                                         (int*)&len);
+    if ( ret != JAVACALL_OK ) {
+        REPORT_ERROR(LC_AMS,"getConfigurationDir() << Root path query failed.");
         return NULL;
-    };
-    pcsl_string_free (&str);
+    }
 
-    midpRealHome[len] = 0;
-    return midpRealHome;
+    midpConfigDir[len] = 0;
+    return midpConfigDir;
 }

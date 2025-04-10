@@ -1,7 +1,7 @@
 /*
  * @(#)interpreter.c	1.409 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -44,7 +44,7 @@
 #include "javavm/include/stackmaps.h"
 #include "javavm/include/bcattr.h"
 #include "javavm/include/common_exceptions.h"
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 
 #include "generated/offsets/java_lang_Throwable.h"
 #ifdef CVM_CLASSLOADING
@@ -400,9 +400,16 @@ CVMinitExecEnv(CVMExecEnv* ee, CVMExecEnv* targetEE,
     /* The first frame has to be a JNI frame so we can allocate
      * jni local refs from it.
      */
+
     result = CVMinitStack(ee, &targetEE->interpreterStack, 
 			  CVMglobals.config.javaStackMinSize,
-			  CVMglobals.config.javaStackMaxSize, 
+#ifdef CVM_JVMTI
+                          /* Leave some space to post events */
+			  CVMglobals.config.javaStackMaxSize -
+                          CVMglobals.config.javaStackChunkSize, 
+#else
+ 			  CVMglobals.config.javaStackMaxSize, 
+#endif
 			  CVMglobals.config.javaStackChunkSize,
 			  CVMJNIFrameCapacity,
 			  CVM_FRAMETYPE_JNI);
@@ -441,7 +448,6 @@ CVMinitExecEnv(CVMExecEnv* ee, CVMExecEnv* targetEE,
     CVMremoteExceptionICell(targetEE)   = CVMjniCreateLocalRef0(ee, targetEE);
 #endif
     CVMcurrentExceptionICell(targetEE)  = CVMjniCreateLocalRef0(ee, targetEE);
-
     /*
      * Clear flags and objects (which should already be null)
      */
@@ -461,9 +467,14 @@ CVMinitExecEnv(CVMExecEnv* ee, CVMExecEnv* targetEE,
 #endif /* %end lvm */
 
 #ifdef CVM_TRACE_ENABLED
+
 #if defined(CVM_PROFILE_METHOD)
     targetEE->cindx = -1;
 #endif
+
+    /* Inherit global flags */
+    targetEE->debugFlags = CVMglobals.debugFlags;
+
 #endif
 
     targetEE->threadState = CVM_THREAD_RUNNING;
@@ -539,7 +550,9 @@ CVMdestroyExecEnv(CVMExecEnv* ee)
     CVMdestroyStack(&ee->localRootsStack);
 
     CVMdestroyJNIEnv(&ee->jniEnv);
-
+#ifdef CVM_JVMTI
+    CVMjvmtiDestroyLockInfo(ee);
+#endif
     /* free the EE buffer used by C stack IO operations */
     CVMCstackFreeBuffer(ee);
 
@@ -613,7 +626,14 @@ CVMinterpreterIterateRefArguments(CVMMethodBlock* mb, CVMStackVal32* list,
 		callback(refPtr, data);
 	    }
 	}
-	list++;
+	switch (arg) {
+	case CVM_TYPEID_LONG:
+	case CVM_TYPEID_DOUBLE:
+	    list += 2;
+	    break;
+	default:
+	    list += 1;
+	}
     }
 }
 
@@ -722,8 +742,8 @@ CVMfindInnermostHandlerFor(CVMJavaMethodDescriptor* jmd, CVMUint8* pc)
          which we want to get a stackmap.  It is not necessarily the CVMExecEnv
          of the self (i.e. currently executing) thread.
 */
-static CVMStackMapEntry*
-getStackmapEntry(CVMExecEnv *frameEE, CVMFrame *frame,
+CVMStackMapEntry*
+CVMgetStackmapEntry(CVMExecEnv *frameEE, CVMFrame *frame,
                  CVMJavaMethodDescriptor *jmd, CVMStackMaps *stackmaps,
                  CVMBool *missingStackmapOK)
 {
@@ -827,7 +847,7 @@ CVMjavaFrameEnsureStackmaps(CVMExecEnv *ee, CVMExecEnv *frameEE,
 	CVMStackMapEntry* smEntry;
 	CVMOpcode opcode;
 
-        smEntry = getStackmapEntry(frameEE, frame, jmd, stackmaps,
+        smEntry = CVMgetStackmapEntry(frameEE, frame, jmd, stackmaps,
                                    &missingStackmapOK);
 	if (smEntry != NULL) {
 	    return CVM_TRUE; /* Found an entry; all is fine */
@@ -854,7 +874,7 @@ CVMjavaFrameEnsureStackmaps(CVMExecEnv *ee, CVMExecEnv *frameEE,
 		/* The new stackmaps could not be created: fail */
 		return CVM_FALSE;
 	    }
-            smEntry = getStackmapEntry(frameEE, frame, jmd, 
+            smEntry = CVMgetStackmapEntry(frameEE, frame, jmd, 
 				       stackmaps, &missingStackmapOK);
 	    CVMassert(smEntry != NULL);
 	    return CVM_TRUE;
@@ -917,7 +937,7 @@ CVMjavaFrameScanner(CVMExecEnv* ee,
     /* A previous pass ensures that the stackmaps are indeed generated. */
     CVMassert(stackmaps != NULL);
 
-    smEntry = getStackmapEntry(frameEE, frame, jmd, stackmaps,
+    smEntry = CVMgetStackmapEntry(frameEE, frame, jmd, stackmaps,
                                &missingStackmapOK);
     CVMassert((smEntry != NULL) || missingStackmapOK);
     if (smEntry == NULL) {
@@ -1020,6 +1040,8 @@ CVMfreelistFrameScanner(CVMExecEnv* ee,
     /*
      * Walk the refs in this free-listing root frame.
      */
+    /* See comment in CVMexpandStack that says this assert is true */
+    CVMassert(CVMaddressInStackChunk(frame->topOfStack, chunk));
     CVMwalkRefsInGCRootFrame(frame,
 			     ((CVMFreelistFrame*)frame)->vals,
 			     chunk, callback, data, CVM_TRUE);
@@ -1077,8 +1099,42 @@ CVMgcSafeFindPCForException(CVMExecEnv* ee, CVMFrameIterator* iter,
 	CVMUint16 pcTarget = 
 	    (CVMUint16)(pc - CVMjmdCode(jmd)); /* offset from start of code */
 	CVMClassBlock*  cb = CVMmbClassBlock(mb);
-	CVMConstantPool* cp = CVMcbConstantPool(cb);
-	
+        CVMClassLoaderICell* loader = CVMcbClassLoader(cb);
+#ifdef CVM_DUAL_STACK
+        CVMClassBlock* loaderCB;
+#endif
+        CVMBool ignoreHandler = CVM_FALSE;
+	CVMConstantPool* cp;
+#ifdef CVM_JVMTI
+	if (CVMjvmtiMbIsObsolete(mb)) {
+	    cp = CVMjvmtiMbConstantPool(mb);
+	    if (cp == NULL) {
+		cp = CVMcbConstantPool(cb);
+	    }	
+	} else
+#endif
+	{
+	    cp = CVMcbConstantPool(cb);
+	}	
+
+        /* If the code in the current frame is not system code,
+         * and if the 'ignoreInterruptedException' flag in the 'ee'
+         * is set, just ignore the InterruptedException handler.
+         * The finally handler is still honored. 
+         */
+        if (ee->ignoreInterruptedException && loader != NULL) {
+#ifdef CVM_DUAL_STACK
+            CVMID_objectGetClass(ee, loader, loaderCB);
+            if (CVMcbClassName(loaderCB) != CVMglobals.midpImplClassLoaderTid)
+#endif
+            {
+                if (exceptionClass == CVMsystemClass(
+                                    java_lang_InterruptedException)) {
+                    ignoreHandler = CVM_TRUE;
+                }
+            }
+        }
+
 	/* Check each exception handler to see if the pc is in its range */
 	for (; eh < ehEnd; eh++) { 
 	    if (eh->startpc <= pcTarget && pcTarget < eh->endpc) { 
@@ -1089,8 +1145,13 @@ CVMgcSafeFindPCForException(CVMExecEnv* ee, CVMFrameIterator* iter,
 		CVMClassBlock* catchClass;
 
 		/* Special note put in for finally.  Always succeed. */
-		if (catchtype == 0)
+		if (catchtype == 0) {
 		    goto found;
+                }
+
+                if (ignoreHandler) {
+                    continue;
+                }
 
 		/* See if the class of the exception that the handler catches
 		 * is the object's class or one of its superclasses.
@@ -1150,7 +1211,7 @@ CVMgcUnsafeHandleException(CVMExecEnv* ee, CVMFrame* frame,
      * exception back in the ee return to the caller.
      */
 
-    CVMframeIterateSpecial(stack, frame, initialframe, &iter);
+    CVMframeIterateInitSpecial(&iter, stack, frame, initialframe);
 
     keepGoing = CVMframeIteratePopSpecial(&iter, CVM_FALSE);
 
@@ -1289,9 +1350,12 @@ CVMgcUnsafeHandleException(CVMExecEnv* ee, CVMFrame* frame,
 	    be done before the frame is popped, and that no
 	    local variable slots should have been overwritten
 	    by the return value. */
-	if (CVMjvmtiThreadEventsEnabled(ee)) {
+	if (CVMjvmtiIsEnabled()) {
+	    jvalue val;
+	    val.j = CVMlongConstZero();
 	    CVMD_gcSafeExec(ee, {
-            CVMjvmtiNotifyDebuggerOfFramePop(ee, CVM_TRUE, (jlong)0);
+		CVMjvmtiPostFramePopEvent(ee, CVM_FALSE,
+					  CVM_TRUE, &val);
 	    });
 	}
 #endif
@@ -1544,7 +1608,7 @@ CVMTransitionFrame* CVMpushTransitionFrame(CVMExecEnv* ee, CVMMethodBlock* mb)
     CVMpushFrame(ee, &ee->interpreterStack, frame, frame->topOfStack,
 		 /* transition frame size in words plus argument size */
 		 CVM_TRANSITIONFRAME_SIZE / sizeof(CVMStackVal32)
-		 + CVMmbArgsSize(mb),
+		 + (CVMmbArgsSize(mb) > 2 ? CVMmbArgsSize(mb) : 2),
 		 0,         /* frame offset (no local variables) */
 		 CVM_FRAMETYPE_TRANSITION, mb,
 		 CVM_TRUE, /* commit */
@@ -1576,23 +1640,37 @@ CVMTransitionFrame* CVMpushTransitionFrame(CVMExecEnv* ee, CVMMethodBlock* mb)
 }
 
 
+/*
+ * Initializes the frame iterator.
+ *
+ * "firstFrame" is the first frame.  Iteration proceeds to and includes
+ * "lastFrame", so specifying lastFrame == firstFrame will scan only the
+ * first frame (but including its JIT inlined frames).  Currently,
+ * "stack" is only used to support "popFrame" below.
+ *
+ * Note: The specified firstFrame will be set up as the first frame to be
+ *       examined when CVMframeIterateNext() is called.  The initial
+ *       current frame is set to NULL to indicate that we haven't iterated
+ *       through any frames yet.
+ */
 void
-CVMframeIterateSpecial(CVMStack *stack, CVMFrame* frame, CVMFrame *end,
-    CVMFrameIterator *iter)
+CVMframeIterateInitSpecial(CVMFrameIterator *iter, CVMStack *stack,
+			   CVMFrame* firstFrame, CVMFrame *lastFrame)
 {
     iter->stack = stack;
-    iter->endFrame = end;
+    iter->endFrame = lastFrame;
     iter->frame = NULL;
-    iter->next = frame;
+    iter->next = firstFrame;
 #ifdef CVM_JIT
     iter->jitFrame = CVM_FALSE;
 #endif
 }
 
+/* Initializes the frame iterator with the first frame to iterate from. */
 void
-CVMframeIterate(CVMFrame* frame, CVMFrameIterator *iter)
+CVMframeIterateInit(CVMFrameIterator *iter, CVMFrame* firstFrame)
 {
-    CVMframeIterateSpecial(NULL, frame, NULL, iter);
+    CVMframeIterateInitSpecial(iter, NULL, firstFrame, NULL);
 }
 
 CVMFrameFlags
@@ -1656,9 +1734,18 @@ CVMframeIterateSetFlags(CVMFrameIterator *iter, CVMFrameFlags flags)
     }
 }
 
+/*
+ * "skip" is how many extra frames to skip.  Use skip==0 to see
+ * every frame.  To skip reflection frames, set skipReflection
+ * true.  "popFrame" is used by exception handling to pop frames
+ * as it iterates.
+ * Note: transition frames and JNI local frames (i.e. mb == 0) will always be
+ *       skipped.  All other frames will not be skipped except for reflection
+ *       frames depending on the value of the skipReflection.
+ */
 CVMBool
-CVMframeIterateSkipSpecial(CVMFrameIterator *iter,
-    int skip, CVMBool skipSpecial, CVMBool popFrame)
+CVMframeIterateSkipReflection(CVMFrameIterator *iter,
+    int skip, CVMBool skipReflection, CVMBool popFrame)
 {
     CVMFrame *frame = iter->next;
     CVMFrame *lastFrame = iter->endFrame;
@@ -1666,7 +1753,7 @@ CVMframeIterateSkipSpecial(CVMFrameIterator *iter,
 
 #ifdef CVM_JIT
     if (iter->jitFrame) {
-	if (!CVMJITframeIterateSkip(&iter->jit, 0, skipSpecial, popFrame)) {
+	if (!CVMJITframeIterateSkip(&iter->jit, skipReflection, popFrame)) {
 	    iter->jitFrame = CVM_FALSE;
 	    goto again;
 	}
@@ -1686,7 +1773,7 @@ CVMframeIterateSkipSpecial(CVMFrameIterator *iter,
 #ifdef CVM_JIT
 	if (!iter->jitFrame && CVMframeIsCompiled(frame)) {
 	    CVMJITframeIterate(frame, &iter->jit);
-	    if (CVMJITframeIterateSkip(&iter->jit, 0, skipSpecial, popFrame)) {
+	    if (CVMJITframeIterateSkip(&iter->jit, skipReflection, popFrame)) {
 		iter->jitFrame = CVM_TRUE;
 	    } else {
 		goto again;
@@ -1695,7 +1782,7 @@ CVMframeIterateSkipSpecial(CVMFrameIterator *iter,
 	if (iter->jitFrame) {
 	    if (skip > 0) {
 		do {
-		    if (!CVMJITframeIterateSkip(&iter->jit, 0, skipSpecial,
+		    if (!CVMJITframeIterateSkip(&iter->jit, skipReflection,
 			popFrame))
 		    {
 			iter->jitFrame = CVM_FALSE;
@@ -1707,7 +1794,9 @@ CVMframeIterateSkipSpecial(CVMFrameIterator *iter,
 	    break;
 	}
 #endif
-	if (skipSpecial && (frame->flags & CVM_FRAMEFLAG_ARTIFICIAL) != 0) {
+	/* When skipReflection is set, all articifial frames (which is
+	   currently only used by the reflection mechanism) will be skipped. */
+	if (skipReflection && (frame->flags & CVM_FRAMEFLAG_ARTIFICIAL) != 0) {
 	    goto again;
 	}
 
@@ -1746,9 +1835,12 @@ again:
 #ifdef CVM_JVMTI
 	/* NOTE: The default implementation below will result in junk
 	   appearing in the stack frame.  Need to set it to the proper
-	   topOfStack value if we ever support JVMPI or JVMTI with JITed
-	   code. */
-	CVMassert(CVM_FALSE);
+	   frame value if we ever support JVMPI or JVMTI debug mode
+	   with JITed code.
+
+	   Hence, we better not be in debugging mode.
+	*/
+	CVMassert(!CVMjvmtiIsInDebugMode());
 #endif
     }
 #endif
@@ -1768,6 +1860,13 @@ CVMframeIterateGetMb(CVMFrameIterator *iter)
     return iter->frame->mb;
 }
 
+/*
+  Note that there is no physical representation of the logical frame for each
+  JIT inlined method.  Hence, you cannot ask the iterator to return a
+  CVMFrame * for an inlined method.  CVMframeIteratorGetFrame() returns the
+  current physical frame i.e. the outer most caller of the inlined method, not
+  the current logical frame for the inlined method.
+*/
 CVMFrame *
 CVMframeIterateGetFrame(CVMFrameIterator *iter)
 {
@@ -1852,11 +1951,21 @@ CVMframeIterateCount(CVMFrameIterator *iter)
     return count;
 }
 
+void
+CVMframeSetContextArtificial(CVMExecEnv *ee)
+{
+    CVMFrameIterator iter;
+    CVMframeIterateInit(&iter, CVMeeGetCurrentFrame(ee));
+    CVMframeIterateSkipReflection(&iter, 0, CVM_FALSE, CVM_FALSE);
+    CVMframeIterateSetFlags(&iter, (CVMFrameFlags)
+	(CVMframeIterateGetFlags(&iter) | CVM_FRAMEFLAG_ARTIFICIAL));
+}
+
 CVMMethodBlock *
 CVMgetCallerMb(CVMFrame* frame, int skip)
 {
     CVMFrameIterator iter;
-    CVMframeIterate(frame, &iter);
+    CVMframeIterateInit(&iter, frame);
     if (CVMframeIterateSkip(&iter, skip)) {
 	return CVMframeIterateGetMb(&iter);
     } else {
@@ -1878,11 +1987,11 @@ CVMgetCallerClass(CVMExecEnv* ee, int skip)
 
 /* Documented in interpreter.h */
 CVMFrame*
-CVMgetCallerFrameSpecial(CVMFrame* frame, int n, CVMBool skipSpecial)
+CVMgetCallerFrameSpecial(CVMFrame* frame, int n, CVMBool skipReflection)
 {
     CVMFrameIterator iter;
-    CVMframeIterate(frame, &iter);
-    if (CVMframeIterateSkipSpecial(&iter, n, skipSpecial, CVM_FALSE)) {
+    CVMframeIterateInit(&iter, frame);
+    if (CVMframeIterateSkipReflection(&iter, n, skipReflection, CVM_FALSE)) {
 	return CVMframeIterateGetFrame(&iter);
     }
     return NULL;
@@ -2407,72 +2516,6 @@ CVMunmaskInterrupts(CVMExecEnv *ee)
     CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
 }
 
-/*
- * Find the length of the variable length instruction at 'iStream'.
- * This is called if CVMopcodeLengths[*iStream] == 0.
- */
-CVMUint32
-CVMopcodeGetLengthVariable(const CVMUint8* iStream)
-{
-    CVMUint8  opcode  = *iStream;
-    /*
-     * Variable length. Intelligence required.
-     */
-    switch(opcode) {
-	case opc_tableswitch: {
-	    CVMInt32* lpc  = (CVMInt32*)CVMalignWordUp(iStream + 1);
-	    CVMInt32  low  = CVMgetAlignedInt32(&lpc[1]);
-	    CVMInt32  high = CVMgetAlignedInt32(&lpc[2]);
-	    if (((CVMUint32)high - (CVMUint32)low) > 0xffff) {
-		return -1; /* invalid instruction */
-	    }
-	    /*
-	     * Skip default, low, high, and the (high-low+1) jump offsets
-	     */
-	    /* 
-	     * This expression is obviously a rather small pointer
-	     * difference. So just cast it to the return type.
-	     */
-	    return (CVMUint32)((CVMUint8*)(&lpc[3 + (high - low + 1)]) - iStream);
-	}
-        case opc_lookupswitch: {
-	    CVMInt32* lpc    = (CVMInt32*)CVMalignWordUp(iStream+1);
-	    CVMInt32  npairs = CVMgetAlignedInt32(&lpc[1]);
-	    if ((npairs < 0) || (npairs > 65535)) {
-		return -1; /* invalid instruction */
-	    }
-	    /*
-	     * Skip default, npairs, and npairs pairs.
-	     */
-	    /* 
-	     * This expression is obviously a rather small pointer
-	     * difference. So just cast it to the return type.
-	     */
-	    return (CVMUint32)((CVMUint8*)(&lpc[2 + npairs * 2]) - iStream);
-	}
-        case opc_wide: {
-	    switch(iStream[1]) {
-	        case opc_ret:
-	        case opc_iload: case opc_istore: 
-	        case opc_fload: case opc_fstore:
-	        case opc_aload: case opc_astore:
-	        case opc_lload: case opc_lstore:
-	        case opc_dload: case opc_dstore: 
-		    return 4;
-		case opc_iinc:
-		    return 6;
-		default: 
-		    return -1; /* invalid instruction */
-	    }
-	}
-#ifdef CVM_HW
-#include "include/hw/interpreter.i"
-#endif
-    default:
-	return -1; /* I don't know this bytecode! */
-    }
-}
-
 /* Documented in interpreter.h */
 CVMBool
 CVMverifyClassAccess(CVMExecEnv* ee, 
@@ -2492,12 +2535,13 @@ CVMverifyClassAccess(CVMExecEnv* ee,
      * CVMverifyMemberAccess3 for details.
      */
     if (resolverAccess) {	 	/* (a) */
-	CVMBool isTrustedClassLoader;   /* (b) */
+	CVMBool needsVerify;   		/* (b) */
 	CVMBool isSameClassLoader;      /* (c) */
 	CVMBool isSameProtectionDomain; /* (d) */
 
-	isTrustedClassLoader = 
-	    CVMisTrustedClassLoader(ee, CVMcbClassLoader(currentClass));
+	needsVerify = 
+	    CVMloaderNeedsVerify(ee, CVMcbClassLoader(currentClass),
+                                 CVM_FALSE);
 	isSameClassLoader =
 	    CVMcbClassLoader(currentClass) == CVMcbClassLoader(newClass);
 	CVMID_icellSameObjectNullCheck(ee,
@@ -2506,7 +2550,7 @@ CVMverifyClassAccess(CVMExecEnv* ee,
 				       isSameProtectionDomain);
 
 	/* Make sure (b), (c), and (d) hold true. */
-	if (!CVM_NEED_VERIFY(!isTrustedClassLoader) 
+	if (!needsVerify
 	    && isSameProtectionDomain
 	    && isSameClassLoader)
 	{
@@ -2559,9 +2603,9 @@ CVMverifyMemberAccess3(CVMExecEnv* ee,
 #undef IsPublic
 #undef IsProtected
 #undef IsPrivate
-#define IsPublic(x)	((x) & CVM_METHOD_ACC_PUBLIC)
-#define IsProtected(x)	((x) & CVM_METHOD_ACC_PROTECTED)
-#define IsPrivate(x)	((x) & CVM_METHOD_ACC_PRIVATE)
+#define IsPublic(x)	CVMmemberPPPAccessIs((x), FIELD, PUBLIC)
+#define IsProtected(x)	CVMmemberPPPAccessIs((x), FIELD, PROTECTED)
+#define IsPrivate(x)	CVMmemberPPPAccessIs((x), FIELD, PRIVATE)
 
     if (currentClass == NULL ||
         currentClass == memberClass ||
@@ -2608,12 +2652,13 @@ CVMverifyMemberAccess3(CVMExecEnv* ee,
      *	   have the same protection domain.
      */
     if (resolverAccess) {	 	/* (a) */
-	CVMBool isTrustedClassLoader;   /* (b) */
+	CVMBool needsVerify;   		/* (b) */
 	CVMBool isSameClassLoader;      /* (c) */
 	CVMBool isSameProtectionDomain; /* (d) */
 
-	isTrustedClassLoader = 
-	    CVMisTrustedClassLoader(ee, CVMcbClassLoader(currentClass));
+	needsVerify = 
+	    CVMloaderNeedsVerify(ee, CVMcbClassLoader(currentClass),
+                                 CVM_FALSE);
 	isSameClassLoader =
 	    (CVMcbClassLoader(currentClass) == CVMcbClassLoader(memberClass));
 	CVMID_icellSameObjectNullCheck(ee,
@@ -2622,7 +2667,7 @@ CVMverifyMemberAccess3(CVMExecEnv* ee,
 				       isSameProtectionDomain);
 
 	/* Make sure (b), (c), and (d) hold true. */
-	if (!CVM_NEED_VERIFY(!isTrustedClassLoader) 
+	if (!needsVerify
 	    && isSameProtectionDomain
 	    && isSameClassLoader)
 	{
@@ -2662,7 +2707,7 @@ CVMlocksForGCAcquire(CVMExecEnv* ee)
     CVMsysMutexLock(ee, &CVMglobals.threadLock);
     CVMsysMutexLock(ee, &CVMglobals.classTableLock);
 #ifdef CVM_JVMTI
-    CVMsysMutexLock(ee, &CVMglobals.debuggerLock),
+    CVMsysMutexLock(ee, &CVMglobals.jvmtiLock),
 #endif
     CVMsysMutexLock(ee, &CVMglobals.globalRootsLock);
     CVMsysMutexLock(ee, &CVMglobals.weakGlobalRootsLock);
@@ -2686,7 +2731,7 @@ CVMlocksForGCRelease(CVMExecEnv* ee)
     CVMsysMutexUnlock(ee, &CVMglobals.weakGlobalRootsLock);
     CVMsysMutexUnlock(ee, &CVMglobals.globalRootsLock);
 #ifdef CVM_JVMTI
-    CVMsysMutexUnlock(ee, &CVMglobals.debuggerLock),
+    CVMsysMutexUnlock(ee, &CVMglobals.jvmtiLock),
 #endif
     CVMsysMutexUnlock(ee, &CVMglobals.classTableLock);
     CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
@@ -2848,6 +2893,7 @@ static void suspendCheckerThreadFunc(void *arg)
         }
     }
     CVMmutexUnlock(lock);
+    CVMthreadDetach(&gs->suspendCheckerThreadInfo);
 }
 
 /* Purpose: Initializes the suspension checker mechanism. */
@@ -3043,15 +3089,7 @@ CVMthreadSuspendConsistentRelease(CVMExecEnv* ee)
 static void*
 CVMfindBuiltinEntry(const char* name)
 {
-    if (CVMglobals.cvmDynHandle == NULL) {
-	CVMglobals.cvmDynHandle = CVMdynlinkOpen(NULL);
-	if (CVMglobals.cvmDynHandle == NULL) {
-	    CVMconsolePrintf("Fatal Error: "
-			     "Could not open cvm as a shared library.\n");
-	    return NULL;
-	}
-    }
-
+    CVMassert(CVMglobals.cvmDynHandle != NULL);
     return CVMdynlinkSym(CVMglobals.cvmDynHandle, name);
 }
 
@@ -3060,9 +3098,29 @@ CVMclassLoaderFindNative(CVMExecEnv* ee, CVMClassLoaderICell* loader,
 			 char* nativeMethodName)
 {
     CVMUint8* nativeCode = NULL;
+    CVMBool findBuiltin = CVM_FALSE;
     CVMassert(!CVMlocalExceptionOccurred(ee));
 
     if (loader == NULL) {
+        findBuiltin = CVM_TRUE;
+    }
+#ifdef CVM_DUAL_STACK
+    else {
+        CVMClassBlock* loaderCB;
+        CVMClassTypeID loaderID;
+
+	CVMD_gcUnsafeExec(ee, {
+	    loaderCB = 
+	        CVMobjectGetClass(CVMID_icellDirect(ee, loader));
+	});
+        loaderID = CVMcbClassName(loaderCB);
+        if (loaderID == CVMglobals.midpImplClassLoaderTid) {
+            findBuiltin = CVM_TRUE;
+        }
+    }
+#endif
+
+    if (findBuiltin) {
 	/* This is a NULL class loader so the entry must be built in */
 	nativeCode = (CVMUint8*)CVMfindBuiltinEntry(nativeMethodName);
 	if (nativeCode != NULL) {
@@ -3098,6 +3156,28 @@ CVMclassLoaderFindNative(CVMExecEnv* ee, CVMClassLoaderICell* loader,
 	}
     
 	(*env)->PopLocalFrame(env, 0);
+#ifdef CVM_JVMTI
+	/* Need to look in loaded agentslibs */
+	if (nativeCode == NULL) {
+	    int i;
+	    CVMAgentItem *itemPtr;
+	    void *libHandle;
+	    CVMAgentTable *table = &CVMglobals.agentTable;
+	    if (table == NULL || table->elemCnt == 0) {
+		return nativeCode;
+	    }
+	    itemPtr = table->table;
+	    for (i = 0; i < table->elemCnt; i++) {
+		if ((libHandle = itemPtr[i].libHandle) != NULL) {
+		    nativeCode =
+			(CVMUint8 *)CVMdynlinkSym(libHandle, nativeMethodName);
+		    if (nativeCode != NULL) {
+			return nativeCode;
+		    }
+		}
+	    }
+	}
+#endif
 	return nativeCode;
     }
 }
@@ -3148,17 +3228,26 @@ CVMlookupNativeMethodCode(CVMExecEnv* ee, CVMMethodBlock* mb)
      * may already have been done by another thread racing with us,
      * but doing it a 2nd time is harmless so no locking is required.
      */
+#ifdef CVM_JVMTI
+    if (CVMjvmtiShouldPostNativeMethodBind()) {
+	CVMUint8* new_nativeCode = NULL;
+	CVMjvmtiPostNativeMethodBind(ee, mb, nativeCode, &new_nativeCode);
+	if (new_nativeCode != NULL) {
+	    nativeCode = new_nativeCode;
+	}
+    }
+#endif
     CVMmbNativeCode(mb) = nativeCode;
     if (mangleType == CVM_MangleMethodName_CNI_SHORT) {
-	CVMmbInvokerIdx(mb) = CVM_INVOKE_CNI_METHOD;
+	CVMmbSetInvokerIdx(mb, CVM_INVOKE_CNI_METHOD);
 #if CVM_JIT
 	CVMmbJitInvoker(mb) = (void*)CVMCCMinvokeCNIMethod;
 #endif
     } else {
 	if (CVMmbIs(mb, SYNCHRONIZED)) {
-	    CVMmbInvokerIdx(mb) = CVM_INVOKE_JNI_SYNC_METHOD;
+	    CVMmbSetInvokerIdx(mb, CVM_INVOKE_JNI_SYNC_METHOD);
 	} else {
-	    CVMmbInvokerIdx(mb) = CVM_INVOKE_JNI_METHOD;
+	    CVMmbSetInvokerIdx(mb, CVM_INVOKE_JNI_METHOD);
 	}
 #if CVM_JIT
 	CVMmbJitInvoker(mb) = (void*)CVMCCMinvokeJNIMethod;
@@ -3260,9 +3349,9 @@ CVMexit(int status)
     CVMExecEnv *ee = CVMgetEE();
     CVMpostThreadExitEvents(ee);
 #ifdef CVM_JVMTI
-    if (CVMjvmtiEventsEnabled()) {
-	CVMjvmtiNotifyDebuggerOfVmExit(ee);
-	ee->debugEventsEnabled = CVM_FALSE;
+    if (CVMjvmtiIsEnabled()) {
+	CVMjvmtiPostVmExitEvent(ee);
+	CVMjvmtiDebugEventsEnabled(ee) = CVM_FALSE;
     }
 #endif
 
@@ -3423,6 +3512,13 @@ CVMwaitForAllThreads(CVMExecEnv *ee)
 }
 
 #ifdef CVM_DEBUG_ASSERTS
+/* Normal case is to force a panic by de-referencing address 0x1.
+ * #undef FORCE_SYSTEM_PANIC if you want to just print the assertions
+ * and continue.  Useful if debugging the VM.
+ */
+
+int __forceSystemPanic__ = 1;
+
 int
 CVMassertHook(const char *filename, int lineno, const char *expr) {
     CVMconsolePrintf("Assertion failed at line %d in %s: %s\n",
@@ -3437,20 +3533,33 @@ CVMassertHook(const char *filename, int lineno, const char *expr) {
 #endif
 
 #ifdef CVM_DEBUG_DUMPSTACK
+    {
+        CVMExecEnv* ee = CVMgetEE();
 #ifdef CVM_JIT
-    /* 4975844: fixup frames first so CVMdumpStack doesn't also assert! */
-    CVMCCMruntimeLazyFixups(CVMgetEE());
+        /* 4975844: fixup frames first so CVMdumpStack doesn't also assert!
+           However, CVMCCMruntimeLazyFixups asserts that ee->microlock != 0,
+           so clear it just in case.
+        */
+#ifdef CVM_DEBUG
+        if (ee->microLock != 0) {
+            CVMconsolePrintf("CVMassertHook: ee->microLock != 0\n");
+            ee->microLock = 0;
+        }
 #endif
-    CVMdumpStack(&(CVMgetEE()->interpreterStack),0,0,0);
+        CVMCCMruntimeLazyFixups(ee);
+#endif
+        CVMdumpStack(&ee->interpreterStack,0,0,0);
+    }
 #endif /* CVM_DEBUG_DUMPSTACK */
 
     /* %comment l028 */
     /* Force a segmentation fault to cause a crash: */
-    {
-        int *ptr = (int *)0x1;
-        CVMconsolePrintf("%d\n", *ptr);
+    if (__forceSystemPanic__ != 0) {
+	int *ptr = (int *)0x1;
+	CVMconsolePrintf("%d\n", *ptr);
+	return 0;
     }
-    return 0;
+    return 1;
 }
 #endif /* CVM_DEBUG_ASSERTS */
 
@@ -3480,6 +3589,34 @@ CVMisSpecialSuperCall(CVMClassBlock* currClass, CVMMethodBlock* mb) {
         }
     }
     return CVM_FALSE;
+}
+
+/* 
+ * CVMlookupSpecialSuperMethod - Find matching declared method in a
+ * super class of currClass.
+ */
+
+CVMMethodBlock*
+CVMlookupSpecialSuperMethod(CVMExecEnv* ee,
+			    CVMClassBlock* currClass,
+			    CVMMethodTypeID methodID) {
+    CVMClassBlock* supercb = CVMcbSuperclass(currClass);
+    CVMMethodBlock* mb = NULL;
+    while (supercb != NULL) {
+	mb = CVMclassGetDeclaredMethodBlockFromTID(supercb, methodID);
+	if (mb != NULL &&
+	    !CVMmbIs(mb, STATIC) &&
+	    !CVMmbIs(mb, PRIVATE)) {
+	    break;
+	}
+	mb = NULL;
+	supercb = CVMcbSuperclass(supercb);
+    }
+    CVMassert(mb != NULL);
+    CVMassert(CVMmbIs(mb, PUBLIC) ||
+	      CVMmbIs(mb, PROTECTED) ||
+	      CVMisSameClassPackage(ee, CVMmbClassBlock(mb), currClass));
+    return mb;
 }
 
 #ifndef CVM_TRUSTED_CLASSLOADERS
@@ -3960,18 +4097,11 @@ CVMsyncReturnHelper(CVMExecEnv *ee, CVMFrame *frame, CVMObjectICell *retICell,
 #if (defined(CVM_JVMTI) || defined(CVM_JVMPI))
 
 CVMUint32
-CVMregisterReturnEvent(CVMExecEnv *ee, CVMUint8* pc,
-		       CVMObjectICell* resultCell)
+CVMregisterReturnEvent(CVMExecEnv *ee, CVMUint8 *pc, CVMUint32 return_opcode,
+		       jvalue *retValue)
 {
-    CVMBool jvmtiThreadEventsEnabled = CVM_FALSE;
-    CVMBool jvmpiEventMethodExitIsEnabled = CVM_FALSE;
-    CVMUint32 return_opcode = pc[0];
-
-#ifdef CVM_JVMTI
-    jvmtiThreadEventsEnabled = CVMjvmtiThreadEventsEnabled(ee);
-#endif
 #ifdef CVM_JVMPI
-    jvmpiEventMethodExitIsEnabled = CVMjvmpiEventMethodExitIsEnabled();
+    CVMBool jvmpiEventMethodExitIsEnabled = CVMjvmpiEventMethodExitIsEnabled();
 #endif
 
     /** The JVMTI spec is unclear about whether the frame pop
@@ -3983,54 +4113,58 @@ CVMregisterReturnEvent(CVMExecEnv *ee, CVMUint8* pc,
 	be done before the frame is popped, and that no
 	local variable slots should have been overwritten
 	by the return value. */
-    if (jvmtiThreadEventsEnabled || jvmpiEventMethodExitIsEnabled) {
 #ifdef CVM_JVMTI
-      if (return_opcode == opc_breakpoint) {
-	    CVMD_gcSafeExec(ee, {
-            return_opcode = CVMjvmtiGetBreakpointOpcode(ee, pc, CVM_FALSE);
-          });
-      }
+    if (return_opcode == opc_breakpoint) {
+	CVMD_gcSafeExec(ee, {
+	    return_opcode = CVMjvmtiGetBreakpointOpcode(ee, pc, CVM_FALSE);
+	});
+    }
 #endif
-      /* 
-       * If we are returning a reference result, then we must save away
-       * the result in a place where gc will find it and restore later.
-       */
-      if (return_opcode == opc_areturn) {
-	    CVMassert(CVMID_icellIsNull(CVMmiscICell(ee)));
-	    CVMID_icellSetDirect(ee, CVMmiscICell(ee),
-                             CVMID_icellDirect(ee, resultCell));
-      }
+    /* 
+     * If we are returning a reference result, then we must save away
+     * the result in a place where gc will find it and restore later.
+     */
+    if (return_opcode == opc_areturn) {
+	CVMassert(CVMID_icellIsNull(CVMmiscICell(ee)));
+	CVMID_icellSetDirect(ee, CVMmiscICell(ee),
+			     CVMID_icellDirect(ee, (jobject)&retValue->l));
+    }
     	
 #ifdef CVM_JVMTI
-      if (jvmtiThreadEventsEnabled) {
-	CVMID_localrootBeginGcUnsafe(ee) {
-	  CVMID_localrootDeclareGcUnsafe(CVMObjectICell, __result);
-	  CVMID_icellAssignDirect(ee, __result, resultCell);
-
-	    CVMD_gcSafeExec(ee, {
-            CVMjvmtiNotifyDebuggerOfFramePop(ee, CVM_FALSE,
-                                             (jlong)((jint)resultCell));
-          });
-	} CVMID_localrootEndGcUnsafe();
-      }
+#ifdef CVM_JVMPI
+    if (CVMjvmtiIsEnabled())
+#endif
+    {
+	CVMD_gcSafeExec(ee, {
+	    CVMjvmtiPostFramePopEvent(ee,
+				      (return_opcode == opc_areturn),
+				      CVM_FALSE, retValue);
+	});
+    }
 #endif
 #ifdef CVM_JVMPI
-      if (jvmpiEventMethodExitIsEnabled) {
-	    /* NOTE: JVMPI will become GC safe when calling the
-	     * profiling agent: */
-	    CVMjvmpiPostMethodExitEvent(ee);
-      }
+    if (jvmpiEventMethodExitIsEnabled) {
+	/* NOTE: JVMPI will become GC safe when calling the
+	 * profiling agent: */
+	CVMjvmpiPostMethodExitEvent(ee);
+    }
 #endif
 
-      /* Restore the return result if it is a refrence type. */
-      if (return_opcode == opc_areturn) {
-	    CVMID_icellSetDirect(ee, resultCell,
+    /* Restore the return result if it is a refrence type. */
+    if (return_opcode == opc_areturn) {
+	CVMID_icellSetDirect(ee, (jobject)&retValue->l,
                              CVMID_icellDirect(ee, CVMmiscICell(ee)));
-	    CVMID_icellSetNull(CVMmiscICell(ee));
-      }
+	CVMID_icellSetNull(CVMmiscICell(ee));
     }
-
     return return_opcode;
+}
+
+CVMUint32
+CVMregisterReturnEventPC(CVMExecEnv *ee, CVMUint8* pc,
+		       jvalue *retValue)
+{
+    CVMUint32 return_opcode = pc[0];
+    return CVMregisterReturnEvent(ee, pc, return_opcode, retValue);
 }
 
 #endif /* (defined(CVM_JVMTI) || defined(CVM_JVMPI)) */
@@ -4135,13 +4269,14 @@ CVMinvokeJNIHelper(CVMExecEnv *ee, CVMMethodBlock *mb)
 
 #ifdef CVM_JVMTI
     /* %comment k001 */
-    if (CVMjvmtiThreadEventsEnabled(ee)) {
+    if (CVMjvmtiIsEnabled()) {
 	CVMD_gcSafeExec(ee, {
-	    CVMjvmtiNotifyDebuggerOfFramePush(ee);
+	    CVMjvmtiPostFramePushEvent(ee);
 	});
     }
 #endif
 
+    ee->threadState = CVM_THREAD_IN_NATIVE;
     /* Call the JNI method. topOfStack still points just below
      * the arguments in the caller's frame, so you can still
      * use it to access the arguments.
@@ -4163,7 +4298,10 @@ CVMinvokeJNIHelper(CVMExecEnv *ee, CVMMethodBlock *mb)
     CVMassert(ee->criticalCount == 0);
     TRACE_METHOD_RETURN(frame);
 
+    ee->threadState &= ~CVM_THREAD_IN_NATIVE;
+
 #ifdef CVM_JVMTI
+
     /** The JVMTI spec is unclear about whether the frame
 	pop event is sent just before or just after the
 	frame is popped. The JDK implementation sends the
@@ -4172,11 +4310,45 @@ CVMinvokeJNIHelper(CVMExecEnv *ee, CVMMethodBlock *mb)
 	be done before the frame is popped, and that no
 	local variable slots should have been overwritten
 	by the return value. */
-    if (CVMjvmtiThreadEventsEnabled(ee)) {
-	CVMD_gcSafeExec(ee, {
-      CVMjvmtiNotifyDebuggerOfFramePop(ee, CVM_FALSE,
-               (jlong)returnCode);
-	});
+    if (CVMjvmtiIsEnabled()) {
+	jvalue retValue;
+	retValue.j = CVMlongConstZero();
+	switch (returnCode) {
+	case 0:
+	    CVMD_gcSafeExec(ee, {
+		CVMjvmtiPostFramePopEvent(ee, CVM_FALSE, CVM_FALSE,
+					  &retValue);
+	    });
+	    break;
+	case 1:
+	    retValue.i = returnValue.i.i;
+	    CVMD_gcSafeExec(ee, {
+		CVMjvmtiPostFramePopEvent(ee, CVM_FALSE, CVM_FALSE,
+					  &retValue);
+	    });
+	    break;
+	case 2:
+	    CVMmemCopy64(&retValue.j, returnValue.jni.v64);
+	    CVMD_gcSafeExec(ee, {
+		CVMjvmtiPostFramePopEvent(ee, CVM_FALSE, CVM_FALSE,
+					  &retValue);
+	    });
+	    break;
+	case -1:
+	    CVMassert(CVMID_icellIsNull(CVMmiscICell(ee)));
+	    {
+		CVMObjectICell *o = returnValue.o;
+		if (o != NULL) {
+		    CVMID_icellAssignDirect(ee, CVMmiscICell(ee), o);
+		}
+		CVMD_gcSafeExec(ee, {
+		    CVMjvmtiPostFramePopEvent(ee, CVM_TRUE,
+					      CVM_FALSE, &retValue);
+		});
+		CVMID_icellSetNull(CVMmiscICell(ee));
+	    }
+	    break;
+	}
     }
 #endif
 #ifdef CVM_JVMPI
@@ -4531,8 +4703,8 @@ CVMpostThreadStartEvents(CVMExecEnv *ee)
        implementing RunDebugThread/CreateSystemThread to ensure the
        events get generated. */
 
-    if (CVMjvmtiEventsEnabled()) {
-	CVMjvmtiNotifyDebuggerOfThreadStart(ee, CVMcurrentThreadICell(ee));
+    if (CVMjvmtiIsEnabled()) {
+	CVMjvmtiPostThreadStartEvent(ee, CVMcurrentThreadICell(ee));
     }
 #endif
 
@@ -4547,8 +4719,8 @@ CVMpostThreadExitEvents(CVMExecEnv *ee)
 {
     if (!ee->hasPostedExitEvents) {
 #ifdef CVM_JVMTI
-	if (CVMjvmtiEventsEnabled()) {
-	    CVMjvmtiNotifyDebuggerOfThreadEnd(ee, CVMcurrentThreadICell(ee));
+	if (CVMjvmtiIsEnabled()) {
+	    CVMjvmtiPostThreadEndEvent(ee, CVMcurrentThreadICell(ee));
 	}
 #endif
 

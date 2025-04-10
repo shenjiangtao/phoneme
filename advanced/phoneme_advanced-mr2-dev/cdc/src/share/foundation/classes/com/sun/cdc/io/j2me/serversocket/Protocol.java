@@ -1,7 +1,7 @@
 /*
  * %W% %E%
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -46,10 +46,17 @@ public class Protocol extends ConnectionBase
     ServerSocket ssocket;
 
     /*
-     * throws SecurityException if MIDP permission check fails 
-     * nothing to do for CDC
-    */
-    protected void checkMIDPPermission(int port) {
+     * Check for listen permission on the given port. A SecurityException
+     * will be thrown if the permission is not available. The MIDP
+     * protocol handler should override this method to implement the
+     * proper MIDP security check.
+     */
+    protected void checkPermission(int port) {
+        // Check for SecurityManager.checkListen()
+        java.lang.SecurityManager sm = System.getSecurityManager();
+        if (sm != null){
+	    sm.checkListen(port);
+	}
         return;
     }    
     
@@ -84,21 +91,34 @@ public class Protocol extends ConnectionBase
  
         /* socket://: case.  System assigned incoming port */
         if (name.length() == 0) {
-           open();
-           return;
+            checkPermission(0);
+            open();
+            return;
         }
 
         try {
-            int port;
-            InetAddress hostAddress = InetAddress.getLocalHost();
+            final int port;
 
             /* Get the port number */
             port = Integer.parseInt(name);
-            checkMIDPPermission(port);
-            /* Open the socket: inbound server */
-            ssocket = new ServerSocket(port);
+            checkPermission(port);
+            /* Open the socket: inbound server. Use a doPrivileged
+             * block to avoid excessive prompting.
+             */
+            ssocket =
+                (ServerSocket)java.security.AccessController.doPrivileged(
+                 new java.security.PrivilegedExceptionAction() {
+                     public Object run()
+                         throws java.security.PrivilegedActionException,
+                                IOException {
+                         return new ServerSocket(port);
+                     }
+                 });
         } catch(NumberFormatException x) {
             throw new IllegalArgumentException("Invalid port number in "+name);
+        } catch(java.security.PrivilegedActionException pae) {
+            IOException ioe = (IOException)pae.getException();
+            throw ioe;
         }
     }
 
@@ -155,7 +175,22 @@ public class Protocol extends ConnectionBase
         if (ssocket.isClosed()) 
            throw new IOException("ServerSocketConnection is closed");
 
-	InetAddress addr = InetAddress.getLocalHost();
+        /*
+         * getLocalAddress calls SecurityManager.checkConnect,
+         * so a privileged block is used to avoid excessive security prompting.
+         */
+	InetAddress addr =
+            (InetAddress)java.security.AccessController.doPrivileged(
+                 new java.security.PrivilegedAction() {
+                     public Object run() {
+                         try {
+                             return InetAddress.getLocalHost();
+                         } catch (java.net.UnknownHostException uhe) {
+                             return null;
+                         }
+                     }
+                 });
+
         if (addr == null) 
             return null;
         else 

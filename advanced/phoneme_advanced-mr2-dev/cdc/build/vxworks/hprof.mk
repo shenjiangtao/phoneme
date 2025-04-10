@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -25,18 +25,6 @@
 #
 #  Platform specific makefile for building the Hprof tool
 #
-
-ifeq ($(CVM_DEBUG), true)
-    CVM_HPROF_LIB   = libhprof_g.o
-else
-    CVM_HPROF_LIB   = libhprof.o
-endif
-
-#
-# Platform specific objects:
-#
-CVM_HPROF_TARGETOBJS += \
-        hprof_md.o
 
 #
 # Platform specific build flags:

@@ -1,7 +1,7 @@
 /*
  * @(#)reflect.h	1.25 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -49,7 +49,7 @@ CVMreflectEnsureInitialized(CVMExecEnv* ee, CVMClassBlock* cb);
 #ifdef CVM_CLASSLOADING
 #define	CVMreflectEnsureLinked(ee, cb)			\
 if (!CVMcbCheckRuntimeFlag(cb, LINKED)) {		\
-    if (!CVMclassLink(ee, cb)) {			\
+    if (!CVMclassLink(ee, cb, CVM_FALSE)) {		\
 	return;						\
     }							\
     CVMassert(CVMcbCheckRuntimeFlag(cb, LINKED));	\

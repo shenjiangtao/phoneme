@@ -1,7 +1,7 @@
 #
 # @(#)testgc.mk	1.10 06/10/10
 # 
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
@@ -30,10 +30,10 @@ CVM_SRCDIRS += \
 	$(CVM_SHAREROOT)/javavm/test/GCTest/IndirectMem/Csrc \
 	$(CVM_SHAREROOT)/javavm/test/GCTest/RootScans/Csrc
 
-CVM_INCLUDES  += \
-	-I$(CVM_SHAREROOT)/javavm/test/GCTest/DirectMem/Include \
-	-I$(CVM_SHAREROOT)/javavm/test/GCTest/IndirectMem/Include \
-	-I$(CVM_SHAREROOT)/javavm/test/GCTest/RootScans/Include
+CVM_INCLUDE_DIRS  += \
+	$(CVM_SHAREROOT)/javavm/test/GCTest/DirectMem/Include \
+	$(CVM_SHAREROOT)/javavm/test/GCTest/IndirectMem/Include \
+	$(CVM_SHAREROOT)/javavm/test/GCTest/RootScans/Include
 
 CVM_SHAREOBJS += \
          libGC.o \

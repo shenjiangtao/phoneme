@@ -1,7 +1,5 @@
 /*
- * @(#)jvm.c	1.288 06/10/30
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -72,6 +70,10 @@
 #include "javavm/include/jit_common.h"
 #endif
 
+#ifdef JAVASE
+#include "javavm/include/se_init.h"
+#endif
+
 JNIEXPORT jint JNICALL
 JVM_GetInterfaceVersion(void)
 {
@@ -127,7 +129,7 @@ JVM_ResolveClass(JNIEnv *env, jclass cls)
 #ifdef CVM_CLASSLOADING
     CVMClassBlock* cb =
 	CVMgcSafeClassRef2ClassBlock(CVMjniEnv2ExecEnv(env), cls);
-    CVMclassLink(CVMjniEnv2ExecEnv(env), cb);
+    CVMclassLink(CVMjniEnv2ExecEnv(env), cb, CVM_FALSE);
 #else
     return; /* the class must be romized and is therefore linked */
 #endif
@@ -153,7 +155,8 @@ JVM_DefineClass(JNIEnv *env, const char *name, jobject loaderRef,
 		const jbyte *buf, jsize bufLen, jobject pd)
 {
     CVMExecEnv* ee = CVMjniEnv2ExecEnv(env);
-    return CVMdefineClass(ee, name, loaderRef, (CVMUint8*)buf, bufLen, pd);
+    return CVMdefineClass(ee, name, loaderRef, (CVMUint8*)buf, bufLen, pd,
+			  CVM_FALSE);
 }
 
 /*
@@ -345,6 +348,21 @@ JVM_GetComponentType(JNIEnv *env, jclass cls)
     return (*env)->NewLocalRef(env, CVMcbJavaInstance(elementCb));
 }
 
+#ifdef JAVASE
+JNIEXPORT jint JNICALL
+JVM_GetClassAccessFlags(JNIEnv *env, jclass cls)
+{
+    CVMExecEnv* ee = CVMjniEnv2ExecEnv(env);
+    CVMClassBlock* cb = CVMgcSafeClassRef2ClassBlock(ee, cls);
+    jint access = CVMcbAccessFlags(cb);
+
+    /* Remove the CVM internal bits: */
+    access &= ~(CVM_CLASS_ACC_PRIMITIVE | CVM_CLASS_ACC_FINALIZABLE |
+        CVM_CLASS_ACC_REFERENCE);
+    return access; 
+}
+#endif
+
 /* Remember that ACC_SUPER is added by the VM, and must be stripped. */
 JNIEXPORT jint JNICALL
 JVM_GetClassModifiers(JNIEnv *env, jclass cls)
@@ -383,20 +401,24 @@ JVM_GetClassModifiers(JNIEnv *env, jclass cls)
 	}
     }
 
-    /*
-     * It not a member class. We need to translate the flags since they
-     * were modified to make CVMcbAccessFlags() fit in one byte.
-     */
+    /* If we get here, then the class is not a member class. */
+
+    /* The implementation of JVM_GetClassModifiers() needs to conform to the
+       specification of Class.getModifiers().  Acording to that spec, the
+       only bits of relevance to this method are public, final, interface,
+       and abstract.  The spec also mentioned private, protected, and static
+       but those don't exist in the VM spec for class access flags.
+    */
     {
-	jint access = 0;
-	if (CVMcbIs(cb, PUBLIC))
-	    access |= JVM_ACC_PUBLIC;
-	if (CVMcbIs(cb, FINAL))
-	    access |= JVM_ACC_FINAL;
-	if (CVMcbIs(cb, INTERFACE))
-	    access |= JVM_ACC_INTERFACE;
-	if (CVMcbIs(cb, ABSTRACT))
-	    access |= JVM_ACC_ABSTRACT;
+	jint access = CVMcbAccessFlags(cb);
+
+	CVMassert(JVM_ACC_PUBLIC     == CVM_CLASS_ACC_PUBLIC);
+	CVMassert(JVM_ACC_FINAL      == CVM_CLASS_ACC_FINAL);
+	CVMassert(JVM_ACC_INTERFACE  == CVM_CLASS_ACC_INTERFACE);
+	CVMassert(JVM_ACC_ABSTRACT   == CVM_CLASS_ACC_ABSTRACT);
+
+	access &= (JVM_ACC_PUBLIC | JVM_ACC_FINAL | JVM_ACC_INTERFACE |
+		   JVM_ACC_ABSTRACT);
 	return access;
     }
 }
@@ -635,7 +657,7 @@ JVM_GetCallerClass(JNIEnv *env, int n)
 #ifndef CDC_10
 /* Assertion support. */
 
-jboolean
+JNIEXPORT jboolean JNICALL
 JVM_DesiredAssertionStatus(JNIEnv *env, jclass unused, jclass cls)
 {
     CVMExecEnv* ee = CVMjniEnv2ExecEnv(env);
@@ -659,7 +681,7 @@ JVM_DesiredAssertionStatus(JNIEnv *env, jclass unused, jclass cls)
 
 /* Return a new AssertionStatusDirectives object with the fields filled in with
    command-line assertion arguments (i.e., -ea, -da). */
-jobject
+JNIEXPORT jobject JNICALL
 JVM_AssertionStatusDirectives(JNIEnv *env, jclass unused)
 {
     CVMExecEnv* ee = CVMjniEnv2ExecEnv(env);
@@ -904,6 +926,26 @@ JNIEXPORT void JNICALL
 JVM_GC(void)
 {
     CVMgcRunGC(CVMgetEE());
+}
+
+/* JVM_GarbageCollect is implemented to support CLDC VM compatibility. */
+JNIEXPORT int JNICALL
+JVM_GarbageCollect(int flags, int requested_free_bytes)
+{
+    CVMExecEnv* ee = CVMgetEE();
+
+    /* We can't completely honor the JVM_COLLECT_YOUNG_SPACE_ONLY, since
+       there is no API to just collect the youngGen. However, unless -1
+       free bytes are requested, only the youngGen will be collected assuming
+       it satisfies requested_free_bytes. Also, if this flag is not set,
+       then we are suppose to do a full collection, which can be accomplished
+       by forcing requested_free_bytes = ~0.
+    */
+    if ((flags & JVM_COLLECT_YOUNG_SPACE_ONLY) != 0) {
+        requested_free_bytes = ~0;
+    }
+    CVMgcStopTheWorldAndGC(ee, requested_free_bytes);
+    return CVMgcFreeMemory(ee);
 }
 
 JNIEXPORT jlong JNICALL
@@ -1205,47 +1247,42 @@ CVMgcUnsafeFillInStackTrace(CVMExecEnv *ee, CVMThrowableICell* throwableICell)
 {
 #ifdef CVM_DEBUG_STACKTRACES
     CVMFrame*          startFrame;
-    CVMFrame*          frame;
+    CVMFrameIterator   iter;
     CVMMethodBlock*    mb;
     CVMArrayOfRef*     backtrace;
     CVMArrayOfInt*     pcArray;
+#ifdef CVM_JIT
     CVMArrayOfBoolean* isCompiledArray = NULL;
+#endif
     CVMObject*         tempObj;
     CVMInt32           backtraceSize;
     CVMInt32           count;
- 
-    startFrame = CVMeeGetCurrentFrame(ee);
+    CVMBool            noMoreFrameSkips;
 
-    /* Go backwards, removing all frames that are just part of the <init> of
-     * the throwable object.
-     */
-    mb = startFrame->mb;
-    if (mb != NULL) { /* NULL indicates the initial dummy frame */
-	if (mb == CVMglobals.java_lang_Throwable_fillInStackTrace) {
-	    startFrame = CVMframePrev(startFrame);
-	}
-	mb = startFrame->mb;
-		
-	while (mb != NULL && CVMtypeidIsConstructor(CVMmbNameAndTypeID(mb)) &&
-	       CVMisSubclassOf(ee, CVMmbClassBlock(mb), 
-			       CVMsystemClass(java_lang_Throwable))) {
-	    startFrame = CVMframePrev(startFrame);
-	    mb = startFrame->mb;
-	}
-	if (CVMlocalExceptionOccurred(ee)) {
-		return;
-	}
-    }
+    startFrame = CVMeeGetCurrentFrame(ee);
 
     /* how many useful frames are there on the stack? */
     CVMD_gcSafeExec(ee, {
+        noMoreFrameSkips = CVM_FALSE;
 	backtraceSize = 0;
-	frame = startFrame;
-	while (frame != NULL) {
-	    if (frame->mb != NULL && !CVMframeIsTransition(frame)) {
-		backtraceSize++;
+        CVMframeIterateInit(&iter, startFrame);
+	while (CVMframeIterateNext(&iter)) {
+	    mb = CVMframeIterateGetMb(&iter);
+	    /* ignore all frames that are just part of the <init> of
+	     * the throwable object. */
+	    if (!noMoreFrameSkips) {
+		if (mb == CVMglobals.java_lang_Throwable_fillInStackTrace) {
+		    continue;
+		} else if (CVMtypeidIsConstructor(CVMmbNameAndTypeID(mb)) &&
+			   CVMisSubclassOf(ee, CVMmbClassBlock(mb), 
+				CVMsystemClass(java_lang_Throwable))) {
+		    continue;
+		} else {
+		    noMoreFrameSkips = CVM_TRUE;
+		}
 	    }
-	    frame = CVMframePrev(frame);
+
+	    backtraceSize++;
 	}
     });
 
@@ -1321,75 +1358,82 @@ CVMgcUnsafeFillInStackTrace(CVMExecEnv *ee, CVMThrowableICell* throwableICell)
     /* 
      * Fill in the pcArray, isCompiledArray, and the backtrace array.
      */
-    frame = startFrame;
+    noMoreFrameSkips = CVM_FALSE;
     count = 0;
-    while (frame != NULL) {
-	CVMMethodBlock* mb = frame->mb;
-	/*
-	 * We don't want to stay gcunsafe for too long, so we periodically
-	 * offer a checkpoint. We need to restore backtrace, pcArray and
-	 * isCompiledArray if a gc happened.
-	 */
-	CVMD_gcSafeCheckPoint(ee, {}, {
-	    CVMD_fieldReadRef(CVMID_icellDirect(ee, throwableICell),
-			      CVMoffsetOfjava_lang_Throwable_backtrace,
-			      tempObj);	    
-	    backtrace = (CVMArrayOfRef*)tempObj;
-	    CVMD_arrayReadRef(backtrace, 0, tempObj);
-	    pcArray = (CVMArrayOfInt*)tempObj;
-	    CVMD_arrayReadRef(backtrace, 1, tempObj);
-	    isCompiledArray = (CVMArrayOfBoolean*)tempObj;
-	});
+    CVMframeIterateInit(&iter, startFrame);
+    while (CVMframeIterateNext(&iter)) {
+	CVMMethodBlock* mb = CVMframeIterateGetMb(&iter);
+	CVMJavaInt lineno;
 
-	if (mb != NULL && !CVMframeIsTransition(frame)) {
-	    /* store the line number and the method index in the pcArray */
-            CVMJavaInt lineno;
-	    if (CVMmbIs(mb, NATIVE)) {
-		lineno = -2; /* a native method has -2 as its lineno */
+	/* ignore all frames that are just part of the <init> of
+	 * the throwable object. */
+	if (!noMoreFrameSkips) {
+	    if (mb == CVMglobals.java_lang_Throwable_fillInStackTrace) {
+		continue;
+	    } else if (CVMtypeidIsConstructor(CVMmbNameAndTypeID(mb)) &&
+		CVMisSubclassOf(ee, CVMmbClassBlock(mb), 
+				CVMsystemClass(java_lang_Throwable))) {
+		continue;
 	    } else {
-		CVMUint8*  javaPc;
-	        CVMUint16 javaPcOffset;
+		noMoreFrameSkips = CVM_TRUE;
+	    }
+	}
+
+	/* store the line number and the method index in the pcArray */
+	if (CVMmbIs(mb, NATIVE)) {
+	    lineno = -2; /* a native method has -2 as its lineno */
+	} else {
+	    CVMUint8* javaPc;
+	    CVMUint16 javaPcOffset;
 #ifdef CVM_JIT
-		CVMBool    isCompiled = CVMframeIsCompiled(frame);
-		CVMD_arrayWriteBoolean(isCompiledArray, count,
-				       (CVMJavaBoolean)isCompiled);
-		if (isCompiled) {
-		    javaPc = CVMpcmapCompiledPcToJavaPc(
-                        mb, CVMcompiledFramePC(frame));
-		    if (javaPc == NULL) {
-			javaPc = CVMmbJavaCode(mb);
-		    }
-		} else
+	    CVMBool isCompiled;
+	    if (CVMframeIterateIsInlined(&iter)) {
+		isCompiled = CVM_TRUE;
+	    } else {
+		CVMFrame* frame = CVMframeIterateGetFrame(&iter);
+		CVMassert(frame->mb == mb);
+		isCompiled = CVMframeIsCompiled(frame);
+	    }
+	    CVMD_arrayWriteBoolean(isCompiledArray, count,
+				   (CVMJavaBoolean)isCompiled);
 #endif
-	        {
-		    javaPc = CVMframePc(frame);
-		}
-		javaPcOffset = (javaPc - CVMmbJavaCode(mb));
-	        /* We must eagerly compute the line number information for
-	         * <clinit> because the jmd may be freed after the <clinit>
-		 * is run. So we just get the lineno information for all.
-	         */
+	    javaPc = CVMframeIterateGetJavaPc(&iter);
+	    if (javaPc == NULL) {
+		javaPc = CVMmbJavaCode(mb);
+	    }
+	    javaPcOffset = (javaPc - CVMmbJavaCode(mb));
+	    
+	    /* We must eagerly compute the line number information for
+	     * <clinit> because the jmd may be freed after the <clinit>
+	     * is run. So we just get the lineno information for all.
+	     */
 #ifdef CVM_DEBUG_CLASSINFO
-                lineno = CVMpc2lineno(mb, javaPcOffset);
+	    lineno = CVMpc2lineno(mb, javaPcOffset);
 #else
-                lineno = -1;
+	    lineno = -1;
 #endif
-	    }
-
-	    CVMD_arrayWriteInt(pcArray, count, (CVMJavaInt)
-			       ((lineno << 16) |
-				(CVMmbMethodIndex(mb) & 0xffff)));
-	    /* Write the class object into the backtrace array. */
-	    {
-		CVMClassICell* classICell = 
-		    CVMcbJavaInstance(CVMmbClassBlock(mb));
-		CVMD_arrayWriteRef(backtrace, count + 2, 
-				   CVMID_icellDirect(ee, classICell));
-	    }
-
-	    count++;
-        }
-	frame = CVMframePrev(frame);
+	}
+	
+	CVMD_arrayWriteInt(pcArray, count, (CVMJavaInt)
+			   ((lineno << 16) |
+			    (CVMmbFullMethodIndex(mb) & 0xffff)));
+	/* Write the class object into the backtrace array. */
+	{
+	    CVMClassICell* classICell;
+            CVMClassBlock* cb;
+#ifdef CVM_JVMTI
+            if (CVMjvmtiMbIsObsolete(mb)) {
+                cb = CVMcbOldData(CVMmbClassBlock(mb))->currentCb;
+            } else
+#endif
+            {
+                cb = CVMmbClassBlock(mb);
+            }
+            classICell = CVMcbJavaInstance(cb);
+	    CVMD_arrayWriteRef(backtrace, count + 2, 
+			       CVMID_icellDirect(ee, classICell));
+	}
+	count++;
     } 
 
     CVMassert(count + 2 == CVMD_arrayGetLength(backtrace));
@@ -1460,7 +1504,10 @@ static CVMObjectICell* CVMgetStackTraceElement(CVMExecEnv *ee,
 
     CVMID_localrootBegin(ee) {
         CVMID_localrootDeclare(CVMArrayOfRefICell, backtraceICell);
-        CVMID_localrootDeclare(CVMArrayOfRefICell, tempArrayICell);
+#ifdef CVM_JIT
+        CVMID_localrootDeclare(CVMArrayOfBooleanICell, isCompiledArrayICell);
+#endif
+        CVMID_localrootDeclare(CVMArrayOfIntICell, pcArrayICell);
         CVMID_localrootDeclare(CVMObjectICell, tempICell);
         CVMID_localrootDeclare(CVMStringICell, stringICell);
 
@@ -1496,23 +1543,23 @@ static CVMObjectICell* CVMgetStackTraceElement(CVMExecEnv *ee,
          *
          */
         CVMID_arrayReadRef(ee, backtraceICell, 0, tempICell);
-        CVMID_icellAssign(ee, tempArrayICell,
-                          (CVMArrayOfRefICell*)tempICell);
-        if (CVMID_icellIsNull(tempArrayICell)) {
+        CVMID_icellAssign(ee, pcArrayICell,
+                          (CVMArrayOfIntICell*)tempICell);
+        if (CVMID_icellIsNull(pcArrayICell)) {
             goto failed_goto_localRootEnd;
         }
-        CVMID_arrayReadInt(ee, tempArrayICell, index, linenoInfo);
+        CVMID_arrayReadInt(ee, pcArrayICell, index, linenoInfo);
 
 #ifdef CVM_JIT
         /* The 2nd element of the backtrace array is an array of 
          * isCompiled values. */
         CVMID_arrayReadRef(ee, backtraceICell, 1, tempICell);
-        CVMID_icellAssign(ee, tempArrayICell,
-                          (CVMArrayOfRefICell*)tempICell);
-        if (CVMID_icellIsNull(tempArrayICell)) {
+        CVMID_icellAssign(ee, isCompiledArrayICell,
+                          (CVMArrayOfBooleanICell*)tempICell);
+        if (CVMID_icellIsNull(isCompiledArrayICell)) {
             goto failed_goto_localRootEnd;
         }
-        CVMID_arrayReadBoolean(ee, tempArrayICell, index, isCompiled);
+        CVMID_arrayReadBoolean(ee, isCompiledArrayICell, index, isCompiled);
 #endif
 
         /* Get the indexed backtrace element. It's java.lang.Class
@@ -1617,13 +1664,29 @@ JVM_MonitorWait(JNIEnv *env, jobject obj, jlong millis)
         CVMjvmpiPostMonitorWaitEvent(ee, obj, millis);
     }
 #endif
+    ee->threadState = CVM_THREAD_WAITING | CVM_THREAD_OBJECT_WAIT;
+    ee->threadState |= (millis == 0 ? CVM_THREAD_WAITING_INDEFINITE :
+		       CVM_THREAD_WAITING_TIMEOUT);
+#ifdef CVM_JVMTI
+    if (CVMjvmtiShouldPostMonitorWait()) {
+        CVMjvmtiPostMonitorWaitEvent(ee, obj, millis);
+    }
+#endif
 
     /* NOTE: CVMgcSafeObjectWait() may throw certain exceptions: */
     CVMgcSafeObjectWait(ee, obj, millis);
 
+    ee->threadState &= ~(CVM_THREAD_WAITING | CVM_THREAD_OBJECT_WAIT |
+                         CVM_THREAD_WAITING_INDEFINITE |
+			 CVM_THREAD_WAITING_TIMEOUT);
 #ifdef CVM_JVMPI
     if (CVMjvmpiEventMonitorWaitedIsEnabled()) {
         CVMjvmpiPostMonitorWaitedEvent(ee, obj);
+    }
+#endif
+#ifdef CVM_JVMTI
+    if (CVMjvmtiShouldPostMonitorWaited()) {
+        CVMjvmtiPostMonitorWaitedEvent(ee, obj, CVM_FALSE);
     }
 #endif
 }
@@ -1849,6 +1912,9 @@ static void start_func(void *arg)
 
     CVMcondvarNotify(&info->parentCond);
     CVMthreadSetPriority(&ee->threadInfo, info->priority);
+#ifdef CVM_INSPECTOR
+    ee->priority = info->priority;
+#endif
 
     CVMmutexUnlock(&info->parentLock);
 
@@ -1863,6 +1929,11 @@ static void start_func(void *arg)
 	goto failed;
     }
 
+#ifdef CVM_JVMTI
+    if (CVMjvmtiIsEnabled()) {
+	CVMjvmtiDebugEventsEnabled(ee) = CVM_TRUE;
+    }
+#endif
     /* Should have startup() call this too... */
     CVMpostThreadStartEvents(ee);
 
@@ -1877,8 +1948,6 @@ static void start_func(void *arg)
 
     CVMassert(!(*env)->ExceptionCheck(env));
 
-    /* startup() already called this, but OK to call again. */
-    CVMpostThreadExitEvents(ee);
     CVMdetachExecEnv(ee);
     CVMremoveThread(ee, ee->userThread);
  failed:
@@ -1910,14 +1979,8 @@ JVM_RunNativeThread(JNIEnv *env, jobject thisObj)
     ee->nativeRunInfoType = NATIVERUNINFO_UNDEFINED;
 #endif
     ee->nativeRunInfo = NULL;
-
-#ifdef CVM_JVMTI
-    ee->debugEventsEnabled = CVM_TRUE;
-#endif
+    CVMframeSetContextArtificial(ee);
     (*nativeFunc)(arg);
-#ifdef CVM_JVMTI
-    ee->debugEventsEnabled = CVM_FALSE;
-#endif
 }
 
 /* Purpose: Native implementation of java.lang.Thread.start0(). */
@@ -2049,6 +2112,7 @@ JVM_StartThread(JNIEnv *env, jobject thisObj, jint priority)
 #ifdef CVM_DEBUG
 	    msg = "CVMthreadCreate failed";
 #endif
+	    CVMmutexUnlock(&info->parentLock);
 	    goto out_of_memory2;
 	}
     }
@@ -2070,7 +2134,9 @@ JVM_StartThread(JNIEnv *env, jobject thisObj, jint priority)
     }
 
     CVMmutexUnlock(&info->parentLock);
-
+#ifdef CVM_JVMTI
+    CVMtimeThreadCpuClockInit(&targetEE->threadInfo);
+#endif
     /* In case we want to see where threads are created
        CVMdumpStack(&ee->interpreterStack, 0, 0, 0); */
 
@@ -2140,6 +2206,15 @@ JVM_StartSystemThread(JNIEnv *env, jobject thisObj,
 
 #if defined(CVM_HAVE_DEPRECATED) || defined(CVM_THREAD_SUSPENSION)
 
+#ifdef JAVASE
+JNIEXPORT void JNICALL
+JVM_StopThread(JNIEnv* env, jobject jthread, jobject throwable)
+{
+    CVMconsolePrintf("unimplemented function JVM_StopThread called!");
+    CVMassert(CVM_FALSE);
+}
+#endif
+
 JNIEXPORT void JNICALL
 JVM_SuspendThread(JNIEnv *env, jobject thread)
 {
@@ -2207,14 +2282,14 @@ JVM_SuspendThread(JNIEnv *env, jobject thread)
 		    }
                 }
 	    }
-	    CVMsysMicroUnlockAll(ee);
-	    CVMthreadSuspendConsistentRelease(ee);
+            CVMsysMicroUnlockAll(ee);
+            CVMthreadSuspendConsistentRelease(ee);
 	}
-	
-	CVMlocksForThreadSuspendRelease(ee);
+
+        CVMlocksForThreadSuspendRelease(ee);
     } else {
 	/* %comment: rt034 */
-	ee->threadState = CVM_THREAD_SUSPENDED;
+	ee->threadState |= CVM_THREAD_SUSPENDED;
 	CVMthreadSuspend(&ee->threadInfo);
     }
 }
@@ -2234,6 +2309,7 @@ JVM_ResumeThread(JNIEnv *env, jobject thread)
     targetEE = (CVMExecEnv *)CVMlong2VoidPtr(eetopVal);
 
     if (targetEE != NULL) {
+
 	if (targetEE->threadState & CVM_THREAD_SUSPENDED) {
 	    CVMassert(targetEE != ee);
 	    CVMthreadResume(&targetEE->threadInfo);
@@ -2271,6 +2347,9 @@ JVM_SetThreadPriority(JNIEnv *env, jobject thread, jint prio)
 
     if (targetEE != NULL) {
 	CVMthreadSetPriority(&targetEE->threadInfo, prio);
+#ifdef CVM_INSPECTOR
+	targetEE->priority = prio;
+#endif
     }
 
     CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
@@ -2302,7 +2381,11 @@ JVM_Sleep(JNIEnv *env, jclass threadClass, jlong millis)
 	    CVMSysMonitor mon;
 	    if (CVMsysMonitorInit(&mon, NULL, 0)) {
 		CVMsysMonitorEnter(ee, &mon);
+		ee->threadState = CVM_THREAD_SLEEPING | CVM_THREAD_WAITING |
+		    CVM_THREAD_WAITING_TIMEOUT;
 		st = CVMsysMonitorWait(ee, &mon, millis);
+		ee->threadState &= ~(CVM_THREAD_SLEEPING | CVM_THREAD_WAITING |
+				     CVM_THREAD_WAITING_TIMEOUT);
 		CVMsysMonitorExit(ee, &mon);
 		CVMsysMonitorDestroy(&mon);
 		if (st == CVM_WAIT_INTERRUPTED) {
@@ -2348,11 +2431,10 @@ JVM_CountStackFrames(JNIEnv *env, jobject thread)
 
 	if (targetEE != NULL) {
 	    CVMFrame *frame = CVMeeGetCurrentFrame(targetEE);
-	    while (frame != NULL) { 
-		if (!CVMframeIsTransition(frame)) {
-		    ++count;
-		}
-		frame = CVMframePrev(frame);
+	    CVMFrameIterator iter;
+	    CVMframeIterateInit(&iter, frame);
+	    while (CVMframeIterateNext(&iter)) {
+		++count;
 	    }
 	} else {
 	    /* Thread hasn't any state yet. */
@@ -2366,7 +2448,7 @@ JVM_CountStackFrames(JNIEnv *env, jobject thread)
 #endif /* CVM_HAVE_DEPRECATED */
 
 JNIEXPORT void JNICALL
-JVM_Interrupt(JNIEnv *env, jobject thread)
+Java_java_lang_Thread_interrupt0(JNIEnv *env, jobject thread)
 {
     CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
     CVMExecEnv *targetEE;
@@ -2382,6 +2464,7 @@ JVM_Interrupt(JNIEnv *env, jobject thread)
     /* %comment: rt035 */
     if (targetEE != NULL) {
 	if (!targetEE->interruptsMasked) {
+	    targetEE->threadState |= CVM_THREAD_INTERRUPTED;
 	    CVMthreadInterruptWait(CVMexecEnv2threadID(targetEE));
 	} else {
 	    targetEE->maskedInterrupt = CVM_TRUE;
@@ -2389,6 +2472,33 @@ JVM_Interrupt(JNIEnv *env, jobject thread)
     }
 
     CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
+}
+
+JNIEXPORT void JNICALL
+JVM_Interrupt(JNIEnv *env, jobject thread)
+{
+    CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
+    CVMJavaLong eetopVal;
+    CVMExecEnv *targetEE;
+    jmethodID methodID;
+
+    CVMID_fieldReadLong(ee, thread,
+			CVMoffsetOfjava_lang_Thread_eetop,
+			eetopVal);
+    targetEE = (CVMExecEnv *)CVMlong2VoidPtr(eetopVal);
+
+    /* %comment: rt035 */
+    if (targetEE != NULL) {
+        methodID =
+            CVMjniGetMethodID(env,
+                CVMcbJavaInstance(CVMsystemClass(java_lang_Thread)),
+                "interrupt", "()V");
+        if (methodID == NULL) {
+            return;
+        }        
+        (*env)->CallVoidMethod(env, CVMcurrentThreadICell(targetEE),
+                               methodID);
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -2414,6 +2524,7 @@ JVM_IsInterrupted(JNIEnv *env, jobject thread, jboolean clearInterrupted)
 	 */
 	result = !ee->interruptsMasked &&
 	    CVMthreadIsInterrupted(CVMexecEnv2threadID(ee), clearInterrupted);
+	ee->threadState &= ~CVM_THREAD_INTERRUPTED;
     } else {
 	/* a thread can only clear its own interrupt */
 	CVMassert(!clearInterrupted);
@@ -2430,7 +2541,6 @@ JVM_IsInterrupted(JNIEnv *env, jobject thread, jboolean clearInterrupted)
 	}
 	CVMsysMutexUnlock(ee, &CVMglobals.threadLock);
     }
-
     return result;
 }
 
@@ -2482,26 +2592,46 @@ JVM_HoldsLock(JNIEnv *env, jclass threadClass, jobject objICell)
  */
 
 #ifdef CVM_HAVE_DEPRECATED 
+
+/* NOTE: is_trusted_frame() advances the frame iterator if we encounter a
+   doPrivileged() frame. */
 static CVMBool
-is_trusted_frame(CVMExecEnv *ee, CVMFrame *frame)
+is_trusted_frame(CVMExecEnv *ee, CVMFrameIterator *iter)
 {
+    CVMClassBlock *cb;
+    CVMMethodBlock *mb;
+
+    /* doPrivileged MBs: */
     CVMMethodBlock *doPrivilegedAction1Mb =
-        CVMglobals.java_security_AccessController_doPrivilegedAction1;
+	CVMglobals.java_security_AccessController_doPrivilegedAction1;
     CVMMethodBlock *doPrivilegedExceptionAction1Mb =
-        CVMglobals.java_security_AccessController_doPrivilegedExceptionAction1;
+	CVMglobals.java_security_AccessController_doPrivilegedExceptionAction1;
+    CVMMethodBlock *doPrivilegedAction2Mb =
+	CVMglobals.java_security_AccessController_doPrivilegedAction2;
+    CVMMethodBlock *doPrivilegedExceptionAction2Mb =
+	CVMglobals.java_security_AccessController_doPrivilegedExceptionAction2;
 
-    if (frame->mb == doPrivileged2Mb) {
+    mb = CVMframeIterateGetMb(iter);
+    if (mb == doPrivilegedAction2Mb ||
+	mb == doPrivilegedExceptionAction2Mb) {
+
+	CVMMethodBlock *callerMb;
 	CVMClassLoaderICell *loader;
-	CVMClassBlock *cb;
 
-	frame = CVMframePrev(frame);
-	if (frame->mb == doPrivilegedExceptionAction1Mb ||
-	    frame->mb == doPrivilegedAction1Mb)
-	{
-	    frame = CVMframePrev(frame);
+	/* Get the caller frame of doPrivileged(): */
+	CVMframeIterateNext(iter);
+	callerMb = CVMframeIterateGetMb(iter);
+
+	/* If the caller is one of the outher doPrivileged() methods, then
+	   refetch the caller from before them: */
+	if (callerMb == doPrivilegedAction1Mb ||
+	    callerMb == doPrivilegedExceptionAction1Mb ) {
+	    CVMframeIterateNext(iter);
+	    callerMb = CVMframeIterateGetMb(iter);
 	}
 
-	cb = CVMmbClassBlock(frame->mb);
+	/* Check to see if the classloader of this callerMb is trusted: */
+	cb = CVMmbClassBlock(callerMb);
 	if (cb != NULL && ((loader = CVMcbClassLoader(cb)) == NULL ||
 	    TRUSTED_CLASSLOADER(ee, loader)))
 	{
@@ -2511,34 +2641,34 @@ is_trusted_frame(CVMExecEnv *ee, CVMFrame *frame)
     return CVM_FALSE;
 }
 
+/* Utility function used only by JVM_CurrentLoadedClass() and
+   JVM_CurrentClassLoader() below. */
 static CVMClassBlock *
 current_loaded_class(JNIEnv *env)
 {
     CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
     CVMFrame *frame = CVMeeGetCurrentFrame(ee);
     CVMClassBlock *cb;
+    CVMMethodBlock *mb;
+    CVMClassLoaderICell *loader;
+    CVMFrameIterator iter;
 
-    frame = CVMgetCallerFrameSpecial(frame, 0, CVM_FALSE);
-    while (frame != NULL) {
-	/* if a method in a class in a trusted loader is in a doPrivileged,
-	   return NULL */
-
-	if (is_trusted_frame(ee, frame)) {
+    CVMframeIterateInit(&iter, frame);
+    while (CVMframeIterateNext(&iter)) {
+	/* If a method in a class in a trusted loader is in a doPrivileged,
+	   return NULL: */
+	if (is_trusted_frame(ee, &iter)) {
 	    return NULL;
 	}
-
-	CVMassert(frame->mb != NULL && !CVMframeIsTransition(frame));
-
-	{
-	    CVMClassLoaderICell *loader;
-	    cb = CVMmbClassBlock(frame->mb);
-	    if (cb != NULL && (loader = CVMcbClassLoader(cb)) != NULL &&
-		!TRUSTED_CLASSLOADER(ee, loader))
-	    {
+	mb = CVMframeIterateGetMb(&iter);
+	if (!CVMmbIs(mb, NATIVE)) {
+	    cb = CVMmbClassBlock(mb);
+	    CVMassert(cb != NULL);
+	    loader = CVMcbClassLoader(cb);
+	    if ((loader != NULL) && !TRUSTED_CLASSLOADER(ee, loader)) {
 	        return cb;
 	    }
         }
-	frame = CVMgetCallerFrameSpecial(frame, 1, CVM_FALSE);
     }
     return NULL;
 }
@@ -2575,7 +2705,7 @@ JVM_GetClassContext(JNIEnv *env)
     /* count the classes on the execution stack */
     frame = CVMeeGetCurrentFrame(ee);
 
-    CVMframeIterate(frame, &iter);
+    CVMframeIterateInit(&iter, frame);
 
     /* skip current frame (SecurityManager.getClassContext) */
     CVMframeIterateNext(&iter);
@@ -2604,7 +2734,7 @@ JVM_GetClassContext(JNIEnv *env)
 	CVMArrayOfRefICell* classArray = (CVMArrayOfRefICell*)result;
 	frame = CVMeeGetCurrentFrame(ee);
 
-	CVMframeIterate(frame, &iter);
+	CVMframeIterateInit(&iter, frame);
 
 	/* skip current frame (SecurityManager.getClassContext) */
 	CVMframeIterateNext(&iter);
@@ -2623,72 +2753,86 @@ JVM_GetClassContext(JNIEnv *env)
 
 #ifdef CVM_HAVE_DEPRECATED
 
-/* NOTE: The name string could probably be handled better... */
-
 JNIEXPORT jint JNICALL
 JVM_ClassDepth(JNIEnv *env, jstring name)
 {
-#ifdef JDK12
-    struct javaframe *frame, frame_buf;
-    ClassClass	*cb;
-    char buf[STK_BUF_LEN], *p;
+    CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
+    CVMFrame *frame = CVMeeGetCurrentFrame(ee);
+    CVMClassBlock *cb;
+    CVMMethodBlock *mb;
+    CVMFrameIterator iter;
     jint depth = 0;
+    char *utfName;
+    CVMClassTypeID classID;
+    jsize strLen;
+    jsize utfLen;
 
-    javaString2CString((Hjava_lang_String *)DeRef(env, name), buf, sizeof(buf));
-    for (p = buf ; *p ; p++) {
-	if (*p == '.') {
-	    *p = '/';
-	}
+    /* Lookup the typeid of the specified Class name: */
+    strLen = CVMjniGetStringLength(env, name);
+    utfLen = CVMjniGetStringUTFLength(env, name);
+
+    utfName = (char *)malloc(utfLen + 1);
+    if (utfName == NULL) {
+        CVMthrowOutOfMemoryError(ee, NULL);
+	return -1;
+    }
+    CVMjniGetStringUTFRegion(env, name, 0, strLen, utfName);
+
+    VerifyFixClassname(utfName);
+    classID = CVMtypeidLookupClassID(ee, utfName, (int)utfLen);
+    free((void *)utfName);
+
+    /* If there is no class in the system already loaded with this name, then
+       no need to search further: */
+    if (classID == CVM_TYPEID_ERROR) {
+	return -1;
     }
 
-    for (frame = CVMjniEnv2ExecEnv(env)->current_frame ; frame != 0 ; ) {
-	if ((frame->mb != 0) &&
-	    !(frame->mb->fb.access & ACC_NATIVE)) {
-	    cb = fieldclass(&frame->mb->fb);
-	    if (cb && !strcmp(cbName(cb), buf)) {
-		return depth;
+    CVMframeIterateInit(&iter, frame);
+    while (CVMframeIterateNext(&iter)) {
+	mb = CVMframeIterateGetMb(&iter);
+	if (!CVMmbIs(mb, NATIVE)) {
+	    cb = CVMmbClassBlock(mb);
+	    CVMassert(cb != NULL);
+	    if (CVMcbClassName(cb) == classID) {
+	        return depth;
 	    }
 	    depth++;
-	}
-	frame = FRAME_PREV(frame, &frame_buf);
+        }
     }
-#else
-    CVMconsolePrintf("JVM_ClassDepth() not implemented yet!\n");
-    CVMassert(CVM_FALSE);
     return -1;
-#endif
 }
 
 JNIEXPORT jint JNICALL
 JVM_ClassLoaderDepth(JNIEnv *env)
 {
-#ifdef JDK12
-    struct javaframe *frame, frame_buf;
-    ClassClass	*cb;
+    CVMExecEnv *ee = CVMjniEnv2ExecEnv(env);
+    CVMFrame *frame = CVMeeGetCurrentFrame(ee);
+    CVMClassBlock *cb;
+    CVMMethodBlock *mb;
+    CVMClassLoaderICell *loader;
+    CVMFrameIterator iter;
     jint depth = 0;
 
-    for (frame = CVMjniEnv2ExecEnv(env)->current_frame ; frame != 0 ; ) {
+    CVMframeIterateInit(&iter, frame);
+    while (CVMframeIterateNext(&iter)) {
 	/* if a method in a class in a trusted loader is in a doPrivileged,
 	   return -1 */
-
-	if (is_trusted_frame(env, frame))
+	if (is_trusted_frame(ee, &iter)) {
 	    return -1;
-
-	if ((frame->mb != 0) && 
-	    !(frame->mb->fb.access & ACC_NATIVE)) {
-	    cb = fieldclass(&frame->mb->fb);
-	    if (cb && cbLoader(cb) && !IsTrustedClassLoader(cbLoader(cb))) {
-		return depth;
+	}
+	mb = CVMframeIterateGetMb(&iter);
+	if (!CVMmbIs(mb, NATIVE)) {
+	    cb = CVMmbClassBlock(mb);
+	    CVMassert(cb != NULL);
+	    loader = CVMcbClassLoader(cb);
+	    if (loader != NULL && !TRUSTED_CLASSLOADER(ee, loader)) {
+	        return depth;
 	    }
-            depth++;
+	    depth++;
         }
-	frame = FRAME_PREV(frame, &frame_buf);
     }
-#else
-    CVMconsolePrintf("JVM_ClassLoaderDepth() not implemented yet!\n");
-    CVMassert(CVM_FALSE);
     return -1;
-#endif
 }
 
 #endif /* CVM_HAVE_DEPRECATED */
@@ -3321,24 +3465,24 @@ JVM_NewMultiArray(JNIEnv *env, jclass eltClass, jintArray dim)
     CVMBool	   computedArrayClassID = CVM_FALSE;
     CVMObjectICell* classObj = (CVMObjectICell*) eltClass;
     CVMArrayOfIntICell* arrayObj = (CVMArrayOfIntICell*) dim;
-    CVMJavaInt arrLen;
+    CVMJavaInt nDimensions;
     jobject res;
     int i;
-    CVMJavaInt dimensionTmp;
+
     /* 
      * CVMmultiArrayAlloc() is called from java opcode multianewarray
      * and passes the top of stack as parameter dimensions.
      * Because the width of the array dimensions is obtained via
      * dimensions[i], dimensions has to be of the same type as 
      * the stack elements for proper access.
+     *
+     * CVMmultiArrayAlloc() expects that the dimensions array passed to it
+     * will not have a 0 dimension in the middle.  The interpreter loop
+     * filters out this case for the multianewarray bytecode before calling
+     * CVMmultiArrayAlloc().  We must also do the equivalent here.
      */
     CVMStackVal32* dimensionsTmp;
-    CVMInt32 effectiveDimension = -1; /* In case one of the entries is zero.
-					 Because the java.lang.reflect.Array
-					 package is so poorly specified,
-					 I'm going to make this work just
-					 like opc_multianewarray. */
-    CVMInt32 elementDepth; /* For elements which are themselves arrays */
+    CVMInt32 effectiveNDimensions;
     
     if ((classObj == NULL) || (CVMID_icellIsNull(classObj))) {
 	CVMthrowNullPointerException(ee, "null class object");
@@ -3350,65 +3494,99 @@ JVM_NewMultiArray(JNIEnv *env, jclass eltClass, jintArray dim)
 	return NULL;
     }
     
-    CVMID_arrayGetLength(ee, arrayObj, arrLen);
-    if (arrLen == 0) {
+    /* The number of dimensions (nDimension) is effectively the length of the
+       dimensions array: */
+    CVMID_arrayGetLength(ee, arrayObj, nDimensions);
+    if (nDimensions == 0) {
 	CVMthrowIllegalArgumentException(ee,
 					 "zero-dimensional dimensions array");
 	return NULL;
     }
-    for (i = 0; i < arrLen; i++) {
-	CVMID_arrayReadInt(ee, arrayObj, i, dimensionTmp);
-	if (dimensionTmp < 0) {
+
+    /*
+     * Now go through the dimensions. Check for negative dimensions.
+     * Also check for whether there is a 0 in the dimensions array
+     * which would prevent the allocation from continuing for lower layers
+     * of the array dimensions.
+     *
+     * By default, we'll set effectiveNDimensions to nDimensions i.e. all
+     * the dimension values are valid and there are no zeros in the middle of
+     * the dimensions array.  If we see a 0 in the dimensions array, we'll set
+     * the effectiveNDimensions at the next index i.e. includes the current
+     * index.  If we don't see a 0, we'll leave it at the default i.e. the
+     * entire array is included.
+     */
+    effectiveNDimensions = nDimensions;
+    for (i = 0; i < nDimensions; i++) {
+	CVMJavaInt dim;
+	CVMID_arrayReadInt(ee, arrayObj, i, dim);
+	if (dim < 0) {
 	    CVMthrowNegativeArraySizeException(ee, NULL);
 	    return NULL;
-	} else if (dimensionTmp == 0) {
-	    /* Mark the first 0 in the dimensions array */
-	    if (effectiveDimension == -1) {
-		effectiveDimension = i + 1;
-	    }
+	} else if ((dim == 0) && (effectiveNDimensions == nDimensions)) {
+	    /* Remember the first 0 in the dimensions array */
+	    effectiveNDimensions = i + 1;
 	}
     }
 
-    /*
-     * If we have not seen a 0 in the dimensions array, we let
-     * effectiveDimension be the same as the length of the dims array 
+    /* CVMmultiArrayAlloc() expects a CB for the top-level multi-dimensional
+       array while java.lang.reflect.Array.newInstance() specifies the class
+       for an element.  So, we need to determine the appropriate array CB
+       before calling CVMmultiArrayAlloc() below.
      */
-    if (effectiveDimension == -1)
-	effectiveDimension = arrLen;
-
     CVMID_fieldReadAddr(ee, eltClass,
 			CVMoffsetOfjava_lang_Class_classBlockPointer,
 			cbAddr);
     cb = (CVMClassBlock*)cbAddr;
     CVMassert(cb != NULL);
 
-    if (CVMisArrayClass(cb)) {
-	/* Check total number of dimensions against 255
-           limit.  See also JVM_NewArray above. */
-	elementDepth = CVMarrayDepth(cb);
-	if ((elementDepth + arrLen) > 255) {
- 	    CVMassert(elementDepth <= 255); /* this should never happen because
-				       * arrays always have 255 or fewer
-				       * dimensions */
-	    CVMthrowIllegalArgumentException(ee, "too many dimensions");
-	    return NULL;
-	}
+    /* The element CB provided by java.lang.reflect.Array.newInstance() may
+       itself be an array class.  We need to make sure that the deepest
+       dimension of the new multi array does not exceed the 255 limit.
+    */
+    {
+        CVMInt32 elementDepth;
+        if (CVMisArrayClass(cb)) {
+            /* Check total number of dimensions against 255
+               limit.  See also JVM_NewArray above. */
+            elementDepth = CVMarrayDepth(cb);
+        } else {
+            elementDepth = 0;
+        }
+        
+        if ((elementDepth + nDimensions) > 255) {
+            CVMassert(elementDepth <= 255); /* this should never happen because
+                                             * arrays always have 255 or fewer
+                                             * dimensions */
+            CVMthrowIllegalArgumentException(ee, "too many dimensions");
+            return NULL;
+        }
     }
 
     /* %comment: c021 */
     if (CVMcbIs(cb, PRIMITIVE)) {
 	cb = CVMclassGetArrayOf(ee, cb);
-	if (effectiveDimension > 1) {
+	if (nDimensions > 1) {
 	    arrayClassID = 
 		CVMtypeidIncrementArrayDepth(ee, CVMcbClassName(cb),
-					     arrLen - 1);
+					     nDimensions - 1);
+	    if (arrayClassID == CVM_TYPEID_ERROR) {
+		/* Exception must have been thrown. Let it stand */
+		CVMassert(CVMlocalExceptionOccurred(ee));
+		return NULL;
+	    }
 	    computedArrayClassID = CVM_TRUE;
 	} else {
 	    arrayClassID = CVMcbClassName(cb);
 	}
     } else {
         arrayClassID = CVMtypeidIncrementArrayDepth(ee, CVMcbClassName(cb),
-                                                    arrLen);
+                                                    nDimensions);
+	if (arrayClassID == CVM_TYPEID_ERROR) {
+	    /* Exception must have been thrown. Let it stand */
+	    CVMassert(CVMlocalExceptionOccurred(ee));
+	    return NULL;
+	}
 	computedArrayClassID = CVM_TRUE;
     }
 
@@ -3419,7 +3597,7 @@ JVM_NewMultiArray(JNIEnv *env, jclass eltClass, jintArray dim)
     }
     if (cb == NULL) {
 	/* Exception must have been thrown. Let it stand */
-	CVMassert(CVMexceptionOccurred(ee));
+	CVMassert(CVMlocalExceptionOccurred(ee));
 	return NULL;
     }
 
@@ -3432,22 +3610,39 @@ JVM_NewMultiArray(JNIEnv *env, jclass eltClass, jintArray dim)
      * Because the width of the array dimensions is obtained via
      * dimensions[i], dimensions has to be of the same type as 
      * the stack elements for proper access.
+     *
+     * Note: CVMmultiArrayAlloc() is expecting a dimensions array that will
+     * not be moving.  Since our dimensions array is a Java object, we will
+     * need to allocated a native array that doesn't move in order to pass
+     * the dimensions on.  Note that CVMmultiArrayAlloc() operates in a GC
+     * safe state.  Hence, Java objects may be moved by the GC.  Therefore
+     * this native dimensions array is needed.
+     *
+     * The needed size of the dimensions array is actually determined by
+     * the effectiveNDimensions which was computed earlier.
      */
+
+    /* Allocate the native dimensions array: */
     dimensionsTmp = 
-	(CVMStackVal32*) malloc(sizeof(CVMStackVal32) * effectiveDimension);
+	(CVMStackVal32*) malloc(sizeof(CVMStackVal32) * effectiveNDimensions);
     if (dimensionsTmp == NULL) {
 	CVMthrowOutOfMemoryError(ee, NULL);
 	return NULL;
     }
-    for (i = 0; i < effectiveDimension; i++) {
+
+    /* Copy the dimension values over to the native dimensions array: */
+    for (i = 0; i < effectiveNDimensions; i++) {
 	CVMID_arrayReadInt(ee, arrayObj, i, dimensionsTmp[i].j.i);
     }
     
+    /* Instantiate the multi dimensional array: */
     res = CVMjniCreateLocalRef(ee);
     if (res != NULL) {
-	CVMmultiArrayAlloc(ee, effectiveDimension, dimensionsTmp, cb,
+	CVMmultiArrayAlloc(ee, effectiveNDimensions, dimensionsTmp, cb,
 			   (CVMObjectICell*) res);
     }
+
+    /* Release the native dimensions array: */
     free(dimensionsTmp);
     if (CVMexceptionOccurred(ee)) {
 	(*env)->DeleteLocalRef(env, res);
@@ -3538,7 +3733,9 @@ JVM_IsNaN(jdouble d)
 JNIEXPORT jboolean JNICALL
 JVM_IsSupportedJNIVersion(jint version)
 {
-    return version == JNI_VERSION_1_1 || version == JNI_VERSION_1_2;
+    return version == JNI_VERSION_1_1 ||
+           version == JNI_VERSION_1_2 ||
+           version == JNI_VERSION_1_4;
 }
 
 JNIEXPORT void * JNICALL
@@ -3696,7 +3893,7 @@ JVM_InitProperties(JNIEnv *env, jobject props, java_props_t* sprops)
      * key and value, and also to make sure that we have a properties
      * table at hand and not just a hashtable.
      */
-    jmethodID putID = (*env)->GetMethodID(env,
+    jmethodID putID = (*env)->GetMethodID(env, 
 					  (*env)->GetObjectClass(env, props),
 					  "setProperty",
             "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;");
@@ -3713,6 +3910,7 @@ JVM_InitProperties(JNIEnv *env, jobject props, java_props_t* sprops)
     /* Note: java.vm.info is not required by the spec, 
      * but used in the '-version' string */
     PUTPROP(props, "java.vm.info",			CVM_PROP_JAVA_VM_INFO);
+    PUTPROP(props, "com.sun.package.spec.version",	CVM_PROP_COM_SUN_PACKAGE_SPEC_VERSION);
 
 #ifdef CVM_CLASSLOADING
     PUTPROP_ForPlatformCString(props, "sun.boot.class.path",
@@ -3732,6 +3930,12 @@ JVM_InitProperties(JNIEnv *env, jobject props, java_props_t* sprops)
     PUTPROP_ForPlatformCString(props, "java.library.builtin.net",  "yes");
     PUTPROP_ForPlatformCString(props, "java.library.builtin.math", "yes");
     PUTPROP_ForPlatformCString(props, "java.library.builtin.zip",  "yes");
+
+#ifdef JAVASE
+    if (!CVMinitJavaSEProperties(env, putID, props)) {
+	return NULL;
+    }
+#endif
 
     return (*env)->NewLocalRef(env, props);
 }
@@ -3779,29 +3983,52 @@ JVM_DisableCompiler(JNIEnv *env, jclass compCls)
 {
 }
 
-#ifdef JDK13
+#ifdef JAVASE
+
+/* Need to temporarily define JVM_Socket for compatibility with
+ * J2SE Net libraries that haven't been recompiled with CVM headers
+ */
+#undef JVM_Socket
+JNIEXPORT jint JNICALL
+JVM_Socket(jint domain, jint type, jint protocol)
+{
+    return CVMnetSocket(domain, type, protocol);
+}
+
+JNIEXPORT jboolean JNICALL
+JVM_SupportsCX8()
+{
+    return (CVM_FALSE);
+}
+
+JNIEXPORT jboolean JNICALL
+JVM_CX8Field(JNIEnv *env, jobject obj, jfieldID fid, jlong oldVal, jlong newVal)
+{
+    return (CVM_FALSE);
+}
+
+JNIEXPORT jint JNICALL
+JVM_InitializeSocketLibrary()
+{
+    return(CVM_TRUE);
+}
 
 JNIEXPORT void * JNICALL
 JVM_RegisterSignal(jint sig, void *handler)
 {
-    CVMconsolePrintf("JVM_RegisterSignal() not implemented yet!\n");
-    CVMassert(CVM_FALSE);
-    return (void *)NULL;
+    return (void *)-1;
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 JVM_RaiseSignal(jint sig)
 {
-    CVMconsolePrintf("JVM_RaiseSignal() not implemented yet!\n");
-    CVMassert(CVM_FALSE);
+    return CVM_FALSE;
 }
 
 JNIEXPORT jint JNICALL
 JVM_FindSignal(const char *name)
 {
-    CVMconsolePrintf("JVM_FindSignal() not implemented yet!\n");
-    CVMassert(CVM_FALSE);
     return -1;
 }
 
-#endif
+#endif /* JAVASE */

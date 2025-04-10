@@ -1,7 +1,7 @@
 /*
  * @(#)URLClassLoader.java	1.81 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -489,10 +489,9 @@ public class URLClassLoader extends SecureClassLoader {
 		locUrl = ((JarURLConnection)urlConnection).getJarFileURL();
 	    }
 	    String host = locUrl.getHost();
-	    if (host == null)
-		host = "localhost";
-	    p = new SocketPermission(host,
-		SecurityConstants.SOCKET_CONNECT_ACCEPT_ACTION);
+	    if (host != null && (host.length() > 0))
+	        p = new SocketPermission(host,
+		              SecurityConstants.SOCKET_CONNECT_ACCEPT_ACTION);
 	}
 
 	// make sure the person that created this class loader

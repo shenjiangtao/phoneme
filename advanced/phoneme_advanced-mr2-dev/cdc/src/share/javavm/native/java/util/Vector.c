@@ -1,7 +1,7 @@
 /*
  * @(#)Vector.c	1.14 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -29,8 +29,10 @@
 #include "javavm/include/indirectmem.h"
 #include "javavm/include/common_exceptions.h"
 
+#if 0
 #include "generated/offsets/java_util_Vector.h"
 #include "generated/offsets/java_util_AbstractList.h"
+#endif
 
 #if 0
 #undef FIELD_READ_ELEMENTDATA
@@ -149,7 +151,7 @@ CVMensureCapacityHelper(CVMExecEnv* ee, CVMObjectICell *thisICell,
  * method for ensuring capacity without incurring the cost of an
  * extra synchronization.
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_util_Vector_ensureCapacityHelper(CVMExecEnv* ee,
                                          CVMStackVal32 *arguments,
                                          CVMMethodBlock **p_mb)
@@ -177,7 +179,7 @@ CNIjava_util_Vector_ensureCapacityHelper(CVMExecEnv* ee,
  * Method:      elementAt
  * Signature:   (I)Ljava/lang/Object;
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_util_Vector_elementAt(CVMExecEnv* ee, CVMStackVal32 *arguments,
                               CVMMethodBlock **p_mb)
 {
@@ -288,7 +290,7 @@ CNIjava_util_Vector_elementAt(CVMExecEnv* ee, CVMStackVal32 *arguments,
  * Method:      addElement
  * Signature:   (Ljava/lang/Object;)V
  */
-CNIResultCode
+CNIEXPORT CNIResultCode
 CNIjava_util_Vector_addElement(CVMExecEnv* ee, CVMStackVal32 *arguments,
                                CVMMethodBlock **p_mb)
 {

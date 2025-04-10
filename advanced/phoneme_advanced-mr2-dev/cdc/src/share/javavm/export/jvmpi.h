@@ -1,7 +1,7 @@
 /*
  * @(#)jvmpi.h	1.29 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -32,6 +32,12 @@
 
 #define JVMPI_VERSION_1   ((jint)0x10000001)  /* implied 0 for minor version */
 #define JVMPI_VERSION_1_1 ((jint)0x10000002)
+
+JNIEXPORT jint JNICALL 
+JVM_OnLoad(JavaVM *, char *, void *);
+
+JNIEXPORT jint JNICALL
+JVM_OnUnload(JavaVM* vm);
 
 #ifdef __cplusplus
 extern "C" {

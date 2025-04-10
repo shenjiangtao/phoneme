@@ -1,27 +1,28 @@
 /*
  * @(#)ccminvokers_cpu.S	1.53 06/10/29
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights  
+ * Reserved.  Use is subject to license terms.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
  * modify it under the terms of the GNU General Public License version  
- * 2 only, as published by the Free Software Foundation.   
+ * 2 only, as published by the Free Software Foundation.  
  *   
  * This program is distributed in the hope that it will be useful, but  
  * WITHOUT ANY WARRANTY; without even the implied warranty of  
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  
  * General Public License version 2 for more details (a copy is  
- * included at /legal/license.txt).   
+ * included at /legal/license.txt).  
  *   
  * You should have received a copy of the GNU General Public License  
  * version 2 along with this work; if not, write to the Free Software  
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  
- * 02110-1301 USA   
+ * 02110-1301 USA  
  *   
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa  
  * Clara, CA 95054 or visit www.sun.com if you need additional  
- * information or have any questions. 
+ * information or have any questions.
  */
 
 /*
@@ -59,8 +60,9 @@
     (CVM_FASTLOCK_TYPE == CVM_FASTLOCK_MICROLOCK && \
     CVM_MICROLOCK_TYPE == CVM_MICROLOCK_SWAP_SPINLOCK)
 
-	ENTRY( CVMCCMinvokeNonstaticSyncMethodHelper )
+	ENTRY(CVMCCMinvokeNonstaticSyncMethodHelper)
 ENTRY1( CVMCCMinvokeNonstaticSyncMethodHelper )
+LABEL(CVMCCMinvokeNonstaticSyncMethodHelperLocal)
 	/* r0 = mb 
 	 * r1 = CVMObjectICell* of object to sync on. 
 	 *
@@ -83,7 +85,7 @@ ENTRY1( CVMCCMinvokeNonstaticSyncMethodHelper )
 #define OBITS       r3
 #define MICROLOCK   r8
 #define LOCKREC     ip
-#define TEMP        r9
+#define TEMP        r11
 #define TEMP2       r10
 #define ORIG_LR     TEMP2
 	
@@ -100,7 +102,7 @@ ENTRY1( CVMCCMinvokeNonstaticSyncMethodHelper )
 	textrmuw MICROLOCK, W_MICROLOCK, #0
 	str     MB, [NEW_JFP, #OFFSET_CVMFrame_mb]
 #else
-        ldr     MICROLOCK, =CVMobjGlobalMicroLockPtr
+        ldr     MICROLOCK, SYMBOL(CVMobjGlobalMicroLockPtr)
 	/* save r0 */
 	str	MB, [NEW_JFP, #OFFSET_CVMFrame_mb]
 	/* Schedule r8 = &microLock early */
@@ -116,18 +118,29 @@ ENTRY1( CVMCCMinvokeNonstaticSyncMethodHelper )
         /* Do fastTryLock(): */
 
         /* Acquire the microlock: */
-        mov     TEMP, #CVM_MICROLOCK_LOCKED  /* Swap CVM_MICROLOCK_LOCKED into */
+        mov     TEMP, #CVM_MICROLOCK_LOCKED  /* Swap CVM_MICROLOCK_LOCKED into */	
+#ifndef CVM_MP_SAFE
         swp     TEMP, TEMP, [MICROLOCK]      /*    the lockWord. */
 
 	/* Get obits. INVARIANT: All branches and fallthroughs to _lockObj */
 	/* have to set up OBITS first */
-
         ldr     OBITS, [OBJ, #OFFSET_CVMObjectHeader_various32] 
         cmp     TEMP, #CVM_MICROLOCK_UNLOCKED /* See if we succeeded. */
         bne     _fastLockAcquireMicrolock   /* Branch if failed. */
+#else
+LABEL(_syncInvokeMicrolockMPSafe)
+	ldrex	TEMP2, [MICROLOCK]
+	cmp	TEMP2, #CVM_MICROLOCK_UNLOCKED /* is the lock free? */
+	bne	_fastLockAcquireMicrolock      /* already locked */
+	strex	TEMP2, TEMP, [MICROLOCK]       /* try acquire the lock */
+	cmp	TEMP2, #0		       /* strex succeed? */
+	bne	_syncInvokeMicrolockMPSafe     /* No. Try again */
+	mcr	p15, 0, TEMP2, c7, c10, 5      /* memory barrier */
+	ldr	OBITS, [OBJ, #OFFSET_CVMObjectHeader_various32]
+#endif
 
 #ifdef CVM_GLOBAL_MICROLOCK_CONTENTION_STATS
-	ldr     TEMP, =fastMlockimplCount
+	ldr     TEMP, SYMBOL(fastMlockimplCount)
 	ldr	TEMP2, [TEMP]
 	add	TEMP2, TEMP2, #1
 	str	TEMP2, [TEMP]
@@ -161,6 +174,10 @@ LABEL(_lockObj)
         /* lockrec->object = obj: */
         str     OBJ, [LOCKREC, #OFFSET_CVMOwnedMonitor_object]
 
+#ifdef CVM_MP_SAFE
+	mov	r3, #0
+	mcr	p15, 0, r3, c7, c10, 5       /* memory barrier. */
+#endif
         /* Release the microlock: */
         mov     r3, #CVM_MICROLOCK_UNLOCKED
         str     r3, [MICROLOCK]         /* microlock->lockWord = UNLOCKED. */
@@ -202,14 +219,15 @@ LABEL(jfp_set)
 	mov ORIG_LR, lr
 	mov r1, JFP
 	ldr r0, [sp, #OFFSET_CVMCCExecEnv_ee]
-	bl CVMCCMtraceMethodCallGlue
+	bl SYM_NAME(CVMCCMtraceMethodCallGlueLocal)
 	mov lr, ORIG_LR
 #endif
 
 #endif /* CVM_MICROLOCK_SWAP_SPINLOCK */
 
-	ENTRY( CVMARMgcPatchPointAtInvoke )
+	ENTRY(CVMARMgcPatchPointAtInvoke)
 ENTRY1( CVMARMgcPatchPointAtInvoke )
+LABEL(CVMARMgcPatchPointAtInvokeLocal)
 	/* GC check - gc will patch at this location when a rendezvous is 
 	 * needed. See ccmGcPatchPoints in jitinit_cpu.c. The patch will 
 	 * be a "b CVMARMhandleGCAtInvoke" 
@@ -217,7 +235,7 @@ ENTRY1( CVMARMgcPatchPointAtInvoke )
 
         mov	pc, lr	/* Return to method after handling possible GC request */
 
-	ENTRY( CVMARMhandleGCAtInvoke)
+	ENTRY(CVMARMhandleGCAtInvoke)
 ENTRY1( CVMARMhandleGCAtInvoke)
 #if !defined(CVM_JIT_CCM_USE_C_HELPER) && !defined(CVM_JIT_CCM_USE_C_SYNC_HELPER)
 
@@ -239,7 +257,7 @@ ENTRY1( CVMARMhandleGCAtInvoke)
 	 * yet "committed" to the stack, and as such, cannot be located 
 	 * by GC. 
 	 */
-        ldrb r1, [r1, #OFFSET_CVMMethodBlock_accessFlagsX]
+        ldrh r1, [r1, #OFFSET_CVMMethodBlock_invokerAndAccessFlagsX]
         tst  r1, #CONSTANT_METHOD_ACC_SYNCHRONIZED
 	
 	/* Synchronized method if result of 'tst' is 'ne'. Stash
@@ -252,7 +270,7 @@ ENTRY1( CVMARMhandleGCAtInvoke)
 #ifdef IAI_CACHE_GLOBAL_VARIABLES_IN_WMMX
 	textrmuw ip, W_CVMGLOBALS, #0
 #else
-	ldr ip, =CVMglobals
+	ldr ip, SYMBOL(CVMglobals)
 #endif
 
 	/* At this point r0 is guaranteed to contain the ee */
@@ -277,9 +295,9 @@ ENTRY1( CVMARMhandleGCAtInvoke)
 	 * again to see if we should restore 'receiverObjX'
 	 * from miscICell.
 	 */
-        ldrb r2, [r1, #OFFSET_CVMMethodBlock_accessFlagsX]
+        ldrh r2, [r1, #OFFSET_CVMMethodBlock_invokerAndAccessFlagsX]
         tst  r2, #CONSTANT_METHOD_ACC_SYNCHRONIZED
-        beq  CVMARMgcPatchPointAtInvoke
+        beq  CVMARMgcPatchPointAtInvokeLocal
 
 	/* Restore receiverObjX in new frame */
 	ldr r0, [r0, #OFFSET_CVMExecEnv_miscICell]	/* r0 = &miscICell */
@@ -293,7 +311,7 @@ ENTRY1( CVMARMhandleGCAtInvoke)
 	/* reload the ee. The frame flush needs it at the return point */
 	ldr  r0, [sp, #OFFSET_CVMCCExecEnv_ee]		/* r0 = ee */
 
-	b CVMARMgcPatchPointAtInvoke
+	b CVMARMgcPatchPointAtInvokeLocal
 
 LABEL(_fastLockAcquireMicrolock)
 	mov	ORIG_LR, lr
@@ -354,7 +372,8 @@ LABEL(_fastTryLockFailed)
 
 #define ORIG_LR         r10
 
- ENTRY( CVMCCMinvokeNonstaticSyncMethodHelper ) 
+ ENTRY(CVMCCMinvokeNonstaticSyncMethodHelper) 
+LABEL(CVMCCMinvokeNonstaticSyncMethodHelperLocal) 
 	; r0 = mb
 	; r1 = CVMObjectICell* of object to sync on.
 	;
@@ -386,7 +405,7 @@ LABEL(_fastTryLockFailed)
 #define EE              ORIG_LR /* r10 */
 #define OBJ             r1
 #define EXPECTED_BITS   r8
-#define OWNEDREC        r9
+#define OWNEDREC        r11
 #define TEMP            ip
 
         ldr     OBJ, [r1]       /* get object to sync on. */
@@ -546,7 +565,7 @@ _fastlockSuccess
         mov ORIG_LR, lr
         mov r1, JFP
         ldr r0, [sp, #OFFSET_CVMCCExecEnv_ee]
-        bl CVMCCMtraceMethodCallGlue
+        bl SYM_NAME(CVMCCMtraceMethodCallGlueLocal)
         mov lr, ORIG_LR
 #endif
 
@@ -557,14 +576,15 @@ _fastlockSuccess
 #undef TEMP
 
 
- ENTRY( CVMARMgcPatchPointAtInvoke ) 
+ ENTRY(CVMARMgcPatchPointAtInvoke) 
+LABEL(CVMARMgcPatchPointAtInvokeLocal)
 	; GC check - gc will patch at this location when a rendezvous is
 	; needed. See ccmGcPatchPoints in jitinit_cpu.c. The patch will
 	; be a "b CVMARMhandleGCAtInvoke"
 
         mov	pc, lr	; Return to method after handling possible GC request
 
- ENTRY( CVMARMhandleGCAtInvoke)	
+ ENTRY(CVMARMhandleGCAtInvoke)	
 	;
 	; At this point a GC is requested.
 	;
@@ -584,7 +604,7 @@ _fastlockSuccess
 	; newly pushed frame into a safe location. The new frame is not
 	; yet "committed" to the stack, and as such, cannot be located
 	; by GC.
-        ldrb r1, [r1, #OFFSET_CVMMethodBlock_accessFlagsX]
+        ldrh r1, [r1, #OFFSET_CVMMethodBlock_invokerAndAccessFlagsX]
         tst  r1, #CONSTANT_METHOD_ACC_SYNCHRONIZED
 	
 	; Synchronized method if result of 'tst' is 'ne'. Stash
@@ -594,7 +614,7 @@ _fastlockSuccess
 	strne r1, [r2]					; stash in miscICell
 
 	IMPORT CVMglobals
-	ldr ip, =CVMglobals
+	ldr ip, SYMBOL(CVMglobals)
 	; At this point r0 is guaranteed to contain the ee
         str PREV,[r0,#OFFSET_CVMExecEnv_interpreterStack+OFFSET_CVMStack_currentFrame] 
 	mov r3, #1
@@ -617,9 +637,9 @@ _fastlockSuccess
 	; again to see if we should restore 'receiverObjX'
 	; from miscICell.
 	;
-        ldrb r2, [r1, #OFFSET_CVMMethodBlock_accessFlagsX]
+        ldrh r2, [r1, #OFFSET_CVMMethodBlock_invokerAndAccessFlagsX]
         tst  r2, #CONSTANT_METHOD_ACC_SYNCHRONIZED
-        beq  CVMARMgcPatchPointAtInvoke
+        beq  CVMARMgcPatchPointAtInvokeLocal
 
 	; Restore receiverObjX in new frame
 	ldr r0, [r0, #OFFSET_CVMExecEnv_miscICell]	; r0 = &miscICell
@@ -633,7 +653,7 @@ _fastlockSuccess
 	; reload the ee. The frame flush needs it at the return point
 	ldr  r0, [sp, #OFFSET_CVMCCExecEnv_ee]		; r0 = ee
 
-	b CVMARMgcPatchPointAtInvoke
+	b CVMARMgcPatchPointAtInvokeLocal
 
 	SET_SIZE( CVMCCMinvokeNonstaticSyncMethodHelper )
 
@@ -642,7 +662,7 @@ _fastlockSuccess
 #error unsupported CVM_FASTLOCK_TYPE or CVM_MICROLOCK_TYPE
 #endif 
 
-	ENTRY( CVMCCMinvokeStaticSyncMethodHelper )
+	ENTRY(CVMCCMinvokeStaticSyncMethodHelper)
 ENTRY1( CVMCCMinvokeStaticSyncMethodHelper )
         /* r0 = a1 = target mb  
          * r4 = v1 = jfp  
@@ -673,11 +693,11 @@ ENTRY1( CVMCCMinvokeStaticSyncMethodHelper )
 	/* r1 needs to be set to the icell of the object to lock */
 
 	ldr	r1, [r1, #OFFSET_CVMClassBlock_javaInstanceX]
-	b	CVMCCMinvokeNonstaticSyncMethodHelper
+	b	CVMCCMinvokeNonstaticSyncMethodHelperLocal
 
 	SET_SIZE( CVMCCMinvokeStaticSyncMethodHelper )
 
-	ENTRY( CVMCCMinvokeCNIMethod )
+	ENTRY(CVMCCMinvokeCNIMethod)
 ENTRY1( CVMCCMinvokeCNIMethod )
         /* r4 = v1 = jfp  
          * r5 = v2 = jsp  
@@ -705,7 +725,7 @@ ENTRY1( CVMCCMinvokeCNIMethod )
 	/* trace call */
 	mov	r1, JFP
 	mov	r2, MB		/* r2 = mb */
-	bl CCMtraceFramelessMethodCall
+	bl	SYM_NAME(CCMtraceFramelessMethodCallLocal)
 	ldr	r0, [sp, #OFFSET_CVMCCExecEnv_ee]	    /* r0 = ee */
 	mov	r1, ARGS		/* restore args ptr */
 #endif
@@ -722,7 +742,7 @@ ENTRY1( CVMCCMinvokeCNIMethod )
 	mov	r1, MB		/* r1 = mb */
 	mov	r2, JFP
 	ldr	r0, [sp, #OFFSET_CVMCCExecEnv_ee]	    /* r0 = ee */
-	bl CCMtraceFramelessMethodReturn
+	bl	SYM_NAME(CCMtraceFramelessMethodReturnLocal)
 	ldr	r0, [sp, #OFFSET_CVMCCExecEnv_ccmStorage+4] /* restore result */
 #endif
 
@@ -753,7 +773,7 @@ LABEL(new_transition)
 #undef ARGS
         SET_SIZE( CVMCCMinvokeCNIMethod ) 
 
-	ENTRY( CVMCCMinvokeJNIMethod )
+	ENTRY(CVMCCMinvokeJNIMethod)
 ENTRY1( CVMCCMinvokeJNIMethod ) 
         /* r4 = v1 = jfp  
          * r5 = v2 = jsp  
@@ -795,7 +815,7 @@ ENTRY1( CVMCCMinvokeJNIMethod )
 	/* 
  	 *  r0 = invokeMb (not the targetMb) 
  	 */
-	ENTRY( CVMCCMinvokeVirtual )
+	ENTRY(CVMCCMinvokeVirtual)
 ENTRY1( CVMCCMinvokeVirtual )
 	/* Get "this" by looking back on the stack */
         ldrb	r1, [r0, #OFFSET_CVMMethodBlock_argsSizeX]
@@ -814,12 +834,12 @@ ENTRY1( CVMCCMinvokeVirtual )
         SET_SIZE( CVMCCMinvokeVirtual ) 
 #endif
 
-	ENTRY( CVMCCMletInterpreterDoInvoke )
+	ENTRY(CVMCCMletInterpreterDoInvoke)
 ENTRY1( CVMCCMletInterpreterDoInvoke )
 LABEL(letInterpreterDoInvoke_store_lr)
         str lr,[JFP,#OFFSET_CVMCompiledFrame_PC]
 
-	ENTRY( CVMCCMletInterpreterDoInvokeWithoutFlushRetAddr )
+	ENTRY(CVMCCMletInterpreterDoInvokeWithoutFlushRetAddr)
 ENTRY1( CVMCCMletInterpreterDoInvokeWithoutFlushRetAddr )
 LABEL(letInterpreterDoInvoke)
         /* 
@@ -835,7 +855,7 @@ LABEL(letInterpreterDoInvoke)
         str JSP,[JFP,#OFFSET_CVMFrame_topOfStack] 
         str JFP,[r1,#OFFSET_CVMExecEnv_interpreterStack+OFFSET_CVMStack_currentFrame] 
 	/* Keep sp 64-bit aligned for AAPCS */
-	add	sp, sp, #((CONSTANT_CVMCCExecEnv_size+7) & ~7)
+	add	sp, sp, #((CONSTANT_CVMCCExecEnv_size+7) BIT_AND ~7)
 #ifdef WINCE
 	ldmfd	sp, {v1-v7, fp, sp, pc}
 #else
@@ -865,7 +885,7 @@ LABEL(handleGCForReturn)
 #ifdef IAI_CACHE_GLOBAL_VARIABLES_IN_WMMX
 	textrmuw lr, W_CVMGLOBALS, #0
 #else
-	ldr	lr, =CVMglobals
+	ldr	lr, SYMBOL(CVMglobals)
 #endif	
 	
 	/* We will be gc safe soon. Prevent this method from being decompiled */
@@ -895,14 +915,14 @@ LABEL(handleGCForReturn)
 /*
  * The GC checks for the various return variants
  */
-	ENTRY( CVMARMhandleGCForReturnFromMethod )
+	ENTRY(CVMARMhandleGCForReturnFromMethod)
 ENTRY1( CVMARMhandleGCForReturnFromMethod )
-	ldr	r7, =CVMCCMreturnFromMethod
-	b	handleGCForReturn	
+	ldr	r7, SYMBOL(CVMCCMreturnFromMethod)
+	b	handleGCForReturn
 
-	ENTRY( CVMARMhandleGCForReturnFromSyncMethod )
+	ENTRY(CVMARMhandleGCForReturnFromSyncMethod)
 ENTRY1( CVMARMhandleGCForReturnFromSyncMethod )
-	ldr	r7, =CVMCCMreturnFromSyncMethod
+	ldr	r7, SYMBOL(CVMCCMreturnFromSyncMethod)
 	b	handleGCForReturn	
 	SET_SIZE( CVMARMhandleGCForReturnFromSyncMethod )
 
@@ -912,7 +932,7 @@ ENTRY1( CVMARMhandleGCForReturnFromSyncMethod )
  *
  * CVMMethodBlock* CVMCCMreturnFromMethod(); 
  */ 
-	ENTRY( CVMCCMreturnFromMethod )
+	ENTRY(CVMCCMreturnFromMethod)
 ENTRY1( CVMCCMreturnFromMethod )
 	/* GC check - gc will patch at this location when a rendezvous is 
 	 * needed. See ccmGcPatchPoints in jitinit_cpu.c. The patch will 
@@ -929,7 +949,7 @@ ENTRY1( CVMCCMreturnFromMethod )
 	mov r1, JFP
 	and JFP, PREV, #~CONSTANT_CVM_FRAME_MASK_ALL
 	ldr r0, [sp, #OFFSET_CVMCCExecEnv_ee]
-	bl CCMtraceMethodReturn
+	bl SYM_NAME(CCMtraceMethodReturnLocal)
 #ifdef CVMCPU_HAS_CP_REG
 	ldr CVMARM_CP_REGNAME, [JFP, #OFFSET_CVMCompiledFrame_cpBaseRegX]
 #endif
@@ -948,7 +968,7 @@ ENTRY1( CVMCCMreturnFromMethod )
 	/* fall through to CVMCCMreturnToInterpreter */
 #endif
 
-	ENTRY( CVMCCMreturnToInterpreter )
+	ENTRY(CVMCCMreturnToInterpreter)
 ENTRY1( CVMCCMreturnToInterpreter )
 LABEL(returnToInterpreter)
 	FIXUP_FRAMES_0(JFP)
@@ -969,7 +989,7 @@ LABEL(returnToInterpreter0)
         mov r0,#0
 LABEL(returnToInterpreter1)
 	/* Align sp to 64-bit for AAPCS */
-	add	sp, sp, #((CONSTANT_CVMCCExecEnv_size+7) & ~7)
+	add	sp, sp, #((CONSTANT_CVMCCExecEnv_size+7) BIT_AND ~7)
 #ifdef WINCE
 	ldmfd	sp, {v1-v7, fp, sp, pc}
 #else
@@ -987,7 +1007,7 @@ LABEL(returnToInterpreter1)
  * CVMMethodBlock* 
  * CVMCCMreturnFromSyncMethod(); 
  */ 
-	ENTRY( CVMCCMreturnFromSyncMethod )
+	ENTRY(CVMCCMreturnFromSyncMethod)
 ENTRY1( CVMCCMreturnFromSyncMethod )
 	b returnToInterpreter
 
@@ -1002,7 +1022,7 @@ ENTRY1( CVMCCMreturnFromSyncMethod )
  * CVMMethodBlock* 
  * CVMCCMreturnFromSyncMethod(); 
  */ 
-	ENTRY( CVMCCMreturnFromSyncMethod )
+	ENTRY(CVMCCMreturnFromSyncMethod)
 ENTRY1( CVMCCMreturnFromSyncMethod )
 	/* GC check - gc will patch at this location when a rendezvous is 
 	 * needed. See ccmGcPatchPoints in jitinit_cpu.c. The patch will 
@@ -1027,7 +1047,7 @@ ENTRY1( CVMCCMreturnFromSyncMethod )
         textrmuw MICROLOCK, W_MICROLOCK, #0
         mov     r3, #CVM_MICROLOCK_LOCKED
 #else
-        ldr     MICROLOCK, =CVMobjGlobalMicroLockPtr
+        ldr     MICROLOCK, SYMBOL(CVMobjGlobalMicroLockPtr)
 	/* Set up r3 for swp below */
         mov     r3, #CVM_MICROLOCK_LOCKED   /* Swap CVM_MICROLOCK_LOCKED into */
 	/* Get address of object microlock */
@@ -1047,17 +1067,28 @@ ENTRY1( CVMCCMreturnFromSyncMethod )
         ldr     OBJ, [JFP, #OFFSET_CVMCompiledFrame_receiverObjX]
 
         /* Acquire the microlock: */
+#ifndef CVM_MP_SAFE
         swp     r3, r3, [MICROLOCK]         /*    the lockWord. */
 
 	/* Get LOCKREC. INVARIANT: All branches and fallthroughs to _unlockObj */
 	/* have to set up LOCKREC first */
-
         ldr     LOCKREC, [OBJ, #OFFSET_CVMObjectHeader_various32] /* Get obits.*/
         cmp     r3, #CVM_MICROLOCK_UNLOCKED /* See if we succeeded. */
         bne     _fastUnlockAcquireMicrolock /* Branch if failed. */
+#else
+LABEL(_syncReturnMicrolockMPSafe)
+	ldrex	TEMP2, [MICROLOCK]
+	cmp	TEMP2, #CVM_MICROLOCK_UNLOCKED /* is the lock free? */
+	bne	_fastUnlockAcquireMicrolock    /* already locked */
+	strex	TEMP2, r3, [MICROLOCK]       /* acquire the lock */
+	cmp	TEMP2, #0                      /* strex succeed? */
+	bne	_syncReturnMicrolockMPSafe     /* No. Try again */
+	mcr	p15, 0, TEMP2, c7, c10, 5      /* memory barrier */
+	ldr     LOCKREC, [OBJ, #OFFSET_CVMObjectHeader_various32] /* Get obits.*/
+#endif
 
 #ifdef CVM_GLOBAL_MICROLOCK_CONTENTION_STATS
-	ldr     TEMP, =fastMlockimplCount
+	ldr     TEMP, SYMBOL(fastMlockimplCount)
 	ldr	TEMP2, [TEMP]
 	add	TEMP2, TEMP2, #1
 	str	TEMP2, [TEMP]
@@ -1103,6 +1134,10 @@ LABEL(_unlockObj)
 	/* r3 = ee->objLocksOwned  (advanced load for below) */
         ldr     r3, [EE, #OFFSET_CVMExecEnv_objLocksOwned]
 
+#ifdef CVM_MP_SAFE
+	mov	TEMP, #0
+	mcr	p15, 0, TEMP, c7, c10, 5       /* memory barrier. */
+#endif
 	/* Release the microlock: */
         str     TEMP2, [MICROLOCK]
 
@@ -1131,7 +1166,7 @@ LABEL(_fastTryUnlockDone)
         /* Do trace method return: */
         mov     r1, JFP
         ldr     r0, [sp, #OFFSET_CVMCCExecEnv_ee]
-        bl CCMtraceMethodReturn
+        bl	SYM_NAME(CCMtraceMethodReturnLocal)
 #endif
         /* Restore the previous JFP: 
          * Returning from one compiled method to another. 
@@ -1213,7 +1248,7 @@ LABEL(_fastTryUnlockFailed)
  * CVMMethodBlock* 
  * CVMCCMreturnFromSyncMethod(); 
  */ 
- ENTRY( CVMCCMreturnFromSyncMethod )
+ ENTRY(CVMCCMreturnFromSyncMethod)
 	; GC check - gc will patch at this location when a rendezvous is
 	; needed. See ccmGcPatchPoints in jitinit_cpu.c. The patch will
 	; be a "b CVMARMhandleGCForReturnFromSyncMethod"
@@ -1240,7 +1275,7 @@ LABEL(_fastTryUnlockFailed)
 
 #define EE              r8
 #define OBJ             r1
-#define OWNEDREC        r9
+#define OWNEDREC        r11
 #define EXPECTED_CNT    r10
 #define TEMP            r3
 #define TEMP2           ip
@@ -1358,7 +1393,7 @@ _fastTryUnlockDone
         ; Do trace method return
         mov     r1, JFP
         ldr     r0, [sp, #OFFSET_CVMCCExecEnv_ee]
-        bl      CCMtraceMethodReturn
+        bl      CCMtraceMethodReturnLocal
 #endif
         ; Restore the previous JFP
         ; Returning from one compiled method to another.
@@ -1408,11 +1443,12 @@ _fastTryUnlockFailed
 
 	ENTRY(CVMCCMtraceMethodCallGlue)
 ENTRY1(CVMCCMtraceMethodCallGlue)
+LABEL(CVMCCMtraceMethodCallGlueLocal)
 /* IAI-04 */
 #ifdef IAI_CACHE_GLOBAL_VARIABLES_IN_WMMX
 	textrmuw ip, W_CVMGLOBALS, #0
 #else
-	ldr ip, =CVMglobals
+	ldr ip, SYMBOL(CVMglobals)
 #endif
 
 	ldr ip, [ip, #OFFSET_CVMGlobalState_debugFlags]
@@ -1428,11 +1464,12 @@ ENTRY1(CVMCCMtraceMethodCallGlue)
 
 	ENTRY(CCMtraceMethodReturn)
 ENTRY1(CCMtraceMethodReturn)
+LABEL(CCMtraceMethodReturnLocal)
 /* IAI-04 */
 #ifdef IAI_CACHE_GLOBAL_VARIABLES_IN_WMMX
 	textrmuw ip, W_CVMGLOBALS, #0
 #else
-	ldr ip, =CVMglobals
+	ldr ip, SYMBOL(CVMglobals)
 #endif
 	ldr ip, [ip, #OFFSET_CVMGlobalState_debugFlags]
 	tst ip, #CONSTANT_TRACE_METHOD
@@ -1445,11 +1482,12 @@ ENTRY1(CCMtraceMethodReturn)
 
 	ENTRY(CCMtraceFramelessMethodCall)
 ENTRY1(CCMtraceFramelessMethodCall)
+LABEL(CCMtraceFramelessMethodCallLocal)
 /* IAI-04 */
 #ifdef IAI_CACHE_GLOBAL_VARIABLES_IN_WMMX
 	textrmuw ip, W_CVMGLOBALS, #0
 #else
-	ldr ip, =CVMglobals
+	ldr ip, SYMBOL(CVMglobals)
 #endif
 	ldr ip, [ip, #OFFSET_CVMGlobalState_debugFlags]
 	tst ip, #CONSTANT_TRACE_METHOD
@@ -1460,11 +1498,12 @@ ENTRY1(CCMtraceFramelessMethodCall)
 
 	ENTRY(CCMtraceFramelessMethodReturn)
 ENTRY1(CCMtraceFramelessMethodReturn)
+LABEL(CCMtraceFramelessMethodReturnLocal)
 /* IAI-04 */
 #ifdef IAI_CACHE_GLOBAL_VARIABLES_IN_WMMX
 	textrmuw ip, W_CVMGLOBALS, #0
 #else
-	ldr ip, =CVMglobals
+	ldr ip, SYMBOL(CVMglobals)
 #endif
 	ldr ip, [ip, #OFFSET_CVMGlobalState_debugFlags]
 	tst ip, #CONSTANT_TRACE_METHOD

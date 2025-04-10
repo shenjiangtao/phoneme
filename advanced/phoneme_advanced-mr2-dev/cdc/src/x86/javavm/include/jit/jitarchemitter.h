@@ -1,27 +1,28 @@
 /*
  * @(#)jitarchemitter.h	1.6 06/10/23
  *
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+ * Reserved.  Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #ifndef _INCLUDED_JITARCHEMITTER_H
@@ -129,6 +130,8 @@
     // 32 bit ALU opcodes:
     CVMCPU_MOV_OPCODE       // reg32 = aluRhs32.
     CVMCPU_NEG_OPCODE       // reg32 = -reg32.
+    CVMCPU_NOT_OPCODE       // reg32 = (reg32 == 0) ? 1 : 0.
+    CVMCPU_INT2BIT_OPCODE   // reg32 = (reg32 != 0) ? 1 : 0.
     CVMCPU_ADD_OPCODE       // reg32 = reg32 + aluRhs32.
     CVMCPU_SUB_OPCODE       // reg32 = reg32 - aluRhs32.
     CVMCPU_AND_OPCODE       // reg32 = reg32 AND aluRhs32.
@@ -142,7 +145,7 @@
     CVMCPU_MULL_OPCODE      // reg32 = LO32(reg32 * reg32).
     CVMCPU_MULH_OPCODE      // reg32 = HI32(reg32 * reg32).
     CVMCPU_CMP_OPCODE       // cmp reg32, aluRhs32 => set cc.
-    CVMCPU_CMN_OPCODE       // cmp reg32, ~aluRhs32 => set cc.
+    CVMCPU_CMN_OPCODE       // cmp reg32, -aluRhs32 => set cc.
 
     // 64 bit ALU opcodes:
     CVMCPU_NEG64_OPCODE     // reg64 = -reg64.

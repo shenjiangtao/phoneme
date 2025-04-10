@@ -1,7 +1,7 @@
 /*
  * @(#)gen_markcompact.c	1.56 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -48,7 +48,6 @@
 #include "javavm/include/gc/generational-seg/gen_markcompact.h"
 
 #include "javavm/include/porting/system.h"
-
 
 #ifdef CVM_JVMPI
 #include "javavm/include/jvmpi_impl.h"
@@ -679,7 +678,7 @@ verifyGeneration(CVMGeneration* gen, CVMExecEnv* ee, CVMGCOptions* gcOpts)
 }
 #endif
 
-#if defined(CVM_DEBUG) || defined(CVM_JVMPI)
+#if defined(CVM_DEBUG) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
 static CVMBool iterateSegList(CVMExecEnv* ee,
 			      CVMGenSegment* segBase,
 			      CVMObjectCallbackFunc callback,
@@ -975,14 +974,19 @@ sweep(CVMGenMarkCompactGeneration* thisGen,
 		 * which is 64 bit aware
 		 */
 	        *headerAddr = (CVMAddr)curr ;
-        #ifdef CVM_JVMPI
             } else {
+#ifdef CVM_JVMPI
                 extern CVMUint32 liveObjectCount;
                 if (CVMjvmpiEventObjectFreeIsEnabled()) {
                     CVMjvmpiPostObjectFreeEvent(currObj);
                 }
                 liveObjectCount--;
-        #endif
+#endif
+#ifdef CVM_JVMPI
+                if (CVMjvmtiShouldPostObjectFree()) {
+                    CVMjvmtiPostObjectFreeEvent(currObj);
+                }
+#endif
             }
             continue ;
         }
@@ -1041,13 +1045,18 @@ sweep(CVMGenMarkCompactGeneration* thisGen,
 		*headerAddr = (CVMAddr)forwardingAddress;
 		/* Pretend to have copied this live object! */
 		forwardingAddress += objSize / 4;
-#ifdef CVM_JVMPI
 	    } else {
+#ifdef CVM_JVMPI
 		extern CVMUint32 liveObjectCount;
 		if (CVMjvmpiEventObjectFreeIsEnabled()) {
 		    CVMjvmpiPostObjectFreeEvent(currObj);
 		}
 		liveObjectCount--;
+#endif
+#ifdef CVM_JVMTI
+		if (CVMjvmtiShouldPostObjectFree()) {
+		    CVMjvmtiPostObjectFreeEvent(currObj);
+		}
 #endif
 	    }
 	    /* iterate */

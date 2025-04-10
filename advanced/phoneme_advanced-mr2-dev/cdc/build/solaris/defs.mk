@@ -1,5 +1,5 @@
 #
-# Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+# Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
 #   
 # This program is free software; you can redistribute it and/or  
@@ -66,11 +66,11 @@ CVM_SRCDIRS   += \
 	$(CVM_TARGETROOT)/native/java/io \
 	$(CVM_TARGETROOT)/native/java/net \
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src \
-	-I$(CVM_TARGETROOT) \
-	-I$(CVM_TARGETROOT)/native/java/net \
-	-I$(CVM_TARGETROOT)/native/common \
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src \
+	$(CVM_TARGETROOT) \
+	$(CVM_TARGETROOT)/native/java/net \
+	$(CVM_TARGETROOT)/native/common \
 
 #
 # Platform specific objects
@@ -90,6 +90,7 @@ CVM_TARGETOBJS_SPACE += \
 	sync_md.o \
 	system_md.o \
 	threads_md.o \
+	time_md.o \
 	globals_md.o \
 	java_props_md.o \
 	memory_md.o \
@@ -97,16 +98,19 @@ CVM_TARGETOBJS_SPACE += \
 #
 # On solaris, CVM_INCLUDE_JUMP=true if and only if CVM_MTASK=true
 #
-ifeq ($(CVM_INCLUDE_JUMP), true)
+ifeq ($(USE_JUMP), true)
 override CVM_MTASK	= true
 endif
 ifeq ($(CVM_MTASK), true)
-override CVM_INCLUDE_JUMP = true
+ifneq ($(USE_JUMP), true)
+# It is too late to force USE_JUMP=true at this point, so produce an error.
+$(error CVM_MTASK=true requires USE_JUMP=true)
+endif
 endif
 
 ifeq ($(CVM_MTASK), true)
 CLASSLIB_CLASSES += \
-       sun.mtask.Warmup
+       sun.misc.Warmup
 CVM_DEFINES   += -DCVM_MTASK
 CVM_SHAREOBJS_SPACE += \
 	mtask.o 
@@ -130,8 +134,6 @@ endif
 #
 # Fixup SO_LINKFLAGS..
 #
-SO_LINKFLAGS	:= $(subst -shared,,$(SO_LINKFLAGS))
-SO_LINKFLAGS	+= -dy -G
 
 #
 # The solaris linker automatically exports all symbols in the executable.
@@ -147,6 +149,8 @@ endif
 ifeq ($(is_gnu_ld), 0)
 LINKFLAGS	:= $(subst -Wl$(comma)-export-dynamic,,$(LINKFLAGS))
 SO_LINKFLAGS	:= $(subst -Wl$(comma)-export-dynamic,,$(SO_LINKFLAGS))
+SO_LINKFLAGS	:= $(subst -shared,,$(SO_LINKFLAGS))
+SO_LINKFLAGS	+= -dy -G
 endif
 
 #
@@ -157,6 +161,7 @@ ASM_ARCH_FLAGS  := $(subst -Wa$(comma)-xarch,-xarch,$(ASM_ARCH_FLAGS))
 CC_ARCH_FLAGS_LOOP  := $(subst -fno-inline,,$(CC_ARCH_FLAGS_LOOP))
 CC_ARCH_FLAGS	:= $(subst -m,-xarch=,$(CC_ARCH_FLAGS))
 ASM_FLAGS  	:= $(subst -fno-common,,$(ASM_FLAGS))
+CCFLAGS  	:= $(subst $(EXTRA_CC_WARNINGS),,$(CCFLAGS))
 CCFLAGS  	:= $(subst -fno-strict-aliasing,,$(CCFLAGS))
 CCFLAGS  	:= $(subst -fno-common,,$(CCFLAGS))
 CCFLAGS     	:= $(subst -Wall,,$(CCFLAGS))
@@ -175,7 +180,10 @@ ASM_FLAGS     	:= $(subst -c,-P -D__SUNPRO_C=1,$(ASM_FLAGS))
 endif
 
 ifneq ($(CVM_TOOLS_BUILD), true)
-LINKLIBS 	= -lpthread -lm -lnsl -lsocket -ldl -lposix4 $(LINK_ARCH_LIBS)
+LINKLIBS 	= -lpthread -lm -lnsl -lsocket -lposix4 $(LINK_ARCH_LIBS)
+ifneq ($(CVM_EMBEDDED_SOLARIS), true)
+LINKLIBS 	+= -ldl
+endif
 endif
 
 #
@@ -200,3 +208,10 @@ endif
 # Don't let the default compiler compatibility check be done
 # if we are not using gcc
 CVM_DISABLE_COMPILER_CHECK = $(CVM_USE_NATIVE_TOOLS)
+
+# The solaris cc uses -V for version output, not -dumpversion like 
+# gcc does.
+ifeq ($(CVM_USE_NATIVE_TOOLS),true)
+TARGET_CC_VERSION = $(shell $(TARGET_CC) -V 2>&1 | grep -v usage)
+endif
+HOST_CC_VERSION = $(shell $(HOST_CC) -V 2>&1 | grep -v usage)

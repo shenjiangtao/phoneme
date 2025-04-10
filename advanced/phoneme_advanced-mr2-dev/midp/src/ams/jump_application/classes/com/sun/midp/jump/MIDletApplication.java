@@ -1,22 +1,22 @@
 /*
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
- *
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
  * 2 only, as published by the Free Software Foundation.
- *
+ * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
  * included at /legal/license.txt).
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA
- *
+ * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
  * information or have any questions.
@@ -24,6 +24,7 @@
 
 package com.sun.midp.jump;
 
+import java.net.MalformedURLException;
 import java.net.URL;
 import com.sun.jump.common.JUMPAppModel;
 import com.sun.jump.common.JUMPApplication;
@@ -53,8 +54,8 @@ public class MIDletApplication extends JUMPApplication {
      * @param suiteID the MIDlet suite id which this midlet belongs to.
      * @param classname the MIDlet class name.
      */
-    public MIDletApplication( String title, URL iconPath, int suiteID, 
-		              String classname, int midletID  ) {
+    public MIDletApplication(String title, URL iconPath, int suiteID, 
+			     String classname, int midletID) {
         
         super(title, iconPath, JUMPAppModel.MIDLET, 
 	      computeApplicationID(suiteID, midletID));
@@ -72,7 +73,8 @@ public class MIDletApplication extends JUMPApplication {
     }
 
     public String toString() {
-        return ( super.toString() + " MIDletSuiteID(" + getMIDletSuiteID() + ")" );
+        return (super.toString() + " MIDletSuiteID("
+		 + getMIDletSuiteID() + ")");
     }
 
     private static int computeApplicationID(int suiteId, int midletNumber) {
@@ -82,4 +84,17 @@ public class MIDletApplication extends JUMPApplication {
     public static int convertToSuiteID(int applicationID) {
         return (applicationID >> 8);
     }
+    
+    public URL getIconPath() {
+        String file = getProperty(ICONPATH_KEY);
+        URL url = null;
+        if (file == null) {
+            return null;
+        }        
+        try {
+            url = new URL("jar", "", file);            
+        } catch (MalformedURLException ex) {
+        }
+        return url;
+    }    
 }

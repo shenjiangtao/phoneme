@@ -1,7 +1,7 @@
 /*
  * @(#)PlainDatagramSocketImpl_md.c	1.88 06/10/10 
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -519,7 +519,7 @@ Java_java_net_PlainDatagramSocketImpl_connect0(JNIEnv *env, jobject this,
 			"Protocol family not supported");
 	return;
     }
-
+    memset(&rmtaddr, 0, sizeof(rmtaddr));
     rmtaddr.sin_port = htons((short)port);
     rmtaddr.sin_addr.s_addr = htonl(addr);
     rmtaddr.sin_family = AF_INET;
@@ -556,6 +556,7 @@ Java_java_net_PlainDatagramSocketImpl_disconnect0(JNIEnv *env, jobject this) {
     fd = (*env)->GetIntField(env, fdObj, IO_fd_fdID);
 
     memset(&addr, 0, sizeof(addr));
+    addr.sa_family = AF_INET;
     connect(fd, &addr, sizeof(addr));
 
     /* 
@@ -617,6 +618,7 @@ Java_java_net_PlainDatagramSocketImpl_send(JNIEnv *env, jobject this,
     packetBufferLen = (*env)->GetIntField(env, packet, dp_lengthID);
 
     if (connected) {
+        address = 0; /* get rid of compiler warning */
 	addrp = 0; /* arg to JVM_Sendto () null in this case */
 	addrlen = 0;
     } else {
@@ -1506,7 +1508,7 @@ Java_java_net_PlainDatagramSocketImpl_socketSetOption(JNIEnv *env,jobject this,
 	default :
 	    JNU_ThrowByName(env, JNU_JAVANETPKG "SocketException", 
 		"Socket option not supported by PlainDatagramSocketImp");
-	    break;
+	    return;
 
     }
 
@@ -1872,6 +1874,15 @@ Java_java_net_PlainDatagramSocketImpl_join(JNIEnv *env, jobject this,
 	}
     }
 
+#ifdef WINCE
+    /* Fix for 6589699, interface addr get overwritten inside winsock */
+    if (NET_SetSockOpt(fd, IPPROTO_IP, IP_MULTICAST_IF,
+		       (char *)&mname.imr_interface.s_addr, sizeof(in)) < 0) {
+	JNU_ThrowByName(env,
+	    JNU_JAVANETPKG "SocketException","error setting options");
+	return;
+    }
+#endif
     return;
 }
 

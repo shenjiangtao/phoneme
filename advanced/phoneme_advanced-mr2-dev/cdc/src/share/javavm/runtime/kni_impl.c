@@ -1,7 +1,7 @@
 /*
  * @(#)kni_impl.c	1.14 06/10/17
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -48,7 +48,7 @@
 #undef CVMjniGcSafeRef2Class
 #define CVMjniGcSafeRef2Class(ee, cl) CVMgcSafeClassRef2ClassBlock(ee, cl)
 
-/* FIXME - this should go away. */
+/* TODO - this should go away. */
 extern void
 JVMSPI_PrintRaw(const char* s) {
     CVMconsolePrintf(s);
@@ -62,7 +62,7 @@ KNI_FindClassImpl(CVMExecEnv* ee, const char* name, jclass classHandle)
     CVMD_gcSafeExec(ee, {
 	jclass result;
 	CVMjniPushLocalFrame(env, 4);
-	/* FIXME - we are only suppose to return classes that are
+	/* TODO - we are only suppose to return classes that are
 	   already loaded and initialized. */
 	result = CVMjniFindClass(env, name);
 	if (result != NULL) {
@@ -311,8 +311,9 @@ KNIEXPORT void								\
 KNI_SetStatic##elemType_##Field(jclass classHandle, jfieldID fieldID,	\
 				jType_ value)				\
 {									\
+    CVMExecEnv* ee = CVMgetEE();					\
     KNI_FIELD_ASSERTS(classHandle, fieldID, CVM_TRUE);			\
-    CVMfbStaticField(CVMgetEE(), fieldID).unionField_ = value;		\
+    CVMfbStaticField(ee, fieldID).unionField_ = value;			\
 }
 
 CVM_DEFINE_KNI_STATIC_GETTER(jboolean, Boolean, i)
@@ -442,7 +443,7 @@ KNIEXPORT void
 KNI_NewStringPriv(CVMExecEnv* ee,
 		  const jchar* chars, jsize size, jstring stringHandle)
 {
-    if (chars != NULL && size > 0) {
+    if (chars != NULL && size >= 0) {
         CVMD_gcSafeExec(ee, {
 	    CVMnewString(ee, stringHandle, chars, size);
         });
@@ -514,10 +515,49 @@ KNI_SetObjectArrayElement(jobjectArray array, jsize index, jobject fromHandle)
 		       CVMID_icellDirect(CVMgetEE(), fromHandle));
 }
 
+#ifndef CVMGC_HAS_NONREF_BARRIERS
+#ifdef CVM_DEBUG_ASSERTS
+static void
+KNI_VerifyRawArrayArgs(CVMArrayOfByte *arrayObj, jsize offset, jsize n)
+{
+    CVMClassBlock *arrayCb = CVMobjectGetClass(arrayObj);
+    CVMassert(n + offset <= (arrayObj->length * CVMarrayElemSize(arrayCb)));
+    switch (CVMarrayBaseType(arrayCb)) {
+    case CVM_T_CHAR:
+    case CVM_T_BYTE:
+    case CVM_T_SHORT:
+    case CVM_T_INT:
+    case CVM_T_LONG:
+    case CVM_T_FLOAT:
+    case CVM_T_DOUBLE: {
+	break;
+    }
+    default:
+	CVMassert(CVM_FALSE);
+    }
+}
+#endif /* CVM_DEBUG_ASSERTS */
+#endif
+
+
 KNIEXPORT void
 KNI_GetRawArrayRegion(jarray array, jsize offset,
 		      jsize n, jbyte* dstBuffer)
 {
+#ifndef CVMGC_HAS_NONREF_BARRIERS
+    CVMArrayOfByte *arrayObj =
+	(CVMArrayOfByte*) CVMID_icellDirect(CVMgetEE(), array);
+#ifdef CVM_DEBUG_ASSERTS
+    KNI_VerifyRawArrayArgs(arrayObj, offset, n);
+#endif /* CVM_DEBUG_ASSERTS */
+    CVMmemmoveByte((void*)dstBuffer, (void*)&arrayObj->elems[offset], n);
+
+#else /* CVMGC_HAS_NONREF_BARRIERS */
+
+#error "CVM_KNI=true not supported when there are non-ref GC barriers."
+    /* TODO: The code below is broken if either srcBuffer is not aligned
+       properly, or "n" is not a multiple of the array element type size.
+    */
     CVMObject *obj = CVMID_icellDirect(CVMgetEE(), array);
     CVMClassBlock *arrayCb = CVMobjectGetClass(obj);
 
@@ -561,12 +601,28 @@ KNI_GetRawArrayRegion(jarray array, jsize offset,
 	CVMassert(CVM_FALSE);
     }
 
+#endif /* CVMGC_HAS_NONREF_BARRIERS */
 }
 
 KNIEXPORT void
 KNI_SetRawArrayRegion(jarray array, jsize offset,
 		      jsize n, const jbyte* srcBuffer)
 {
+#ifndef CVMGC_HAS_NONREF_BARRIERS
+
+    CVMArrayOfByte *arrayObj =
+	(CVMArrayOfByte*)CVMID_icellDirect(CVMgetEE(), array);
+#ifdef CVM_DEBUG_ASSERTS
+    KNI_VerifyRawArrayArgs(arrayObj, offset, n);
+#endif /* CVM_DEBUG_ASSERTS */
+    CVMmemmoveByte((void*)&arrayObj->elems[offset], (void*)srcBuffer, n);
+
+#else /* CVMGC_HAS_NONREF_BARRIERS */
+
+#error "CVM_KNI=true not supported when there are non-ref GC barriers."
+    /* TODO: The code below is broken if either srcBuffer is not aligned
+       properly, or "n" is not a multiple of the array element type size.
+    */
     CVMObject *obj = CVMID_icellDirect(CVMgetEE(), array);
     CVMClassBlock *arrayCb = CVMobjectGetClass(obj);
 
@@ -609,11 +665,5 @@ KNI_SetRawArrayRegion(jarray array, jsize offset,
     default:
 	CVMassert(CVM_FALSE);
     }
+#endif /* CVMGC_HAS_NONREF_BARRIERS */
 }
-
-
-
-
-
-
-

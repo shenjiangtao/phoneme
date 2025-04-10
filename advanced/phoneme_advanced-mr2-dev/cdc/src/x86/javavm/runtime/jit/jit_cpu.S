@@ -1,27 +1,28 @@
 /*
  * @(#)jit_cpu.S	1.6 06/10/24
  * 
- * Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+ * Reserved.  Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #include "javavm/include/asmmacros_cpu.h"
@@ -197,8 +198,8 @@ ENTRY(CVMJITfixupFrames)
 #define CFP	A2  /* holds frame */
 #define PREV    A3  /* killed ...see FIXUP_FRAMES_0|1|2|3*/
 #define PREVb   A3b /* killed ...see FIXUP_FRAMES_0|1|2|3*/
-	movl	A3, -4(%esp)					# A3 == ebx is callee saved after c convention
-	movl	4(%esp), CFP
+	pushl   A3		# A3 == ebx is callee saved after c convention
+	movl	8(%esp), CFP
 	movl	OFFSET_CVMFrame_prevX(CFP), PREV
 CVMJITfixupFrames_recurse:
 	movb	$CONSTANT_CVM_FRAMETYPE_COMPILED, OFFSET_CVMFrame_type(CFP)
@@ -208,7 +209,7 @@ CVMJITfixupFrames_recurse:
 	movl	OFFSET_CVMFrame_prevX(CFP), PREV
 	testb	$CONSTANT_CVM_FRAME_MASK_ALL, PREVb
 	je	CVMJITfixupFrames_recurse
-	movl	-4(%esp), A3
+	popl    A3
 	retl
 #undef CFP
 #undef PREV

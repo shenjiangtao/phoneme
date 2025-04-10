@@ -1,7 +1,7 @@
 /*
  * @(#)PolicyFile.java	1.13 06/10/11
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -46,6 +46,8 @@ import java.security.*;
 
 import sun.security.util.PropertyExpander;
 import sun.security.util.Debug;
+import sun.net.www.ParseUtil;
+
 
 /**
  * The policy for a Java runtime (specifying 
@@ -432,6 +434,7 @@ public class PolicyFile extends java.security.Policy {
     private InputStream getInputStream(URL url) throws IOException {
 	if ("file".equals(url.getProtocol())) {
 	    String path = url.getFile().replace('/', File.separatorChar);
+	    path = ParseUtil.decode(path);
 	    return new FileInputStream(path);
 	} else {
 	    return url.openStream();
@@ -755,6 +758,7 @@ public class PolicyFile extends java.security.Policy {
 		String path = cs.getLocation().getFile().replace
 							('/',
 							File.separatorChar);
+		path = ParseUtil.decode(path);
 		URL csUrl = null;
 		if (path.endsWith("*")) {
 		    // remove trailing '*' because it causes canonicalization
@@ -783,7 +787,7 @@ public class PolicyFile extends java.security.Policy {
 		} else {
 		    path = new File(path).getCanonicalPath();
 		}
-		csUrl = new File(path).toURL();
+		csUrl = ParseUtil.fileToEncodedURL(new File(path));
 
 		if (extractSignerCerts) {
 		    canonCs = new CodeSource(csUrl, getSignerCertificates(cs));

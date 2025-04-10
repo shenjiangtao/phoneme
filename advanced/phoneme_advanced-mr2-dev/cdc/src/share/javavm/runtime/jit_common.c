@@ -1,7 +1,5 @@
 /*
- * @(#)jit_common.c	1.159 06/10/25
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -42,7 +40,7 @@
 #include "javavm/include/jit/jitintrinsic.h"
 #include "javavm/include/jit/jitstats.h"
 
-#include "generated/javavm/include/opcodes.h"
+#include "javavm/include/opcodes.h"
 
 #ifdef CVM_JIT_ESTIMATE_COMPILATION_SPEED
 #include "javavm/include/preloader_impl.h"
@@ -191,6 +189,7 @@ CVMJITframeIterate(CVMFrame* frame, CVMJITFrameIterator *iter)
     iter->mb = mb;
     iter->pcOffset = pcOffset;
     iter->index = -1;
+    iter->invokePC = -1;
 
     /* No inlining in this method. So we can trust the frame */
     if (inliningInfo == NULL) {
@@ -217,29 +216,28 @@ CVMJITframeIterate(CVMFrame* frame, CVMJITFrameIterator *iter)
  * "backwards".  
  */
 CVMBool
-CVMJITframeIterateSkip(CVMJITFrameIterator *iter, int skip,
+CVMJITframeIterateSkip(CVMJITFrameIterator *iter,
     CVMBool skipArtificial, CVMBool popFrame)
 {
     CVMInt32 pcOffset = iter->pcOffset;
-    CVMBool found;
+    CVMInt32 lastIndex = iter->index;
 
-    do {
-	++iter->index;
-	found = CVM_FALSE;
-	while (iter->index < iter->numEntries) {
-	    CVMCompiledInliningInfoEntry* iEntry =
-		&iter->inliningEntries[iter->index];
-	
-	    if (iEntry->pcOffset1 <= pcOffset && pcOffset < iEntry->pcOffset2 &&
-		!(skipArtificial &&
-		    (iEntry->flags & CVM_FRAMEFLAG_ARTIFICIAL) != 0))
+    ++iter->index;
+    while (iter->index < iter->numEntries) {
+	CVMCompiledInliningInfoEntry* iEntry =
+	    &iter->inliningEntries[iter->index];
+    
+	if (iEntry->pcOffset1 <= pcOffset && pcOffset < iEntry->pcOffset2) {
+	    if (skipArtificial &&
+		(iEntry->flags & CVM_FRAMEFLAG_ARTIFICIAL) != 0)
 	    {
-		    found = CVM_TRUE;
-		    break;
+		lastIndex = iter->index;
+	    } else {
+		break;
 	    }
-	    ++iter->index;
 	}
-    } while (found && --skip > 0);
+	++iter->index;
+    }
 
     if (iter->index == iter->numEntries && skipArtificial &&
 	(iter->frame->flags & CVM_FRAMEFLAG_ARTIFICIAL) != 0)
@@ -247,17 +245,17 @@ CVMJITframeIterateSkip(CVMJITFrameIterator *iter, int skip,
 	++iter->index;
     }
 
-    if (!found && skip > 0) {
-	CVMassert(iter->index == iter->numEntries);
-	--skip;
-	++iter->index;
-    }
-
     if (popFrame) {
-	/* update frame TOS and PC */
+	/* perhaps when we support inlined exception handlers... */
     }
 
     if (iter->index <= iter->numEntries) {
+	CVMassert(lastIndex != iter->index);
+	if (lastIndex != -1) {
+	    iter->invokePC = iter->inliningEntries[lastIndex].invokePC;
+	} else {
+	    iter->invokePC = -1;
+	}
 	return CVM_TRUE;
     }
     return CVM_FALSE;
@@ -267,7 +265,7 @@ CVMUint32
 CVMJITframeIterateCount(CVMJITFrameIterator *iter, CVMBool skipArtificial)
 {
     CVMUint32 count = 0;
-    while (CVMJITframeIterateSkip(iter, 1, skipArtificial, CVM_FALSE)) {
+    while (CVMJITframeIterateSkip(iter, skipArtificial, CVM_FALSE)) {
 	++count;
     }
     return count;
@@ -306,12 +304,24 @@ CVMJITframeIterateGetJavaPc(CVMJITFrameIterator *iter)
     * Get the java pc of the frame. This is a bit tricky for compiled
     * frames since we need to map from the compiled pc to the java pc.
     */
-    CVMFrame *frame;
-    if (iter->index == iter->numEntries) {
-	frame = iter->frame;
-	return CVMpcmapCompiledPcToJavaPc(frame->mb, CVMcompiledFramePC(frame));
+    if (iter->invokePC != -1) {
+	/* The invokePC will be set if we have iterated through
+	   an inlined frame already. */
+	CVMUint16 invokePC = iter->invokePC;
+	CVMMethodBlock *mb = CVMJITframeIterateGetMb(iter);
+	CVMUint8 *pc = CVMmbJavaCode(mb) + invokePC;
+	CVMassert(CVMbcAttr(*pc, INVOCATION));
+	return pc;
+    } else if (iter->index == iter->numEntries) {
+	/* We have reached the initial Java frame, without
+	   seeing an inlined frame.  Rely on the pc map
+	   table. */
+	CVMFrame *frame = iter->frame;
+	return CVMpcmapCompiledPcToJavaPc(frame->mb,
+	    CVMcompiledFramePC(frame));
     } else {
-	/* No support for inlined frames yet */
+	/* We must be in the top-most inlined method, so
+	   we have no PC information. */
 	return NULL;
     }
 }
@@ -546,7 +556,7 @@ CVMcompiledFrameScanner(CVMExecEnv* ee,
 
 	    /* Scan sync objects until we get to the handler frame */
 
-	    while (CVMJITframeIterateSkip(&iter, 0, CVM_FALSE, CVM_FALSE)) {
+	    while (CVMJITframeIterateSkip(&iter, CVM_FALSE, CVM_FALSE)) {
 		if (CVMJITframeIterateContainsPc(&iter, off)) {
 		    foundHandler = CVM_TRUE;
 		    break;
@@ -669,7 +679,7 @@ skip_opstack:
 
 	CVMJITframeIterate(frame, &iter);
 
-	while (CVMJITframeIterateSkip(&iter, 0, CVM_FALSE, CVM_FALSE)) {
+	while (CVMJITframeIterateSkip(&iter, CVM_FALSE, CVM_FALSE)) {
 	    CVMMethodBlock *mb  = CVMJITframeIterateGetMb(&iter);
 	    CVMClassBlock* cb = CVMmbClassBlock(mb);
 	    CVMscanClassIfNeeded(ee, cb, callback, data);
@@ -696,7 +706,7 @@ check_inlined_sync:
 
 	CVMJITframeIterate(frame, &iter);
 
-	while (CVMJITframeIterateSkip(&iter, 0, CVM_FALSE, CVM_FALSE)) {
+	while (CVMJITframeIterateSkip(&iter, CVM_FALSE, CVM_FALSE)) {
 	    CVMMethodBlock *mb  = CVMJITframeIterateGetMb(&iter);
 	    if (CVMmbIs(mb, SYNCHRONIZED)) {
 		CVMObjectICell* objICell = CVMJITframeIterateSyncObject(&iter);
@@ -947,6 +957,12 @@ new_mb:
 		});
 #endif
 		if (CVMmbIs(mb, SYNCHRONIZED)) {
+#ifdef CVM_JVMTI
+		    /* No events during this delicate phase of creating
+		     * a frame */
+		    CVMBool jvmtiEvents = CVMjvmtiDebugEventsEnabled(ee);
+		    CVMjvmtiDebugEventsEnabled(ee) = CVM_FALSE;
+#endif
                     /* The method is sync, so lock the object. */
                     /* %comment l002 */
                     if (!CVMfastTryLock(ee,
@@ -956,12 +972,18 @@ new_mb:
                             CVMthrowOutOfMemoryError(ee, NULL);
 			    CVMassert(frameSanity(frame, topOfStack));
  			    ee->invokeMb = NULL;
+#ifdef CVM_JVMTI
+			    CVMjvmtiDebugEventsEnabled(ee) = jvmtiEvents;
+#endif
                            return CVM_COMPILED_EXCEPTION;
 			}
                     }
 		    CVMID_icellAssignDirect(ee,
 			&CVMframeReceiverObj(frame, Compiled),
 			receiverObjICell);
+#ifdef CVM_JVMTI
+		    CVMjvmtiDebugEventsEnabled(ee) = jvmtiEvents;
+#endif
 		}
 
 		DECACHE_FRAME();
@@ -1053,6 +1075,7 @@ new_mb:
 
 	    if ((int)ret >= 0) {
 		topOfStack += (int)ret;
+                DECACHE_TOS();
 		CVMassert(frame == stack->currentFrame); (void)stack;
 		goto returnToCompiled;
 	    } else if (ret == CNI_NEW_TRANSITION_FRAME) {
@@ -1364,7 +1387,7 @@ const CVMSubOptionEnumData jitTraceOptions[] = {
     { "osr",            CVM_DEBUGFLAG(TRACE_JITOSR) },
     { "reglocals",      CVM_DEBUGFLAG(TRACE_JITREGLOCALS) },
 #ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
-    { "patchedinvokes", CVM_DEBUGFLAG(TRACE_JITPATCHEDINVOKES) },
+    { "pmi",            CVM_DEBUGFLAG(TRACE_JITPATCHEDINVOKES) },
 #endif
 };
 #endif
@@ -1445,10 +1468,30 @@ static const CVMSubOptionData knownJitSubOptions[] = {
 
     {"lowerCodeCacheThreshold", "Lower Code Cache Threshold", 
      CVM_PERCENT_OPTION, 
-     {{0, 100, CVMJIT_DEFAULT_LOWER_CCACHE_THR}},
+     {{0, 100, (CVMAddr)CVMJIT_DEFAULT_LOWER_CCACHE_THR}},
      &CVMglobals.jit.lowerCodeCacheThresholdPercent},
 
 #ifdef CVM_AOT
+    {"aot", "Enable AOT",
+     CVM_BOOLEAN_OPTION,
+     {{CVM_FALSE, CVM_TRUE, CVM_TRUE}},
+     &CVMglobals.jit.aotEnabled},
+
+    {"aotFile", "AOT File Path",
+     CVM_STRING_OPTION,
+     {{0, (CVMAddr)"<AOT file>", 0}},
+     &CVMglobals.jit.aotFile},
+
+    {"recompileAOT", "Recompile AOT code",
+     CVM_BOOLEAN_OPTION,
+     {{CVM_FALSE, CVM_TRUE, CVM_FALSE}},
+     &CVMglobals.jit.recompileAOT},
+
+    {"aotCodeCacheSize", "AOT Code Cache Size",
+     CVM_INTEGER_OPTION,
+     {{0, CVMJIT_MAX_CODE_CACHE_SIZE, CVMJIT_DEFAULT_AOT_CODE_CACHE_SIZE}},
+     &CVMglobals.jit.aotCodeCacheSize},
+
     {"aotMethodList", "List of Method to be compiled ahead of time", 
      CVM_STRING_OPTION, 
      {{0, (CVMAddr)"<filename>", 0}},
@@ -1484,6 +1527,12 @@ static const CVMSubOptionData knownJitSubOptions[] = {
      CVM_BOOLEAN_OPTION, 
      {{CVM_FALSE, CVM_TRUE, CVM_FALSE}},
      &CVMglobals.jit.compilingCausesClassLoading},
+#ifdef CVM_JIT_PATCHED_METHOD_INVOCATIONS
+    {"Xpmi", "Patched Method Invocations", 
+     CVM_BOOLEAN_OPTION, 
+     {{CVM_FALSE, CVM_TRUE, CVM_TRUE}},
+     &CVMglobals.jit.pmiEnabled},
+#endif
 #endif
 
 #ifdef CVM_JIT_COLLECT_STATS
@@ -1553,19 +1602,28 @@ CVMjitPolicyInit(CVMExecEnv* ee, CVMJITGlobalState* jgs)
 #endif
     } /* Otherwise do nothing.
          The default [im]cost and climit will do the work normally */
-#if defined(CVM_AOT) || defined(CVM_MTASK)
-    else {
-        /* Need to initialize the [im]cost and climit by re-obtaining them 
-         * from the JIT options */
-        if (!CVMprocessSubOptions(knownJitSubOptions, "-Xjit",
-			      &jgs->parsedSubOptions)) {
-	return CVM_FALSE;
-        }
-    }
-#endif
 
     return CVM_TRUE;
 }
+
+#if defined(CVM_AOT) || defined(CVM_MTASK)
+/* During AOT compilation and MTASK warmup, dynamic compilation policy
+ * is disabled. Patched method invocation (PMI) is also disabled during
+ * that. This is used to re-initialize JIT options and policy after 
+ * pre-compilation. For AOT, if there is existing AOT code, this is
+ * called after initializing the AOT code.
+ */
+CVMBool
+CVMjitProcessOptionsAndPolicyInit(
+        CVMExecEnv* ee, CVMJITGlobalState* jgs)
+{
+    if (!CVMprocessSubOptions(knownJitSubOptions, "-Xjit",
+			   &jgs->parsedSubOptions)) {
+        return CVM_FALSE;
+    }
+    return CVMjitPolicyInit(ee, jgs);
+}
+#endif
 
 /* Purpose: Set up the inlining threshold table. */
 CVMBool
@@ -1598,6 +1656,7 @@ CVMjitSetInliningThresholds(CVMExecEnv* ee, CVMJITGlobalState* jgs)
     */
 #define QUAD_COEFFICIENT                100
 #define EFFECTIVE_MAX_DEPTH_THRESHOLD   6
+#undef MIN
 #define MIN(x, y)                       (((x) < (y)) ? (x) : (y))
 
     if (depth == 0) {
@@ -1697,13 +1756,22 @@ CVMjitReinitialize(CVMExecEnv* ee, const char* subOptionsString)
     }    
 
 #ifdef CVM_DEBUG
-    CVMconsolePrintf("JIT Configuration:\n");
-    CVMprintSubOptionValues(knownJitSubOptions);
+    CVMjitDumpSysInfo();
 #endif
 
     return CVM_TRUE;
 }
 #endif
+
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+/* Dumps info about the configuration of the JIT. */
+void CVMjitDumpSysInfo()
+{
+    CVMconsolePrintf("JIT Configuration:\n");
+    CVMprintSubOptionValues(knownJitSubOptions);
+}
+#endif /* CVM_DEBUG || CVM_INSPECTOR */
+
 
 #if defined(CVM_AOT) && !defined(CVM_MTASK)
 /*
@@ -1712,37 +1780,39 @@ CVMjitReinitialize(CVMExecEnv* ee, const char* subOptionsString)
  * CVMglobals.jit.aotMethodList. The compiled methods will be save 
  * as the AOT code.
  */
-void
+CVMBool
 CVMjitCompileAOTCode(CVMExecEnv* ee)
 {
+    CVMJITGlobalState* jgs = &CVMglobals.jit;
     JNIEnv* env = CVMexecEnv2JniEnv(ee);
     jstring jmlist;
 
-    if (CVMglobals.jit.codeCacheAOTCodeExist) {
-        CVMJITinitializeAOTCode();
-    } else {
-        if (CVMglobals.jit.aotMethodList == NULL) {
-            const CVMProperties *sprops = CVMgetProperties();
-            CVMglobals.jit.aotMethodList = 
-                (char*)malloc(strlen(sprops->library_path) +
-                              strlen("/methodsList.txt") + 
-                              1);
-            if (CVMglobals.jit.aotMethodList == NULL) {
-                return;
-            }
-            *CVMglobals.jit.aotMethodList = '\0';
-            strcat(CVMglobals.jit.aotMethodList, sprops->library_path);
-            strcat(CVMglobals.jit.aotMethodList, "/methodsList.txt");
-        }
+    CVMassert(!jgs->aotCompileFailed);
 
-        jmlist = (*env)->NewStringUTF(env, CVMglobals.jit.aotMethodList);
+    if (!jgs->aotEnabled) {
+        return CVM_TRUE;
+    }
+
+    if (jgs->codeCacheAOTCodeExist) {
+        return CVMJITinitializeAOTCode();
+    } else {  
+        CVMassert(jgs->isPrecompiling == CVM_TRUE);
+        CVMassert(jgs->aotMethodList != NULL);
+
+        jmlist = (*env)->NewStringUTF(env, jgs->aotMethodList);
         if ((*env)->ExceptionOccurred(env)) {
-            return;
+            return CVM_FALSE;
         }
 
         CVMjniCallStaticVoidMethod(env,
-            CVMcbJavaInstance(CVMsystemClass(sun_mtask_Warmup)),
-            CVMglobals.sun_mtask_Warmup_runit, NULL, jmlist);
+            CVMcbJavaInstance(CVMsystemClass(sun_misc_Warmup)),
+            CVMglobals.sun_misc_Warmup_runit, NULL, jmlist);
+
+        if (jgs->aotCompileFailed) {
+	    return CVM_FALSE;
+	}
+
+        return CVM_TRUE;
     }
 }
 #endif
@@ -1766,23 +1836,29 @@ typedef struct {
 } CVMJITSimpleSyncMethodName;
 
 static const CVMJITSimpleSyncMethodName CVMJITsimpleSyncMethodNames[] = {
+/* FIXME - for now, don't include any simple sync methods */
+#ifndef JAVASE
     {
 	/* java.util.Random.next(I)I */
 	CVMsystemClass(java_util_Random),
 	"next", "(I)I",
-	"nextSimpleSync"
+	"nextSimpleSync",
+        0
     },
+
     {
 	/* java.util.Hashtable.size()I */
 	CVMsystemClass(java_util_Hashtable),
 	"size", "()I",
-	"sizeSimpleSync"
+	"sizeSimpleSync",
+        0
     },
     {
 	/* java.util.Hashtable.isEmpty()Z */
 	CVMsystemClass(java_util_Hashtable),
 	"isEmpty", "()Z",
-	"isEmptySimpleSync"
+	"isEmptySimpleSync",
+        0
     },
     {
 	/* java.lang.String.<init>(Ljava.lang.StringBuffer;) */
@@ -1796,43 +1872,50 @@ static const CVMJITSimpleSyncMethodName CVMJITsimpleSyncMethodNames[] = {
 	/* java.lang.StringBuffer.length()I */
 	CVMsystemClass(java_lang_StringBuffer),
 	"length", "()I",
-	"lengthSimpleSync"
+	"lengthSimpleSync",
+        0
     },
     {
 	/* java.lang.StringBuffer.capacity()I */
 	CVMsystemClass(java_lang_StringBuffer),
 	"capacity", "()I",
-	"capacitySimpleSync"
+	"capacitySimpleSync",
+        0
     },
     {
 	/* java.lang.StringBuffer.charAt(I)C */
 	CVMsystemClass(java_lang_StringBuffer),
 	"charAt", "(I)C",
-	"charAtSimpleSync"
+	"charAtSimpleSync",
+        0
     },
     {
 	/* java.lang.StringBuffer.append(C)Ljava/lang/StringBuffer; */
 	CVMsystemClass(java_lang_StringBuffer),
 	"append", "(C)Ljava/lang/StringBuffer;",
-	"appendSimpleSync"
+	"appendSimpleSync",
+        0
     },
     {
 	/* java.util.Vector.capacity()I */
 	CVMsystemClass(java_util_Vector),
 	"capacity", "()I",
-	"capacitySimpleSync"
+	"capacitySimpleSync",
+        0
     },
     {
 	/* java.util.Vector.size()I */
 	CVMsystemClass(java_util_Vector),
 	"size", "()I",
-	"sizeSimpleSync"
+	"sizeSimpleSync",
+        0
     },
     {
 	/* java.util.Vector.isEmpty()Z */
 	CVMsystemClass(java_util_Vector),
 	"isEmpty", "()Z",
-	"isEmptySimpleSync"
+	"isEmptySimpleSync",
+        0
     },
     {
 	/* java.util.Vector.elementAt(I)Ljava/lang/Object; */
@@ -1854,7 +1937,8 @@ static const CVMJITSimpleSyncMethodName CVMJITsimpleSyncMethodNames[] = {
 	/* java.util.Vector.lastElement()Ljava/lang/Object; */
 	CVMsystemClass(java_util_Vector),
 	"lastElement", "()Ljava/lang/Object;",
-	"lastElementSimpleSync"
+	"lastElementSimpleSync",
+        0
     },
     {
 	/* java.util.Vector.setElementAt(Ljava/lang/Object;I)V */
@@ -1868,7 +1952,8 @@ static const CVMJITSimpleSyncMethodName CVMJITsimpleSyncMethodNames[] = {
 	/* java.util.Vector.addElement(Ljava/lang/Object;)V */
 	CVMsystemClass(java_util_Vector),
 	"addElement", "(Ljava/lang/Object;)V",
-	"addElementSimpleSync"
+	"addElementSimpleSync",
+        0
     },
     {
 	/* java.util.Vector.get(I)Ljava/lang/Object; */
@@ -1890,8 +1975,10 @@ static const CVMJITSimpleSyncMethodName CVMJITsimpleSyncMethodNames[] = {
 	/* java.util.Vector$1.nextElement()Ljava/lang/Object; */
 	CVMsystemClass(java_util_Vector_1),
 	"nextElement", "()Ljava/lang/Object;",
-	"nextElementSimpleSync"
+	"nextElementSimpleSync",
+        0
     },
+#endif /* !JAVASE */
 };
 
 #define CVM_JIT_NUM_SIMPLESYNC_METHODS  \
@@ -2227,6 +2314,7 @@ CVMJITPMIcallerTableDeleteRecord(CVMUint32 callerRecIdx)
 {
     CVMJITGlobalState* jgs = &CVMglobals.jit;
     CVMJITPMICallerRecord* callerRec = &jgs->pmiCallerRecords[callerRecIdx];
+    CVMassert(jgs->pmiEnabled);
     if (jgs->pmiFirstFreeCallerRecordIdx == -1) {
 	/* Free record list is empty, so this new record will be last */
 	CVMJITPMIcallerTableMarkEndOfList(callerRec);
@@ -2244,6 +2332,7 @@ static CVMBool
 CVMJITPMIcallerTableAllocateRecord(CVMUint32* callerRecIdxPtr)
 {
     CVMJITGlobalState* jgs = &CVMglobals.jit;
+    CVMassert(jgs->pmiEnabled);
 
     if (jgs->pmiFirstFreeCallerRecordIdx != -1) {
 	CVMJITPMICallerRecord* callerRec;
@@ -2415,6 +2504,7 @@ static void
 CVMJITPMIcalleeTableDeleteRecord(CVMJITPMICalleeRecord* calleeRec)
 {
     CVMJITGlobalState* jgs = &CVMglobals.jit;
+    CVMassert(jgs->pmiEnabled);
     jgs->pmiNumUsedCalleeRecords--;
     jgs->pmiNumDeletedCalleeRecords++;
     calleeRec->calleeMb = (CVMMethodBlock*)1;
@@ -2436,6 +2526,7 @@ CVMJITPMIcalleeTableFindRecord(CVMMethodBlock* calleeMb, CVMUint32* indexPtr)
     CVMUint32 hashIdx =
 	(CVMmbNameAndTypeID(calleeMb) + (int)calleeMb) %
 	jgs->pmiNumCalleeRecords;
+    CVMassert(jgs->pmiEnabled);
 
     /* Make sure we own the jitLock */
     CVMassert(CVMsysMutexIAmOwner(CVMgetEE(), &CVMglobals.jitLock));
@@ -2519,7 +2610,7 @@ CVMJITPMIcalleeTableFindRecord(CVMMethodBlock* calleeMb, CVMUint32* indexPtr)
 }
 
 /*
- * Resize the callee hash table. This is done with too large of a % of
+ * Resize the callee hash table. This is done when too large of a % of
  * the entries are either allocated or deleted (too few are truly
  * empty).
  */
@@ -2579,6 +2670,10 @@ CVMJITPMIcalleeTableResize()
 	/* copy the callee record */
 	*calleeRec = *oldCalleeRec;
     }
+    
+    /* Free the old table */
+    free(oldCalleeRecords);
+
     CVMtraceJITPatchedInvokesExec({
         CVMJITPMIcalleeTableDump(CVM_FALSE);
     });
@@ -2601,6 +2696,7 @@ CVMJITPMIcalleeTableAddRecord(CVMMethodBlock* calleeMb,
     CVMJITGlobalState* jgs = &CVMglobals.jit;
     CVMJITPMICalleeRecord* calleeRec =
 	&jgs->pmiCalleeRecords[*calleeRecIdxPtr];
+    CVMassert(jgs->pmiEnabled);
 
     if (CVMJITPMIcalleeTableIsDeletedRecord(calleeRec)) {
 	/* If it is a previously deleted record, then just use it without
@@ -2764,6 +2860,11 @@ CVMJITPMIinit(CVMJITGlobalState* jgs)
 	return CVM_FALSE;
     }
 
+    /* init the backend */
+    if (!CVMJITPMIinitBackEnd()) {
+        return CVM_FALSE;
+    }
+
     return CVM_TRUE;
 }
 
@@ -2796,6 +2897,7 @@ CVMJITPMIaddPatchRecord(CVMMethodBlock* callerMb,
 
     /* Make sure we own the jitLock */
     CVMassert(CVMsysMutexIAmOwner(CVMgetEE(), &CVMglobals.jitLock));
+    CVMassert(jgs->pmiEnabled);
     
     CVMtraceJITPatchedInvokes((
         "PMI ADD: callerMb=0x%x instrAddr=0x%x %C.%M\n",
@@ -2902,6 +3004,7 @@ CVMJITPMIremovePatchRecords(CVMMethodBlock* callerMb, CVMMethodBlock* calleeMb,
 
     /* Make sure we own the jitLock */
     CVMassert(CVMsysMutexIAmOwner(CVMgetEE(), &CVMglobals.jitLock));
+    CVMassert(jgs->pmiEnabled);
     
     CVMtraceJITPatchedInvokes(("PMI REMOVE: calleeMb=0x%x %C.%M\n",
 			       calleeMb, CVMmbClassBlock(calleeMb), calleeMb));
@@ -3091,6 +3194,7 @@ CVMJITPMIpatchCall(CVMMethodBlock* calleeMb,
 		   CVMBool isVirtual)
 {
     int branchTargetOffset;
+    CVMassert(CVMglobals.jit.pmiEnabled);
     
     /*
       These are the possible states a patch point can be in, and the
@@ -3168,9 +3272,12 @@ CVMJITPMIpatchCallsToMethod(CVMMethodBlock* calleeMb,
     CVMUint32              callerRecIdx;
     CVMJITPMICallerRecord* callerRec;
 
-      /* Make sure we own the jitLock */
-    CVMassert(CVMsysMutexIAmOwner(CVMgetEE(), &CVMglobals.jitLock));
+    if (!jgs->pmiEnabled) {
+        return;
+    }
 
+    /* Make sure we own the jitLock */
+    CVMassert(CVMsysMutexIAmOwner(CVMgetEE(), &CVMglobals.jitLock));
     /* get the callee record */
     calleeRecordExists =
 	CVMJITPMIcalleeTableFindRecord(calleeMb, &calleeRecIdx);
@@ -3251,6 +3358,42 @@ CVMJITPMIdumpMethodCalleeInfo(CVMMethodBlock* callerMb,
 
 #endif /* CVM_JIT_PATCHED_METHOD_INVOCATIONS */
 
+
+#ifdef CVM_AOT
+static CVMBool
+CVMjitInitializeAOTGlobals(CVMJITGlobalState* jgs)
+{
+    const CVMProperties *sprops = CVMgetProperties();
+    const char *libpath = sprops->library_path;
+
+    jgs->aotCompileFailed = CVM_FALSE;
+
+    if (jgs->aotFile == NULL) {
+        jgs->aotFile = (char*)malloc(strlen(libpath) +
+                                     strlen("/cvm.aot") + 1);
+        if (jgs->aotFile == NULL) {
+            return CVM_FALSE;
+        }
+        *jgs->aotFile = '\0';
+        strcat(jgs->aotFile, libpath);
+        strcat(jgs->aotFile, "/cvm.aot");
+    }
+
+    if (jgs->aotMethodList == NULL) {
+        jgs->aotMethodList = (char*)malloc(strlen(libpath) +
+            strlen("/methodsList.txt") + 1);
+        if (jgs->aotMethodList == NULL) {
+            return CVM_FALSE;
+        }
+        *jgs->aotMethodList = '\0';
+        strcat(jgs->aotMethodList, libpath);
+        strcat(jgs->aotMethodList, "/methodsList.txt");
+    }
+
+    return CVM_TRUE;
+}
+#endif
+
 CVMBool
 CVMjitInit(CVMExecEnv* ee, CVMJITGlobalState* jgs,
 	   const char* subOptionsString)
@@ -3277,7 +3420,12 @@ CVMjitInit(CVMExecEnv* ee, CVMJITGlobalState* jgs,
 	return CVM_FALSE;
     }
 
+
     handleDoPrivileged();
+
+#ifdef CVM_AOT
+    CVMjitInitializeAOTGlobals(jgs);
+#endif
     
     /* Do the following after parsing options: */
 #if defined(CVM_MTASK) || defined(CVM_AOT)
@@ -3287,26 +3435,31 @@ CVMjitInit(CVMExecEnv* ee, CVMJITGlobalState* jgs,
      * The JIT policy is initialized after MTASK or AOT compile the methods
      * in the method list.
      */
-#ifdef CVM_MTASK
-    if (CVMglobals.isServer)
+#ifdef CVM_AOT
+    if (jgs->aotEnabled) 
 #endif
     {
+#ifdef CVM_MTASK
+        if (!CVMglobals.isServer) {
+	    goto initializeJITPolicy;
+        }
+#endif
         jgs->interpreterTransitionCost = 0;
         jgs->mixedTransitionCost = 0;
         jgs->backwardsBranchCost = 0;
         jgs->compileThreshold = CVMJIT_DEFAULT_CLIMIT;
     }
+#ifdef CVM_AOT
+    else
 #endif
-
-#ifdef CVM_MTASK
-    else /* !CVMglobals.isServer */
 #endif
     {
-#ifndef CVM_AOT
+#ifdef CVM_MTASK
+initializeJITPolicy:
+#endif
         if (!CVMjitPolicyInit(ee, jgs)) {
             return CVM_FALSE;
         }
-#endif
     }
     if (!CVMjitSetInliningThresholds(ee, jgs)) {
         return CVM_FALSE;

@@ -1,7 +1,7 @@
 /*
  * @(#)jitasmmacros_cpu.h	1.14 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -30,6 +30,12 @@
 
 #include "javavm/include/jit/jitasmconstants_cpu.h"
 
+/* First restore %gp from the CCEE, and then load the specified symbol
+   off of %gp. */
+#define LA(r,sym)                                               \
+    lw	gp, OFFSET_CStack_CCEE+OFFSET_CVMCCExecEnv_gp(sp);     \
+    la	r, sym
+
 /*
  * Shorthand for registers that are alo defined in jitasmconstants_cpu.h
  */
@@ -45,6 +51,11 @@
 #define BRANCH_TO_VM_FUNCTION(CCMFUNCTION)	\
 	LA(jp, CCMFUNCTION);			\
 	jr	jp
+
+/* 
+ * The last word of ccmStorage is reserved on mips for the gp pointer.
+ */
+#define OFFSET_CVMCCExecEnv_gp OFFSET_CVMCCExecEnv_ccmStorage+56
 
 /*
  * Some macros to assist with fixing up compiled frames. They only bother

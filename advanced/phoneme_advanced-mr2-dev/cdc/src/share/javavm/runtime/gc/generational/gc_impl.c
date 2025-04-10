@@ -1,7 +1,5 @@
 /*
- * @(#)gc_impl.c	1.114 06/10/20
- *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -49,7 +47,7 @@
 #include "javavm/include/gc/generational/gen_markcompact.h"
 
 #include "javavm/include/porting/memory.h"
-
+#include "javavm/include/porting/threads.h"
 
 #if !CVM_USE_MMAP_APIS
 
@@ -63,9 +61,10 @@ void *CVMgenMap(size_t requestedSize, size_t *mappedSize)
     void *mem;
     void *alignedMem;
     mem = calloc(1, requestedSize + CVMmemPageSize());
-    if (mem != NULL) {
-	*mappedSize = requestedSize;
+    if (mem == NULL) {
+        return NULL;
     }
+    *mappedSize = requestedSize;
 
     /* We want to reserve at least the size of a pointer to store the actual
        address of the start of the allocated area.  After that, we will
@@ -500,42 +499,43 @@ callbackIfNeeded(CVMExecEnv* ee, CVMGCOptions* gcOpts,
 		 CVMUint32* genLower, CVMUint32* genHigher,
 		 CVMRefCallbackFunc callback,
 		 void* callbackData)
-{		
+{
     CVMassert(card >= CVMglobals.gc.cardTable);
     CVMassert(card < CVMglobals.gc.cardTable + CVMglobals.gc.cardTableSize);
     cardStatsOnly(cStats.cardsScanned++);
-    if (*card == CARD_SUMMARIZED_BYTE) {
-	/*
-	 * This card has not been dirtied since it was summarized. Scan the
-	 * summary.
-	 */
-	CVMJavaVal32* cardBoundary = CARD_BOUNDARY_FOR(lowerLimit);
-	CVMGenSummaryTableEntry* summEntry =
-	    SUMMARY_TABLE_SLOT_ADDRESS_FOR_CARD(card);
-	CVMUint32 i;
-	CVMBool hasNoCrossGenPointer = CVM_TRUE;
+    switch (*card) {
+    case CARD_SUMMARIZED_BYTE: {
+        /*
+         * This card has not been dirtied since it was summarized. Scan the
+         * summary.
+         */
+        CVMJavaVal32* cardBoundary = CARD_BOUNDARY_FOR(lowerLimit);
+        CVMGenSummaryTableEntry* summEntry =
+            SUMMARY_TABLE_SLOT_ADDRESS_FOR_CARD(card);
+        CVMUint32 i;
+        CVMBool hasNoCrossGenPointer = CVM_TRUE;
         CVMGeneration* youngGen = CVMglobals.gc.CVMgenGenerations[0];
         CVMObject *youngGenStart = (CVMObject *)youngGen->heapBase;
         CVMObject *youngGenEnd = (CVMObject *)youngGen->heapTop;
-	CVMUint8  offset;
+        CVMUint8  offset;
 
-	i = 0;
-	/* If this card is summarized, it must have at least one entry */
-	CVMassert(summEntry->offsets[0] != 0xff);
-	while ((i < CVM_GENGC_SUMMARY_COUNT) &&
-	       ((offset = summEntry->offsets[i]) != 0xff)) {
-	    CVMObject** refPtr = (CVMObject**)(cardBoundary + offset);
+        i = 0;
+        /* If this card is summarized, it must have at least one entry */
+        CVMassert(summEntry->offsets[0] != 0xff);
+        while ((i < CVM_GENGC_SUMMARY_COUNT) &&
+               ((offset = summEntry->offsets[i]) != 0xff)) {
+            CVMObject** refPtr = (CVMObject**)(cardBoundary + offset);
             CVMObject *ref;
-	    /* We could not have summarized a NULL pointer */
-	    CVMassert(*refPtr != NULL);
-	    (*callback)(refPtr, callbackData);
+            /* We could not have summarized a NULL pointer */
+            CVMassert(*refPtr != NULL);
+            (*callback)(refPtr, callbackData);
             /* Check to see if we still have a cross generational pointer: */
-	    ref = *refPtr;
+            ref = *refPtr;
             if ((ref >= youngGenStart) && (ref < youngGenEnd)) {
                 hasNoCrossGenPointer = CVM_FALSE;
-	    }
-	    i++;
-	}
+            }
+            i++;
+        }
         /* If we didn't encounter any cross generational pointers, then all
            the pointers in this card must either have been nullified, or
            are now referring to objects which have been promoted to the
@@ -546,9 +546,11 @@ callbackIfNeeded(CVMExecEnv* ee, CVMGCOptions* gcOpts,
         if (hasNoCrossGenPointer) {
             *card = CARD_CLEAN_BYTE;
         }
-	CVMassert(i <= CVM_GENGC_SUMMARY_COUNT);
-	cardStatsOnly(cStats.cardsSummarized++);
-    } else if (*card == CARD_DIRTY_BYTE) {
+        CVMassert(i <= CVM_GENGC_SUMMARY_COUNT);
+        cardStatsOnly(cStats.cardsSummarized++);
+    }
+        break;
+    case CARD_DIRTY_BYTE: {
 	CVMJavaVal32* objStart;
 	CVMGenSummaryTableEntry* summEntry;
 
@@ -563,11 +565,24 @@ callbackIfNeeded(CVMExecEnv* ee, CVMGCOptions* gcOpts,
 			      summEntry, lowerLimit, higherLimit, genLower,
 			      callback, callbackData);
 	cardStatsOnly(cStats.cardsDirty++);
-    } else {
+    }
+        break;
+    case CARD_SENTINEL_BYTE:
+        break;
+    default:
 	CVMassert(*card == CARD_CLEAN_BYTE);
 	cardStatsOnly(cStats.cardsClean++);
     }
 }
+
+#define SENTINEL_WORD_VALUE \
+    ((CARD_SENTINEL_BYTE << 24ul) |    \
+     (CARD_SENTINEL_BYTE << 16ul) |    \
+     (CARD_SENTINEL_BYTE <<  8ul) |    \
+     (CARD_SENTINEL_BYTE <<  0ul))
+
+#define SCAN_CHUNK_SIZE 500000
+#define FAST_SCAN_MINIMUM 8
 
 /*
  * Traverse all recorded pointers, and call 'callback' on each.
@@ -709,51 +724,86 @@ CVMgenBarrierPointersTraverse(CVMGeneration* gen, CVMExecEnv* ee,
     higherCardLimit -= remainder;
     CVMassert(CVMalignWordDown(higherCardLimit) == (CVMAddr)higherCardLimit);
 
+    /* Need one word for sentinel, but don't bother with chunks for small
+       sizes */
+    if (higherCardLimit - lowerCardLimit >= 4 + FAST_SCAN_MINIMUM) {
+        remainder += 4;
+        higherCardLimit -= 4;
+    } else {
+        remainder += higherCardLimit - lowerCardLimit;
+        higherCardLimit = lowerCardLimit;
+        goto scan_remainder;
+    }
+
+
     /*
      * Now go through the card table in blocks of four for faster
      * zero checks.
      */
     for (cardPtrWord = (CVMUint32*)lowerCardLimit;
-	 cardPtrWord < (CVMUint32*)higherCardLimit; ) {
+	 cardPtrWord < (CVMUint32*)higherCardLimit; )
+    {
+        CVMUint32 *hl = cardPtrWord + SCAN_CHUNK_SIZE;
+        CVMUint32 savedWord; 
 
-        CVMUint32 word = *cardPtrWord;
-        CVMUint32 *start = cardPtrWord;
+        if (hl > (CVMUint32*)higherCardLimit) {
+            hl = (CVMUint32*)higherCardLimit;
+        }
 
-        /* Since there will tend to be many consecutive clean cards, scan
-           through them quickly in a tight loop: */
-        while ((cardPtrWord < (CVMUint32*)higherCardLimit) &&
-               (word == FOUR_CLEAN_CARDS)) {
-            cardPtrWord++;
-            word = *cardPtrWord; /* Pre-fetch the next word. */
-            cardStatsOnly(cStats.cardsScanned += 4);
-            cardStatsOnly(cStats.cardsClean += 4);
-	}
+        savedWord = hl[0];
+        hl[0] = SENTINEL_WORD_VALUE;
 
-        /* When we get here, we may already have scanned through many cards.
-           Adjust the heapPtr accordingly: */
-        heapPtr += (cardPtrWord - start) * (NUM_WORDS_PER_CARD * 4);
+        while (cardPtrWord < hl) {
 
-        /* If we get here because we encountered a word that has cards that
-           need to be scanned, then scan those cards one at a time.  The
-           other reason we may be here is because we have reached the end of
-           the region we need to scan.  Hence, we need to do a bounds check
-           before we scan that presumed cards in that word. */
- 	if ((cardPtrWord < (CVMUint32*)higherCardLimit) && 
-            (*cardPtrWord != FOUR_CLEAN_CARDS)) {
+            CVMUint32 word = *cardPtrWord;
 
-	    CVMJavaVal32* hptr = heapPtr;
-	    CVMUint8*  cptr = (CVMUint8*)cardPtrWord;
-	    CVMUint8*  cptr_end = cptr + 4;
-	    for (; cptr < cptr_end; cptr++, hptr += NUM_WORDS_PER_CARD) {
-		callbackIfNeeded(ee, gcOpts, cptr,
-				 hptr, hptr + NUM_WORDS_PER_CARD,
-				 (CVMUint32*)genLower, (CVMUint32*)genHigher,
-				 callback, callbackData);
-	    }
-            cardPtrWord++;
-            heapPtr += NUM_WORDS_PER_CARD * 4;
-	}
+            if (word == FOUR_CLEAN_CARDS) {
+                CVMUint32 *start = cardPtrWord;
+
+                /* Since there will tend to be many consecutive clean cards, scan
+                   through them quickly in a tight loop: */
+                do {
+                    cardPtrWord++;
+                    word = *cardPtrWord; /* Pre-fetch the next word. */
+                    cardStatsOnly(cStats.cardsScanned += 4);
+                    cardStatsOnly(cStats.cardsClean += 4);
+                } while (word == FOUR_CLEAN_CARDS);
+
+                /* When we get here, we may already have scanned through many cards.
+                   Adjust the heapPtr accordingly: */
+                heapPtr += (cardPtrWord - start) * (NUM_WORDS_PER_CARD * 4);
+            }
+
+            /* If we get here because we encountered a word that has cards that
+               need to be scanned, then scan those cards one at a time.  The
+               other reason we may be here is because we have reached the end of
+               the region we need to scan.  Hence, we need to do a bounds check
+               before we scan that presumed cards in that word. */
+            {
+                CVMJavaVal32* hptr = heapPtr;
+                CVMUint8*  cptr = (CVMUint8*)cardPtrWord;
+                CVMUint8*  cptr_end = cptr + 4;
+                for (; cptr < cptr_end; cptr++, hptr += NUM_WORDS_PER_CARD) {
+                    callbackIfNeeded(ee, gcOpts, cptr,
+                                     hptr, hptr + NUM_WORDS_PER_CARD,
+                                     (CVMUint32*)genLower, (CVMUint32*)genHigher,
+                                     callback, callbackData);
+                }
+                cardPtrWord++;
+                heapPtr += NUM_WORDS_PER_CARD * 4;
+            }
+        }
+        if (cardPtrWord > hl) {
+            /* Scanned past end to sentinel */
+            heapPtr -= NUM_WORDS_PER_CARD * 4;
+            --cardPtrWord;
+        }
+        hl[0] = savedWord;
+
+        CVMthreadSchedHook(CVMexecEnv2threadID(ee));
     }
+
+scan_remainder:
 
     /*
      * And finally, the remaining few cards, if any, that "spilled" out
@@ -1123,6 +1173,8 @@ CVMgcimplInitHeap(CVMGCGlobalState* gc,
     /* Reserve the needed space: */
     heapRegion = CVMmemMap(totalSize, &actualSize);
     if (heapRegion == NULL) {
+	CVMconsolePrintf("Cannot start VM "
+			 "(unable to reserve GC heap memory from OS)\n");
 	goto failed;
     }
 
@@ -1185,29 +1237,59 @@ CVMgcimplInitHeap(CVMGCGlobalState* gc,
     /* Commit the youngGen region: */
     mem = CVMmemCommit(gc->youngGenStart,
 		       gc->youngGenCurrentSize * 2, &actualSize);
-    CVMassert(mem == (void *)gc->youngGenStart);
-    CVMassert(actualSize == gc->youngGenCurrentSize * 2);
+    if (mem != (void *)gc->youngGenStart) {
+	CVMassert(mem == NULL);
+	CVMassert(actualSize != gc->youngGenCurrentSize * 2);
+	CVMconsolePrintf("Cannot start VM "
+	    "(unable to commit GC heap memory YG: %d)\n",
+	    gc->youngGenCurrentSize * 2);
+        goto failed_after_reservedMem;
+    }
 
     /* Commit the oldGen region: */
     mem = CVMmemCommit(gc->oldGenStart, gc->oldGenCurrentSize, &actualSize);
-    CVMassert(mem == (void *)gc->oldGenStart);
-    CVMassert(actualSize == gc->oldGenCurrentSize);
+    if (mem != (void *)gc->oldGenStart) {
+	CVMassert(mem == NULL);
+	CVMassert(actualSize != gc->oldGenCurrentSize);
+	CVMconsolePrintf("Cannot start VM "
+	    "(unable to commit GC heap memory OG: %d)\n",
+	    gc->oldGenCurrentSize);
+        goto failed_after_commitYG;
+    }
 
     /* Commit the cardTable region: */
     mem = CVMmemCommit(gc->cardTable, packedCardTableSize, &actualSize);
-    CVMassert(mem == (void *)gc->cardTable);
-    CVMassert(actualSize == packedCardTableSize);
+    if (mem != (void *)gc->cardTable) {
+	CVMassert(mem == NULL);
+	CVMassert(actualSize != packedCardTableSize);
+	CVMconsolePrintf("Cannot start VM "
+	    "(unable to commit GC heap memory CT: %d)\n",
+	    packedCardTableSize);
+        goto failed_after_commitOG;
+    }
 
     /* Commit the objectHeaderTable region: */
     mem = CVMmemCommit(gc->objectHeaderTable,
 		       packedObjectHeaderTableSize, &actualSize);
-    CVMassert(mem == (void *)gc->objectHeaderTable);
-    CVMassert(actualSize == packedObjectHeaderTableSize);
+    if (mem != (void *)gc->objectHeaderTable) {
+	CVMassert(mem == NULL);
+	CVMassert(actualSize != packedObjectHeaderTableSize);
+	CVMconsolePrintf("Cannot start VM "
+	    "(unable to commit GC heap memory OT: %d)\n",
+	    packedObjectHeaderTableSize);
+        goto failed_after_commitCT;
+    }
 
     /* Commit the summaryTable region: */
     mem = CVMmemCommit(gc->summaryTable, packedSummaryTableSize, &actualSize);
-    CVMassert(mem == (void *)gc->summaryTable);
-    CVMassert(actualSize == packedSummaryTableSize);
+    if (mem != (void *)gc->summaryTable) {
+	CVMassert(mem == NULL);
+	CVMassert(actualSize != packedSummaryTableSize);
+	CVMconsolePrintf("Cannot start VM "
+	    "(unable to commit GC heap memory ST: %d)\n",
+	    packedSummaryTableSize);
+        goto failed_after_commitOT;
+    }
 #endif /* CVM_USE_MMAP_APIS */
 
     /*======================================================================
@@ -1217,7 +1299,7 @@ CVMgcimplInitHeap(CVMGCGlobalState* gc,
     /* Allocate and initialize the youngGen collector: */
     youngGen = CVMgenSemispaceAlloc(gc->youngGenStart, totYoungGenSize);
     if (youngGen == NULL) {
-        goto failed_after_summaryTable;
+        goto failed_after_commitST;
     }
 
     youngGen->generationNo = 0;
@@ -1273,30 +1355,42 @@ CVMgcimplInitHeap(CVMGCGlobalState* gc,
     CVMgcimplPostJVMPIArenaNewEvent();
 #endif
 
-    CVMdebugPrintf(("GC[generational]: Sizes\n"
-		    "\tyoungGen = min %d start %d max %d\n"
-		    "\toldGen   = min %d start %d max %d\n"
-		    "\toverall  = min %d start %d max %d\n",
-		    gc->youngGenMinSize, gc->youngGenStartSize, gc->youngGenMaxSize,
-		    gc->oldGenMinSize, gc->oldGenStartSize, gc->oldGenMaxSize,
-		    gc->heapMinSize, gc->heapStartSize, gc->heapMaxSize));
+#if defined(CVM_DEBUG)
+    CVMgenDumpSysInfo(gc);
+#endif /* CVM_DEBUG || CVM_INSPECTOR */
 
-    CVMdebugPrintf(("GC[generational]: Auxiliary data structures\n"));
-    CVMdebugPrintf(("\theapBaseMemoryArea=[0x%x,0x%x)\n",
-		    gc->heapBaseMemoryArea,
-		    gc->heapBaseMemoryArea + (totBytes + NUM_BYTES_PER_CARD) / 4));
-    CVMdebugPrintf(("\tcardTable=[0x%x,0x%x)\n",
-		    gc->cardTable, gc->cardTable + gc->cardTableSize));
-    CVMdebugPrintf(("\tobjectHeaderTable=[0x%x,0x%x)\n",
-		    gc->objectHeaderTable, gc->objectHeaderTable + gc->cardTableSize));
-    CVMdebugPrintf(("\tsummaryTable=[0x%x,0x%x)\n",
-		    gc->summaryTable, gc->summaryTable + gc->cardTableSize));
     CVMtraceMisc(("GC: Initialized heap for generational GC\n"));
     return CVM_TRUE;
 
 failed_after_youngGen:
     CVMgenSemispaceFree((CVMGenSemispaceGeneration*)youngGen);
-failed_after_summaryTable:
+
+failed_after_commitST:
+#if CVM_USE_MMAP_APIS
+    mem = CVMmemDecommit(gc->summaryTable, packedSummaryTableSize, &actualSize);
+    CVMassert(mem == (void *)gc->summaryTable);
+    CVMassert(actualSize == packedSummaryTableSize);
+failed_after_commitOT:
+    mem = CVMmemDecommit(gc->objectHeaderTable,
+			 packedObjectHeaderTableSize, &actualSize);
+    CVMassert(mem == (void *)gc->objectHeaderTable);
+    CVMassert(actualSize == packedObjectHeaderTableSize);
+failed_after_commitCT:
+    mem = CVMmemDecommit(gc->cardTable, packedCardTableSize, &actualSize);
+    CVMassert(mem == (void *)gc->cardTable);
+    CVMassert(actualSize == packedCardTableSize);
+failed_after_commitOG:
+    mem = CVMmemDecommit(gc->oldGenStart, gc->oldGenCurrentSize, &actualSize);
+    CVMassert(mem == (void *)gc->oldGenStart);
+    CVMassert(actualSize == gc->oldGenCurrentSize);
+failed_after_commitYG:
+    mem = CVMmemDecommit(gc->youngGenStart,
+		         gc->youngGenCurrentSize * 2, &actualSize);
+    CVMassert(mem == (void *)gc->youngGenStart);
+    CVMassert(actualSize == gc->youngGenCurrentSize * 2);
+failed_after_reservedMem:
+#endif /* CVM_USE_MMAP_APIS */
+
     mem = CVMmemUnmap(heapRegion, totalSize, &actualSize);
     CVMassert(mem == heapRegion);
     CVMassert(actualSize == totalSize);
@@ -1304,6 +1398,34 @@ failed:
     /* The caller will signal heap initialization failure */
     return CVM_FALSE;
 }
+
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+/* Dumps info about the configuration of the generational GC (in addition to
+   the semispace and markcompact dumps). */
+void CVMgenDumpSysInfo(CVMGCGlobalState* gc)
+{
+    CVMconsolePrintf("GC[generational]: Sizes\n"
+		     "\tyoungGen = min %d start %d max %d\n"
+		     "\toldGen   = min %d start %d max %d\n"
+		     "\toverall  = min %d start %d max %d\n",
+		     gc->youngGenMinSize, gc->youngGenStartSize,
+		     gc->youngGenMaxSize,
+		     gc->oldGenMinSize, gc->oldGenStartSize, gc->oldGenMaxSize,
+		     gc->heapMinSize, gc->heapStartSize, gc->heapMaxSize);
+
+    CVMconsolePrintf("GC[generational]: Auxiliary data structures\n");
+    CVMconsolePrintf("\theapBaseMemoryArea=[0x%x,0x%x)\n",
+		     gc->heapBaseMemoryArea, gc->cardTable);
+    CVMconsolePrintf("\tcardTable=[0x%x,0x%x)\n",
+		     gc->cardTable, gc->cardTable + gc->cardTableSize);
+    CVMconsolePrintf("\tobjectHeaderTable=[0x%x,0x%x)\n",
+		     gc->objectHeaderTable,
+		     gc->objectHeaderTable + gc->cardTableSize);
+    CVMconsolePrintf("\tsummaryTable=[0x%x,0x%x)\n",
+		     gc->summaryTable, gc->summaryTable + gc->cardTableSize);
+}
+#endif /* CVM_DEBUG || CVM_INSPECTOR */
+
 
 #ifdef CVM_JVMPI
 /* Purpose: Posts the JVMPI_EVENT_ARENA_NEW events for the GC specific
@@ -1513,7 +1635,7 @@ CVMgcimplSetSizeAndWatermarks(CVMGCGlobalState *gc, CVMUint32 newSize,
 
     /* Compute the new high watermark: */
     if (newSize >= gc->oldGenMaxSize) {
-	/* Cannot grow abive maximum: */
+	/* Cannot grow above maximum: */
 	newSize = gc->oldGenMaxSize;
 	/* Skip high threshold checks if we're already at max capacity: */
 	newHigh = gc->oldGenMaxSize;
@@ -1614,8 +1736,9 @@ CVMgcimplResize(CVMExecEnv *ee, CVMUint32 numBytes, CVMBool grow)
     if (newSize > gc->oldGenMaxSize) {
 	newSize = gc->oldGenMaxSize;
     }
-
-    newSize = CVMgcimplSetSizeAndWatermarks(gc, newSize, currentUsage);
+    if (newSize < gc->oldGenMinSize) {
+	newSize = gc->oldGenMinSize;
+    }
 
     /* Resize the new memory: */
     if (grow) {
@@ -1640,14 +1763,14 @@ CVMgcimplResize(CVMExecEnv *ee, CVMUint32 numBytes, CVMBool grow)
 		   OutOfMemoryError being thrown. */
 		success = CVM_FALSE;
 
-		/* Reset the size and watermarks before failing: */
-		CVMgcimplSetSizeAndWatermarks(gc, oldSize, currentUsage);
-
 		goto failed;
 	    }
 
 	    CVMassert(mem == commitStart);
 	    CVMassert(actualSize == commitSize);
+
+            /* set new size and watermarks */
+            CVMgcimplSetSizeAndWatermarks(gc, newSize, currentUsage);
 
 	    /* Initialize the corresponding card table region: */
 	    cardAreaStart = (void *)CARD_TABLE_SLOT_ADDRESS_FOR(commitStart);
@@ -1673,6 +1796,8 @@ CVMgcimplResize(CVMExecEnv *ee, CVMUint32 numBytes, CVMBool grow)
 	    mem = CVMmemDecommit(decommitStart, decommitSize, &actualSize);
 	    CVMassert(mem == decommitStart);
 	    CVMassert(actualSize == decommitSize);
+            /* set new size and watermarks */
+            CVMgcimplSetSizeAndWatermarks(gc, newSize, currentUsage);
 	}
     }
 
@@ -1735,7 +1860,7 @@ CVMgcimplDoGC(CVMExecEnv* ee, CVMUint32 numBytes)
 
     gcOpts.isUpdatingObjectPointers = CVM_TRUE;
     gcOpts.discoverWeakReferences = CVM_FALSE;
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
+#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI) || defined(CVM_JVMTI)
     gcOpts.isProfilingPass = CVM_FALSE;
 #endif
 
@@ -1999,8 +2124,6 @@ CVMgcimplTimeOfLastMajorGC()
     return CVMglobals.gc.lastMajorGCTime;
 }
 
-#if defined(CVM_INSPECTOR) || defined(CVM_JVMPI)
-
 typedef struct CallbackInfo CallbackInfo;
 struct CallbackInfo
 {
@@ -2020,7 +2143,6 @@ CVMgcCallBackIfNotSynthesized(CVMObject *obj, CVMClassBlock *cb,
     }
     return CVM_TRUE;
 }
-
 
 /*
  * Heap iteration. Call (*callback)() on each object in the heap.
@@ -2054,7 +2176,17 @@ CVMgcimplIterateHeap(CVMExecEnv* ee,
     return CVM_TRUE;
 }
 
-#endif /* defined(CVM_INSPECTOR) || defined(CVM_JVMPI) */
+#if defined(CVM_DEBUG) || defined(CVM_INSPECTOR)
+/* Dumps info about the configuration of the overall GC. */
+void CVMgcimplDumpSysInfo()
+{
+    CVMGeneration *youngGen = CVMglobals.gc.CVMgenGenerations[0];
+    CVMGeneration *oldGen = CVMglobals.gc.CVMgenGenerations[1];
+    CVMgenSemispaceDumpSysInfo((CVMGenSemispaceGeneration*)youngGen);
+    CVMgenMarkCompactDumpSysInfo((CVMGenMarkCompactGeneration*)oldGen);
+    CVMgenDumpSysInfo(&CVMglobals.gc);
+}
+#endif  /* CVM_DEBUG || CVM_INSPECTOR */
 
 #undef roundUpToPage
 #undef roundDownToPage

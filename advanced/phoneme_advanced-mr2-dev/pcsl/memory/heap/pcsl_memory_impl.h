@@ -1,27 +1,27 @@
 /*
  * 	
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 #ifndef _PCSL_MEMORY_IMPL_H_
@@ -100,7 +100,7 @@ int pcsl_mem_malloc_dump_impl0(int countMemoryLeaksOnly);
  * @return pointer to the newly allocated memory, or NULL if the system cannot
  * fulfil the allocation request
  */
-extern void* pcsl_mem_malloc_impl0(unsigned int, char*, int);
+extern void* pcsl_mem_malloc_impl0(unsigned int, const char*, int);
 
 /**
  * Allocates memory from the private PCSL memory pool, and clears the
@@ -116,7 +116,7 @@ extern void* pcsl_mem_malloc_impl0(unsigned int, char*, int);
  * @return pointer to the newly allocated and cleared memory, or NULL if the
  * system cannot fulfil the allocation request
  */
-extern void* pcsl_mem_calloc_impl0(unsigned int, unsigned int, char*, int);
+extern void* pcsl_mem_calloc_impl0(unsigned int, unsigned int, const char*, int);
 
 /**
  * Re-allocates memory from the private PCSL memory pool.
@@ -133,7 +133,7 @@ extern void* pcsl_mem_calloc_impl0(unsigned int, unsigned int, char*, int);
  * @return pointer to the re-allocated memory, or NULL if the system cannot
  * fulfil the allocation request
  */
-extern void* pcsl_mem_realloc_impl0(void*, unsigned int, char*, int);
+extern void* pcsl_mem_realloc_impl0(void*, unsigned int, const char*, int);
 
 /**
  * Duplicates the given string after allocating the memory for it.
@@ -147,7 +147,7 @@ extern void* pcsl_mem_realloc_impl0(void*, unsigned int, char*, int);
  * @return pointer to the duplicate string, or NULL if the system cannot
  * fulfil the allocation request
  */
-extern char* pcsl_mem_strdup_impl0(const char*, char*, int);
+extern char* pcsl_mem_strdup_impl0(const char*, const char*, int);
 
 /**
  * Frees memory allocated from the private PCSL memory pool
@@ -158,7 +158,7 @@ extern char* pcsl_mem_strdup_impl0(const char*, char*, int);
  * @param lineno line number where the allocation call occured (for
  *        tracing purposes)
  */
-extern void  pcsl_mem_free_impl0(void*, char*, int);
+extern void  pcsl_mem_free_impl0(void*, const char*, int);
 
 /**
  * Allocates the given number of bytes from the private PCSL memory

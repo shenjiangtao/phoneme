@@ -1,27 +1,28 @@
 #
 # @(#)defs.mk	1.59 06/10/24
 #
-# Portions Copyright  2000-2006 Sun Microsystems, Inc. All Rights Reserved.
+# Portions Copyright  2000-2008 Sun Microsystems, Inc. All Rights
+# Reserved.  Use is subject to license terms.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
 # 
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License version
-# 2 only, as published by the Free Software Foundation. 
+# 2 only, as published by the Free Software Foundation.
 # 
 # This program is distributed in the hope that it will be useful, but
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
 # General Public License version 2 for more details (a copy is
-# included at /legal/license.txt). 
+# included at /legal/license.txt).
 # 
 # You should have received a copy of the GNU General Public License
 # version 2 along with this work; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
-# 02110-1301 USA 
+# 02110-1301 USA
 # 
 # Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
 # Clara, CA 95054 or visit www.sun.com if you need additional
-# information or have any questions. 
+# information or have any questions.
 #
 
 #
@@ -82,12 +83,10 @@ endif
 CVM_SRCDIRS   += \
 	$(CVM_TOP)/src/$(TARGET_OS)-$(TARGET_CPU_FAMILY)/javavm/runtime
 
-CVM_INCLUDES  += \
-	-I$(CVM_TOP)/src/$(TARGET_OS)-$(TARGET_CPU_FAMILY)
+CVM_INCLUDE_DIRS  += \
+	$(CVM_TOP)/src/$(TARGET_OS)-$(TARGET_CPU_FAMILY)
 
-ifeq ($(CVM_FORCE_HARD_FLOAT), true)
-	CVM_DEFINES     += -DCVM_FORCE_HARD_FLOAT
-else
+ifneq ($(CVM_FORCE_HARD_FLOAT), true)
 ifeq ($(USE_GCC2), true)
 	CC_ARCH_FLAGS   += -msoft-float
 	ASM_ARCH_FLAGS  += -msoft-float
@@ -95,6 +94,14 @@ ifeq ($(USE_GCC2), true)
 	LINK_ARCH_LIBS  += -lfloat
 	CVM_TARGETOBJS_OTHER += _fixunsdfsi.o
 endif
+endif
+
+# Our source needs to know if AAPCS calling conventions are used
+USE_AAPCS ?= false
+CVM_FLAGS += USE_AAPCS
+USE_AAPCS_CLEANUP_ACTION = $(CVM_DEFAULT_CLEANUP_ACTION)
+ifeq ($(USE_AAPCS),true)
+CVM_DEFINES += -DAAPCS 
 endif
 
 #
@@ -107,9 +114,6 @@ CVM_TARGETOBJS_SPACE += \
 
 CVM_TARGETOBJS_OTHER += \
 	flushcache_arch.o
-
-CVM_SRCDIRS   += \
-	$(CVM_TOP)/src/$(TARGET_OS)-$(TARGET_CPU_FAMILY)/javavm/runtime/jit \
 
 endif
 

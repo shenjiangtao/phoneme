@@ -1,27 +1,27 @@
 /*
  *   
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2007 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
- * 2 only, as published by the Free Software Foundation. 
+ * 2 only, as published by the Free Software Foundation.
  * 
  * This program is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details (a copy is
- * included at /legal/license.txt). 
+ * included at /legal/license.txt).
  * 
  * You should have received a copy of the GNU General Public License
  * version 2 along with this work; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA 
+ * 02110-1301 USA
  * 
  * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa
  * Clara, CA 95054 or visit www.sun.com if you need additional
- * information or have any questions. 
+ * information or have any questions.
  */
 
 
@@ -40,7 +40,6 @@
 #ifndef INVALID_FILE_ATTRIBUTES
 #define INVALID_FILE_ATTRIBUTES ((DWORD)-1)
 #endif
-
 
 /**
  * Check if the directory exists in FS storage.
@@ -103,11 +102,10 @@ int pcsl_file_rmdir(const pcsl_string * dirName)
 /**
  * The getFreeSize function checks the available size in storage.
  */
-long pcsl_file_getfreesize(const pcsl_string * path)
+jlong pcsl_file_getfreesize(const pcsl_string * path)
 {
     struct _diskfree_t df;
     struct _stat buf;
-    jlong size;
     int res;
     const jchar * pszOsFilename = pcsl_string_get_utf16_data(path);
 
@@ -125,18 +123,16 @@ long pcsl_file_getfreesize(const pcsl_string * path)
         return -1;
     }
 
-    size = (jlong)(df.avail_clusters) * df.sectors_per_cluster * df.bytes_per_sector;
-    return (size > 0x7FFFFFFFL) ? 0x7FFFFFFFL : (long)size;
+    return (jlong)(df.avail_clusters) * df.sectors_per_cluster * df.bytes_per_sector;
 }
 
 /**
  * The getTotalSize function checks the total space in storage.
  */
-long pcsl_file_gettotalsize(const pcsl_string * path)
+jlong pcsl_file_gettotalsize(const pcsl_string * path)
 {
     struct _diskfree_t df;
     struct _stat buf;
-    jlong size;
     int res;
     const jchar * pszOsFilename = pcsl_string_get_utf16_data(path);
 
@@ -154,8 +150,7 @@ long pcsl_file_gettotalsize(const pcsl_string * path)
         return -1;
     }
 
-    size = (jlong)(df.total_clusters) * df.sectors_per_cluster * df.bytes_per_sector;
-    return (size > 0x7FFFFFFFL) ? 0x7FFFFFFFL : (long)size;
+    return (jlong)(df.total_clusters) * df.sectors_per_cluster * df.bytes_per_sector;
 }
 
 /**
@@ -263,7 +258,7 @@ int pcsl_file_get_time(const pcsl_string * fileName, int type, long* result)
         return -1;
     }
 
-    *result = buf.st_mtime;
+    *result = (long)buf.st_mtime;
     return 0;
 }
 

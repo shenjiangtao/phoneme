@@ -1,7 +1,7 @@
 /*
  * @(#)utils.h	1.96 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -37,6 +37,7 @@
 #include "javavm/include/clib.h"
 #include "javavm/include/typeid.h"
 #include "javavm/include/basictypes.h"
+#include "javavm/include/porting/globals.h"
 #include "javavm/include/porting/ansi/stdarg.h"
 #include "javavm/export/jni.h"
 #include "generated/cni/sun_misc_CVM.h"
@@ -95,20 +96,23 @@ CVMrestoreDebugFlags(CVMInt32 flags, CVMInt32 oldvalue);
  * Trace I/O
  */
 #ifdef CVM_TRACE
-#define CVMtrace(flags, x) \
+#define CVMtrace(flags, x)   \
     (CVMcheckDebugFlags(flags) != 0 ? CVMconsolePrintf x : (void)0)
 #define CVMtraceExec(flags, x) \
     if (CVMcheckDebugFlags(flags) != 0) x
+#define CVMeeTrace(flags, x)   \
+    (((ee)->debugFlags & (flags)) != 0 ? CVMconsolePrintf x : (void)0)
 #else
 #define CVMtrace(flags, x)
 #define CVMtraceExec(flags, x)
+#define CVMeeTrace(flags, x)
 #endif /* CVM_TRACE */
 
-#define CVMtraceOpcode(x) 	CVMtrace(CVM_DEBUGFLAG(TRACE_OPCODE), x)
+#define CVMtraceOpcode(x) 	CVMeeTrace(CVM_DEBUGFLAG(TRACE_OPCODE), x)
 #define CVMtraceStatus(x) 	CVMtrace(CVM_DEBUGFLAG(TRACE_STATUS), x)
-#define CVMtraceFastLock(x) 	CVMtrace(CVM_DEBUGFLAG(TRACE_FASTLOCK), x)
-#define CVMtraceDetLock(x)   	CVMtrace(CVM_DEBUGFLAG(TRACE_DETLOCK), x)
-#define CVMtraceSysMutex(x)    	CVMtrace(CVM_DEBUGFLAG(TRACE_MUTEX), x)
+#define CVMtraceFastLock(x) 	CVMeeTrace(CVM_DEBUGFLAG(TRACE_FASTLOCK), x)
+#define CVMtraceDetLock(x)   	CVMeeTrace(CVM_DEBUGFLAG(TRACE_DETLOCK), x)
+#define CVMtraceSysMutex(x)    	CVMeeTrace(CVM_DEBUGFLAG(TRACE_MUTEX), x)
 #define CVMtraceCS(x)        	CVMtrace(CVM_DEBUGFLAG(TRACE_CS), x)
 #define CVMtraceGcStartStop(x)  CVMtrace(CVM_DEBUGFLAG(TRACE_GCSTARTSTOP) | \
 					 CVM_DEBUGFLAG(TRACE_GCSCAN), x)
@@ -128,6 +132,7 @@ CVMrestoreDebugFlags(CVMInt32 flags, CVMInt32 oldvalue);
 #define CVMtraceWeakrefs(x)	CVMtrace(CVM_DEBUGFLAG(TRACE_WEAKREFS), x)
 #define CVMtraceClassUnloading(x) CVMtrace(CVM_DEBUGFLAG(TRACE_CLASSUNLOAD), x)
 #define CVMtraceClassLink(x)    CVMtrace(CVM_DEBUGFLAG(TRACE_CLASSLINK), x)
+#define CVMtraceJVMTI(x)        CVMtrace(CVM_DEBUGFLAG(TRACE_JVMTI), x)
 
 #ifdef CVM_LVM /* %begin lvm */
 #define CVMtraceLVM(x)          CVMtrace(CVM_DEBUGFLAG(TRACE_LVM), x)
@@ -427,25 +432,25 @@ typedef struct {
 	struct {
 	    int       minValue;
 	    CVMAddr   maxValue;
-	    int       defaultValue;
+	    CVMAddr   defaultValue;
 	} intData;
 	/* String value options */
 	struct {
 	    int   ignored1;
 	    const char* helpSyntax;
-	    int   ignored2;
+	    const char* defaultValue;
 	} strData;
 	/* Multi String valued options */
 	struct {
 	    int numPossibleValues;
 	    const char** possibleValues;
-	    int defaultValue;
+	    CVMAddr defaultValue;
 	} multiStrData;
         /* Enum value options */
         struct {
             int numPossibleValues;
             const CVMSubOptionEnumData* possibleValues;
-            int defaultValue;
+            CVMAddr defaultValue;
         } enumData;
     } data;
     const void* valuePtr; /* where parsed value should be stored */
@@ -480,9 +485,12 @@ CVMprintSubOptionsUsageString(const CVMSubOptionData* knownSubOptions);
  * the java_home, lib_dir and boot class path values, to be
  * invoked with the properly subdirectory values.
  */
+
 extern CVMBool
-CVMinitPathValues(void *propsPtr, char *basePath,
-                  char *libPath, char *dllPath);
+CVMinitPathValues(void *propsPtr, CVMpathInfo *pathInfo,
+                  char **userBootclasspath);
+
+extern void CVMdestroyPathInfo(CVMpathInfo *);
 
 /*
  * Free up the memory allocated in CVMinitPathValues().

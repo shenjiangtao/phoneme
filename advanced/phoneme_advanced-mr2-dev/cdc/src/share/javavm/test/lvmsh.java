@@ -1,7 +1,7 @@
 /*
  * @(#)lvmsh.java	1.4 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -51,14 +51,14 @@ public class lvmsh extends cvmsh
         lvm.start();
     }
 
-    boolean processToken(String token, CmdStream cmd) {
+    boolean processToken(String token, CmdStream cmd, CVMSHRunnable server) {
 	if (token.equals("lvm")) {
 	    String classname = getToken(cmd);
 	    String[] args = getArgs(cmd);
 	    runLVM(classname, args);
 
 	} else {
-	    return super.processToken(token, cmd);
+	    return super.processToken(token, cmd, server);
 	}
 	return false;
     }
@@ -66,6 +66,6 @@ public class lvmsh extends cvmsh
 
     public static void main(String[] args) {
 	lvmsh sh = new lvmsh();
-	sh.runShell(args);
+	sh.parseOptions(args);
     }
 }

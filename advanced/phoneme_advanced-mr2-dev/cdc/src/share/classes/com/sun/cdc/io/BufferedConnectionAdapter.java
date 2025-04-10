@@ -1,7 +1,7 @@
 /*
  * @(#)BufferedConnectionAdapter.java	1.4 06/10/10
  * 
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -106,7 +106,6 @@ public abstract class BufferedConnectionAdapter extends ConnectionBaseAdapter {
      * @exception  IOException  if an I/O error occurs.
      */
     public int readBytes(byte b[], int off, int len) throws IOException {
-        int bytesRead;
 
         if (count == 0) {
             if (eof) {

@@ -1,7 +1,7 @@
 /*
  * @(#)debugInit.c	1.50 06/10/25
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -170,6 +170,10 @@ onLoadX(JavaVM *vm, char *options, void *reserved)
     jint              jvmtiCompileTimeMinorVersion;
     jint              jvmtiCompileTimeMicroVersion;
 
+    /* init io subsystem first */
+    if (md_init(vm) != JNI_OK) {
+        return JNI_ERR;
+    }
     /* See if it's already loaded */
     if ( gdata!=NULL && gdata->isLoaded==JNI_TRUE ) {
         ERROR_MESSAGE(("Cannot load this JVM TI agent twice, check your java command line for duplicate jdwp options."));
@@ -274,10 +278,10 @@ onLoadX(JavaVM *vm, char *options, void *reserved)
     needed_capabilities.can_suspend                             = 1;
     needed_capabilities.can_generate_method_entry_events        = 1;
     needed_capabilities.can_generate_method_exit_events         = 1;
-    /*    needed_capabilities.can_generate_garbage_collection_events  = 1; */
+    needed_capabilities.can_generate_garbage_collection_events  = 1;
     needed_capabilities.can_maintain_original_method_order      = 1;
     needed_capabilities.can_generate_monitor_events             = 1;
-    /*    needed_capabilities.can_tag_objects                         = 1; */
+    needed_capabilities.can_tag_objects                         = 1;
    
     /* And what potential ones that would be nice to have */ 
     needed_capabilities.can_force_early_return
@@ -633,13 +637,13 @@ jniFatalError(JNIEnv *env, const char *msg, jvmtiError error, int exit_code)
         (void)snprintf(buf, sizeof(buf), "JDWP %s, jvmtiError=%s(%d)",
                     msg, jvmtiErrorText(error), error);
     } else {
-        (void)snprintf(buf, sizeof(buf), "JDWP %s", buf);
+        (void)snprintf(buf, sizeof(buf), "JDWP %s", msg);
     }
     if (env != NULL) {
         (*((*env)->FatalError))(env, buf);
     } else {
         /* Should rarely ever reach here, means VM is really dead */
-        print_message(stderr, "ERROR: JDWP: ", "\n",
+        print_message(fileno(stderr), "ERROR: JDWP: ", "\n",
                 "Can't call JNI FatalError(NULL, \"%s\")", buf);
     }
     forceExit(exit_code);
@@ -715,7 +719,9 @@ initialize(JNIEnv *env, jthread thread, EventIndex triggering_ei)
     if ((arg.error != JDWP_ERROR(NONE)) && 
         (arg.startCount == 0) && 
         initOnStartup) {
-        EXIT_ERROR(map2jvmtiError(arg.error), "No transports initialized");
+        LOG_MISC(("No transports initialized"));
+        disposeEnvironment(gdata->jvmti);
+        return;
     }
 
     eventHandler_initialize(currentSessionID);

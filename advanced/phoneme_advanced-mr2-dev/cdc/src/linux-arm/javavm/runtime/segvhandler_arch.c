@@ -1,7 +1,7 @@
 /*
  * @(#)segvhandler_arch.c	1.10 06/10/10
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -40,10 +40,20 @@
 #include <signal.h>
 #include <dlfcn.h>
 #include <stddef.h>
+#include <unistd.h>
+
+/* Hard code the correct version of ucontext, since sys/ucontext.h
+   doesn't always get it right.
+*/
 /* avoid conflicting ucontext definitions */
 #define ucontext asm_ucontext
-#include <asm/ucontext.h>
-#include <unistd.h>
+struct ucontext {
+	unsigned long	  uc_flags;
+	struct ucontext  *uc_link;
+	stack_t		  uc_stack;
+	struct sigcontext uc_mcontext;
+	sigset_t	  uc_sigmask;
+};
 
 #define MAXSIGNUM 32
 #define MASK(sig) ((CVMUint32)1 << sig)

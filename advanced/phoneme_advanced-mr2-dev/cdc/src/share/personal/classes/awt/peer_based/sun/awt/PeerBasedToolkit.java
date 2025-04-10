@@ -1,7 +1,7 @@
 /*
  * @(#)PeerBasedToolkit.java	1.15 04/12/20
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER
  * 
  * This program is free software; you can redistribute it and/or
@@ -462,6 +462,8 @@ class LightweightPeer implements sun.awt.peer.LightweightPeer {
     public void repaint(long tm, int x, int y, int width, int height) {}
 
     public void print(Graphics g) {}
+
+    public void clearBackground(Graphics g) {}
 
     public void setBounds(int x, int y, int width, int height) {}
 

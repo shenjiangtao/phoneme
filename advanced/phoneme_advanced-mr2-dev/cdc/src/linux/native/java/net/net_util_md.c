@@ -1,7 +1,7 @@
 /*
  * @(#)net_util_md.c	1.14 06/10/13
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -107,6 +107,42 @@ getParam(char *driver, char *param, int dflt)
     }
     close (s);
     return value;
+}
+#endif
+
+#ifdef __linux__
+static int kernelV22 = 0;
+static int vinit = 0;
+
+int kernelIsV22 () {
+    if (!vinit) {
+	struct utsname sysinfo;
+	if (uname(&sysinfo) == 0) {
+	    sysinfo.release[3] = '\0';
+	    if (strcmp(sysinfo.release, "2.2") == 0) {
+		kernelV22 = JNI_TRUE;
+	    }
+	}
+	vinit = 1;
+    }
+    return kernelV22;
+}
+
+static int kernelV24 = 0;
+static int vinit24 = 0;
+
+int kernelIsV24 () {
+    if (!vinit24) {
+	struct utsname sysinfo;
+	if (uname(&sysinfo) == 0) {
+	    sysinfo.release[3] = '\0';
+	    if (strcmp(sysinfo.release, "2.4") == 0) {
+		kernelV24 = JNI_TRUE;
+	    }
+	}
+	vinit24 = 1;
+    }
+    return kernelV24;
 }
 #endif
 
@@ -506,7 +542,7 @@ void initLocalAddrTable () {}
 #endif
 
 void
-NET_InetAddressToSockaddr(JNIEnv *env, jobject iaObj, int port, struct sockaddr *him, int *len, jboolean isLocalAddr) {
+NET_InetAddressToSockaddr(JNIEnv *env, jobject iaObj, int port, struct sockaddr *him, int *len) {
 #ifdef AF_INET6
     if (ipv6_available()) {
 	struct sockaddr_in6 *him6 = (struct sockaddr_in6 *)him;
@@ -552,6 +588,7 @@ NET_InetAddressToSockaddr(JNIEnv *env, jobject iaObj, int port, struct sockaddr 
 	    static jclass cls;
 	    static jfieldID scopeID;
 	    int scope_id = 0;
+            int old_kernel = kernelIsV22();
 
 	    /*
 	     * On first call get the JNI references
@@ -575,18 +612,17 @@ NET_InetAddressToSockaddr(JNIEnv *env, jobject iaObj, int port, struct sockaddr 
 	        scope_id = (int)(*env)->GetIntField(env, iaObj, scopeID);
 	    }
 	    if (scope_id == 0) {
-	        struct utsname sysinfo;
-    		if (uname(&sysinfo) == 0) {
-    		    sysinfo.release[3] = '\0';
-    		    if (strcmp(sysinfo.release, "2.2") != 0) {
-                        if (isLocalAddr) {
-                            scope_id = getLocalScopeID( (char *)&(him6->sin6_addr) );
-                        } else {
+	        if (!old_kernel) {
+                        if (kernelIsV24()) {
                             scope_id = getDefaultIPv6Interface( &(him6->sin6_addr) );
+                        } else {
+                            scope_id = getLocalScopeID( (char *)&(him6->sin6_addr) );
+                            if (scope_id == 0) {
+                                scope_id = getDefaultIPv6Interface( &(him6->sin6_addr) );
+                            }
                         }
 	                (*env)->SetIntField(env, iaObj, scopeID, scope_id);
-		    }
-		}
+                }
 	    }
 
 	    /*

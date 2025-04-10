@@ -1,7 +1,7 @@
 /*
  * @(#)ClassConstant.java	1.15 06/10/21
  *
- * Copyright  1990-2006 Sun Microsystems, Inc. All Rights Reserved.  
+ * Copyright  1990-2008 Sun Microsystems, Inc. All Rights Reserved.  
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER  
  *   
  * This program is free software; you can redistribute it and/or  
@@ -30,12 +30,14 @@ package components;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import util.Assert;
 import util.DataFormatException;
 import util.Localizer;
 import consts.Const;
 
-// ClassConstant represents a CONSTANT_Class stored in a constant pool.
-
+/**
+ * Represents a CONSTANT_Class stored in a constant pool.
+ */
 public
 class ClassConstant extends ConstantObject
 {
@@ -46,61 +48,71 @@ class ClassConstant extends ConstantObject
 
     public int nameIndex;
 
-    ClassConstant( int t, int n ){ 
-	tag = t;
-	nameIndex = n;
-	nSlots = 1;
+    private ClassConstant(int nameIdx) { 
+	super(Const.CONSTANT_CLASS);
+	this.nameIndex = nameIdx;
     }
 
-    public ClassConstant( UnicodeConstant n ){
-	tag = Const.CONSTANT_CLASS;
+    public ClassConstant(UnicodeConstant n) {
+        super(Const.CONSTANT_CLASS);
 	name = n;
-	nSlots = 1;
-	resolved = true;
+
+        // NOTE: This class constant is already flat because it has a direct
+        // reference to the UTF string that defines it.
+        isFlat = true;
     }
 
-    public ClassConstant( ClassInfo ci ){
-	tag = Const.CONSTANT_CLASS;
+    public ClassConstant(ClassInfo ci) {
+        super(Const.CONSTANT_CLASS);
 	theClass = ci;
 	name = new UnicodeConstant(ci.className);
-	nSlots = 1;
-	resolved = true;
+
+        // NOTE: This class constant is already flat because it has a direct
+        // reference to the UTF string that defines it.
+        isFlat = true;
 	didLookup = true;
     }
 
-    // Read from constant pool.
-    public static
-    ClassConstant read( int tag, DataInput in ) throws IOException {
-	return new ClassConstant( tag, in.readUnsignedShort() );
+    /**
+     * Factory method to construct a ClassConstant instance from the
+     * constant pool data stream.  This method is only called from the
+     * ConstantObject.readObject() factory.
+     */
+    static ConstantObject read(DataInput in) throws IOException {
+	return new ClassConstant(in.readUnsignedShort());
     }
 
-    public void
-    resolve( ConstantObject table[] ){
-	if (resolved) return;
-	name = (UnicodeConstant)table[nameIndex];
-	resolved = true;
+    public void flatten(ConstantPool cp) {
+	if (isFlat) return;
+        Assert.disallowClassloading();
+	name = (UnicodeConstant)cp.elementAt(nameIndex);
+	isFlat = true;
+        Assert.allowClassloading();
     }
 
     // Write out reference to the ClassClass data structure
-    public void write( DataOutput o ) throws IOException{
-	o.writeByte( tag );
-	if ( ! resolved )
+    public void write(DataOutput o) throws IOException {
+	o.writeByte(tag);
+	if (!isFlat) {
 	    throw new DataFormatException("unresolved ClassConstant");
+        }
 	int x = name.index;
-	if ( x == 0 )
+	if (x == 0) {
 	    throw new DataFormatException("0 name index for "+name.string);
-	o.writeShort( x );
+        }
+	o.writeShort(x);
     }
 
-    public String toString(){
-	if ( resolved )
+    public String toString() {
+	if (isFlat) {
 	    return "Class: "+name.toString();
-	else
+        } else {
 	    return "Class: ["+nameIndex+"]";
+        }
     }
 
 
-    public String prettyPrint(){
+    public String prettyPrint() {
 	return Localizer.getString("classclass.class", name);
     }
 
@@ -109,12 +121,12 @@ class ClassConstant extends ConstantObject
     }
 
     public void incReference() {
-	references++;
+        super.incReference();
 	//name.incReference();
     }
 
     public void decReference() {
-	references--;
+        super.decReference();
 	//name.decReference();
     }
 
@@ -128,6 +140,7 @@ class ClassConstant extends ConstantObject
     }
 
     public ClassInfo find(){
+        Assert.disallowClassloading();
 	if ( !didLookup ){
 	    ClassLoader loader = null;
 	    if (containingClass != null) {
@@ -136,6 +149,7 @@ class ClassConstant extends ConstantObject
 	    theClass = ClassTable.lookupClass(name.string, loader);
 	    didLookup = true;
 	}
+        Assert.allowClassloading();
 	return theClass; // which may be null
     }
 
