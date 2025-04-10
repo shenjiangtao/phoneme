@@ -99,7 +99,8 @@ JAVAUTIL_INCLUDE_DIR = ../../utils/inc
 MIDP_IMPL_INCLUDE_DIR = ../src/midp
 
 ifeq ($(USE_JSR_135),true)
-include $(JSR_135_DIR)/javacall_impl.gmk
+PROJECT_JSR_135_DIR ?= $(JSR_135_DIR)
+include $(PROJECT_JSR_135_DIR)/javacall_impl.gmk
 endif
 
 
@@ -122,12 +123,23 @@ LOCAL_CFLAGS_debug = -Gm -GX -Zi -Od -D_DEBUG -D_MBCS -D_LIB -YX -FD -GZ -W3
 LOCAL_CFLAGS=-ML -GX -O2 -D_MBCS -D_LIB /YX -FD -W3  
 
 
+ifneq ($(findstring CYGWIN, $(shell uname)), CYGWIN)
+    define fixcygpath_m
+    echo $(1)
+    endef
+else
+    define fixcygpath_m
+    echo $(1) | xargs -n1 cygpath -m
+    endef
+endif
+
 
 CXXFLAGS=-nologo $(LOCAL_CFLAGS_$(BUILD))
 CFLAGS=-nologo $(LOCAL_CFLAGS_$(BUILD))
 CPPFLAGS+= -I$(JAVACALL_OUTPUT_INCLUDE_DIR)
 CPPFLAGS+= -I$(JAVAUTIL_INCLUDE_DIR)
 CPPFLAGS+= -I$(MIDP_IMPL_INCLUDE_DIR) 
+CPPFLAGS+= $(addprefix -I, $(ADDITIONAL_INCLUDE_DIRS))
 CPPFLAGS+= -DWIN32
 CPPFLAGS+= $(HIDDEN_DEP_FEATURES_DEF)
 
@@ -157,5 +169,5 @@ $(JAVACALL_OUTPUT_LIB_DIR)/javacall$(BUILD_EXT).lib: \
 	$(patsubst %,$(JAVACALL_OUTPUT_OBJ_DIR)/%,$(IMPL_OBJECTS)) \
 	$(patsubst %,$(JAVACALL_OUTPUT_OBJ_DIR)/%,$(UTILITY_OBJECTS))
 	@echo "...Generating Library: $@"
-	@$(AR) -out:$@ $(ARFLAGS) `cygpath -m $^`
+	@$(AR) -out:`$(call fixcygpath_m, $@)` $(ARFLAGS) `$(call fixcygpath_m, $^)` $(ADDITIONAL_LIBS)
 

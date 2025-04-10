@@ -254,7 +254,7 @@ void ClassFileParser::parse_constant_pool_entries(ConstantPool* cp JVM_TRAPS) {
           // and name_and_type_at_put.
           cp->tag_at_put(index, t);
           cp->int_field_put(cp->offset_from_index(index), 
-              construct_jint_from_jshorts((jshort)index2, (jshort)index1));
+              construct_jint_from_jushorts(index2, index1));
         }
         break;
       case JVM_CONSTANT_Utf8 :
@@ -578,7 +578,7 @@ void ClassFileParser::check_for_duplicate_fields(ConstantPool* cp,
     int imax = fields.length() - Field::NUMBER_OF_SLOTS;
     int jmax = fields.length();
     int step = Field::NUMBER_OF_SLOTS;
-    const jshort* const field_base = (jshort*)fields.base_address();
+    const jushort* const field_base = (jushort*)fields.base_address();
     OopDesc **cp_base = (OopDesc**)cp->base_address();
 
     //
@@ -587,10 +587,10 @@ void ClassFileParser::check_for_duplicate_fields(ConstantPool* cp,
     OopDesc * name_i, * name_j;
     OopDesc * type_i, * type_j;
     for (int i = 0; i < imax; i += step) {
-      const jshort* ibase = field_base + i;
+      const jushort* ibase = field_base + i;
 
       for (int j = i + step; j < jmax; j += step) {
-        const jshort* jbase = field_base + j;
+        const jushort* jbase = field_base + j;
 
         name_i = cp_base[ibase[Field::NAME_OFFSET]];
         name_j = cp_base[jbase[Field::NAME_OFFSET]];
@@ -964,7 +964,7 @@ ReturnOop ClassFileParser::parse_method(ClassParserState *state, ConstantPool* c
     // shared_lock_synchronized_method() on ARM assume that the method
     // cannot belong to String so that it can skip a few checks for interned
     // Strings.
-    GUARANTEE_R(!_loader_ctx->class_name->equals(Symbols::java_lang_String())||
+    GUARANTEE_R(!_loader_ctx->class_name()->equals(Symbols::java_lang_String())||
                 !access_flags.is_synchronized(),
                 "No String methods can be synchronized");
     cpf_check_0(
@@ -1063,6 +1063,9 @@ ReturnOop ClassFileParser::parse_method(ClassParserState *state, ConstantPool* c
   // All sizing information for a Method is finally available, now create it.
   Method::Fast m = Universe::new_method(code_length, access_flags JVM_CHECK_0);
 
+  // set to an illegal value to catch accesses
+  m().set_holder_id(0xFFFF);
+
   // Fill in information from fixed part (access_flags already set)
   m().set_constants(cp);
   m().set_name_index(name_index);
@@ -1071,8 +1074,6 @@ ReturnOop ClassFileParser::parse_method(ClassParserState *state, ConstantPool* c
 #if ENABLE_ROM_JAVA_DEBUGGER
   m().set_line_var_table(&line_var_table);
 #endif
-  // set to an illegal value to catch accesses
-  m().set_holder_id(0xFFFF);
 
 #if  ENABLE_JVMPI_PROFILE 
   // Set the current compiled method ID. 
@@ -1223,10 +1224,10 @@ ReturnOop ClassFileParser::parse_code_attributes(ConstantPool* cp,
     // See if this is a line number table If so, then read in the table
     if (GenerateROMImage &&
         attribute_name_sym.equals(Symbols::tag_line_number_table())) {
-      jshort line_number_entries = get_u2(JVM_SINGLE_ARG_CHECK_0);
-      jshort start_pc, line_number;
-      cpf_check_0((((line_number_entries * 2 * sizeof(jshort)) +
-              sizeof(jshort)) == attribute_length), invalid_attribute);
+      jushort line_number_entries = get_u2(JVM_SINGLE_ARG_CHECK_0);
+      jushort start_pc, line_number;
+      cpf_check_0((((line_number_entries * 2 * sizeof(jushort)) +
+              sizeof(jushort)) == attribute_length), invalid_attribute);
       if (line_number_entries > 0) {
         UsingFastOops fast_oops2;
         // 2 shorts per entry
@@ -1247,10 +1248,10 @@ ReturnOop ClassFileParser::parse_code_attributes(ConstantPool* cp,
       }
     } else if (GenerateROMImage &&
                attribute_name_sym.equals(Symbols::tag_local_var_table())) {
-      jshort local_var_entries = get_u2(JVM_SINGLE_ARG_CHECK_0);
-      jshort start_pc, code_length, slot_index;
-      cpf_check_0((((local_var_entries * 5 * sizeof(jshort)) +
-            sizeof(jshort)) == attribute_length), invalid_attribute);
+      jushort local_var_entries = get_u2(JVM_SINGLE_ARG_CHECK_0);
+      jushort start_pc, code_length, slot_index;
+      cpf_check_0((((local_var_entries * 5 * sizeof(jushort)) +
+            sizeof(jushort)) == attribute_length), invalid_attribute);
       if (local_var_entries > 0) {
         UsingFastOops fast_oops3;
         if (line_var_table->is_null()) {
@@ -1605,7 +1606,8 @@ bool ClassFileParser::parse_class_0(ClassParserState *stack JVM_TRAPS) {
   // Access flags
   AccessFlags access_flags;
   jint flags = get_u2(JVM_SINGLE_ARG_CHECK_0);
-  state().set_access_flags(flags);
+  //preloaded flag might be already set!
+  state().set_access_flags(state().access_flags() | flags);
   access_flags.set_flags(flags & JVM_RECOGNIZED_CLASS_MODIFIERS);
   if (access_flags.is_interface()) {
     cpf_check_0(access_flags.is_abstract() && !access_flags.is_final(), 
@@ -1697,9 +1699,8 @@ ReturnOop ClassFileParser::parse_class(ClassParserState *stack JVM_TRAPS) {
 ReturnOop ClassFileParser::parse_class_internal(ClassParserState *stack JVM_TRAPS) {
   UsingFastOops fast_oops;
   check_for_circular_class_parsing(stack JVM_CHECK_0);
-
+  
   ClassParserState::Fast state = stack->top();
-
   if (state().stage() == 0) {
     bool resolved = ClassFileParser::parse_class_0(stack JVM_CHECK_0);
     state().set_stage(1);
@@ -1713,7 +1714,8 @@ ReturnOop ClassFileParser::parse_class_internal(ClassParserState *stack JVM_TRAP
   set_buffer_position(state().buffer_pos());
   AccessFlags access_flags;
   access_flags.set_flags(state().access_flags() & 
-                         JVM_RECOGNIZED_CLASS_MODIFIERS);
+                         (JVM_RECOGNIZED_CLASS_MODIFIERS | JVM_ACC_PRELOADED));
+
   Symbol::Fast class_name = name();
   Symbol::Fast super_class_name;
   InstanceClass::Fast super_class;
@@ -1790,9 +1792,6 @@ ReturnOop ClassFileParser::parse_class_internal(ClassParserState *stack JVM_TRAP
     access_flags.set_is_hidden();
   }
 #endif
-  if (_loader_ctx->is_system_class) {
-    access_flags.set_is_preloaded();
-  }
   // Iterate over fields again and compute correct offsets.  The
   // relative offset (starting at zero) was temporarily stored in the
   // offset slot.

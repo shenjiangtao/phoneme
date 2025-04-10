@@ -856,7 +856,7 @@ void BytecodeCompileClosure::throw_exception(JVM_SINGLE_ARG_TRAPS) {
 
   if (_debugger_active) {
     // deoptimize and let interpreter code handle it
-    frame()->flush();
+    frame()->flush(JVM_SINGLE_ARG_CHECK);
     __ call_vm_extra_arg(value.lo_register());
     // Make sure the caller can use whatever registers it wants
     value.destroy();
@@ -902,7 +902,7 @@ void BytecodeCompileClosure::throw_exception(JVM_SINGLE_ARG_TRAPS) {
   }
 
   // We don't know what to do.  Deoptimize and let the interpreter handle it.
-  frame()->flush();
+  frame()->flush(JVM_SINGLE_ARG_CHECK);
   __ call_vm_extra_arg(value.lo_register());
   // Make sure the caller can use whatever registers it wants
   value.destroy();
@@ -2099,7 +2099,9 @@ void BytecodeCompileClosure::bytecode_prolog(JVM_SINGLE_ARG_TRAPS) {
     GUARANTEE( !(__ has_overflown_compiled_method()), "sanity");
   }
 
-#ifndef PRODUCT
+  __ bytecode_prolog();
+
+#if !defined(PRODUCT) || USE_COMPILER_COMMENTS
   if (GenerateCompilerComments) {
     FixedArrayOutputStream output;
     Verbose++; // force callee names to be printed out, etc.

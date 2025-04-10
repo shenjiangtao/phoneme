@@ -64,19 +64,30 @@ ReturnOop IsolateObj::duplicate(JVM_SINGLE_ARG_TRAPS) const {
   IsolateObj::Fast dup = 
       Universe::new_instance(Universe::isolate_class() JVM_CHECK_0);
 
-  {
-    String::Raw uid( unique_id() );
-    dup().set_unique_id( &uid );
+  dup().set_unique_id( unique_id() );
+  dup().set_use_verifier( use_verifier() );
+  dup().set_api_access_init( api_access_init() );
 #if ENABLE_MULTIPLE_PROFILES_SUPPORT
-    dup().set_profile_id( profile_id() );
+  dup().set_profile_id( profile_id() );
 #endif // ENABLE_MULTIPLE_PROFILES_SUPPORT
-  }
 
-  // Note that we have other fields such as _mainArgs, _classpath, but
-  // these fields are used only at start-up, and won't be useful in 
-  // duplicates
+  OopDesc* p;
+  // Do not use JVM_ZCHECK because result can be NULL
+  p = Universe::deep_copy(main_class() JVM_CHECK_0);
+  dup().set_main_class(p);
+  p = Universe::deep_copy(main_args() JVM_CHECK_0);
+  dup().set_main_args(p);
+  p = Universe::deep_copy(app_classpath() JVM_CHECK_0);
+  dup().set_app_classpath(p);
 
   return dup.obj();
+}
+
+void IsolateObj::terminate(int exit_code JVM_TRAPS) {
+  set_is_terminated(1);
+  set_saved_exit_code(exit_code);
+  Scheduler::notify(this, /*all=*/true, /*must_be_owner=*/false
+                    JVM_NO_CHECK_AT_BOTTOM);
 }
 
 void IsolateObj::notify_all_waiters(JVM_SINGLE_ARG_TRAPS) {
@@ -130,13 +141,8 @@ void IsolateObj::mark_equivalent_isolates_as_terminated(JVM_SINGLE_ARG_TRAPS) {
     IsolateObj::Fast iso, last;
     for (iso = t().seen_isolates(); iso.not_null(); iso = iso().next()) {
       if (iso().is_equivalent_to(this)) {
-        iso().set_saved_exit_code(terminating_task().exit_code());
         iso().set_priority(terminating_task().priority());
-        iso().set_is_terminated(1);
-
-        Scheduler::notify(&iso, /*all=*/true, /*must_be_owner=*/false
-                          JVM_CHECK);
-
+        iso().terminate(terminating_task().exit_code() JVM_CHECK);
         IsolateObj::Raw next_iso = iso().next();
         if (iso.obj() == t().seen_isolates()) {
           t().set_seen_isolates(&next_iso);
@@ -192,7 +198,7 @@ void IsolateObj::verify_fields() {
   InstanceClass::Fast ic = Universe::isolate_class();
   ic().verify_instance_field("_next",     "Lcom/sun/cldc/isolate/Isolate;",
                                           next_offset()); 
-  ic().verify_instance_field("_uniqueId", "Ljava/lang/String;",
+  ic().verify_instance_field("_uniqueId", "J",
                                           unique_id_offset()); 
   ic().verify_instance_field("_terminated","I",
                                           is_terminated_offset());
@@ -204,14 +210,14 @@ void IsolateObj::verify_fields() {
                                           main_class_offset()); 
   ic().verify_instance_field("_mainArgs",  "[Ljava/lang/String;", 
                                           main_args_offset()); 
-  ic().verify_instance_field("_app_classpath",  "[Ljava/lang/Object;", 
+  ic().verify_instance_field("_app_classpath",  "[Ljava/lang/String;", 
                                           app_classpath_offset()); 
+  ic().verify_instance_field("_sys_classpath",  "[Ljava/lang/String;", 
+                                          sys_classpath_offset());
   ic().verify_instance_field("_hidden_packages",  "[Ljava/lang/String;", 
                                           hidden_packages_offset()); 
   ic().verify_instance_field("_restricted_packages",  "[Ljava/lang/String;", 
                                           restricted_packages_offset()); 
-  ic().verify_instance_field("_sys_classpath",  "[Ljava/lang/Object;", 
-                                          sys_classpath_offset());
   ic().verify_instance_field("_memoryReserve",  "I", 
                                           memory_reserve_offset()); 
   ic().verify_instance_field("_memoryLimit",  "I",

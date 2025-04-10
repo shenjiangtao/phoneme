@@ -407,6 +407,7 @@
 #define SystemDictionary  JVMSystemDictionary
 #define SystemOutStream  JVMSystemOutStream
 #define Task  JVMTask
+#define TaskAllocationContext  JVMTaskAllocationContext
 #define TaskContext  JVMTaskContext
 #define TaskContextSave  JVMTaskContextSave
 #define TaskDesc  JVMTaskDesc
@@ -553,7 +554,7 @@ class SymbolDesc;
 class SymbolStream;
 class SymbolTable;
 class Task;                 // Used by ENABLE_ISOLATES only
-class JVMTask;              // Used by ENABLE_ISOLATES only
+class TaskAllocationContext;
 class TaskContext;
 class TaskMirror;           // Used by ENABLE_ISOLATES only
 class TaskMirrorDesc;       // Used by ENABLE_ISOLATES only
@@ -1176,6 +1177,19 @@ inline jshort extract_high_jshort_from_jint(jint x) {
 inline jint construct_jint_from_jshorts(jshort high, jshort low) {
   return ((jint)high<<16) | low;
 }
+
+inline jushort extract_low_jushort_from_jint(jint x) {
+  return (jushort)(x & 0xffff);
+}
+
+inline jushort extract_high_jushort_from_jint(jint x) {
+  return (jushort)((x >> 16) & 0xffff);
+}
+
+inline jint construct_jint_from_jushorts(jushort high, jushort low) {
+  return ((jint)high<<16) | low;
+}
+
 
 #define _IGNORE_ME_(x)
 #define CURRENT_HAS_PENDING_EXCEPTION (jvm_fast_globals.current_pending_exception)

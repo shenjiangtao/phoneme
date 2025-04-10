@@ -143,7 +143,7 @@ void CodeGenerator::load_task_mirror(Oop*klass, Value& statics_holder,
     Label class_is_initialized, need_init;
     // Can we make the flush conditional for  get/put static ?
     //  see if register usage cross compiled bytecode.
-    flush_frame();
+    flush_frame(JVM_SINGLE_ARG_CHECK);
     {
       // The marker cannot be treated as a constant value, as it would break
       // cross-compilation. Thus we load it from GP table.
@@ -179,7 +179,7 @@ void CodeGenerator::check_cib(Oop *klass JVM_TRAPS) {
   Label class_is_initialized, need_init;
   // IMPL_NOTE Cannot make the flush conditionally.
   //  see how this can be made conditional!
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
 
   // add to the klass oop to get the address of the appropriate
   // task mirror table entry
@@ -1400,7 +1400,7 @@ bool CodeGenerator::fold_arithmetic(Value& result,
     const Bytecodes::Code next_code = mth->bytecode_at(next_bci);
 
     if (next_code == Bytecodes::_iadd) {
-#ifndef PRODUCT
+#if !defined(PRODUCT) || USE_COMPILER_COMMENTS
       if (GenerateCompilerComments) {
         FixedArrayOutputStream output;
         Verbose++; // force callee names to be printed out, etc.
@@ -1706,7 +1706,7 @@ void CodeGenerator::idiv_rem(Value& result, Value& op1, Value& op2,
   }
 
   if (op2.in_register()) {
-    flush_frame();
+    flush_frame(JVM_SINGLE_ARG_CHECK);
     setup_c_args(2, &op1, &op2, NULL);
     // Call the compiler stub.
     call_through_gp(&gp_compiler_idiv_irem_ptr JVM_CHECK);
@@ -3291,19 +3291,25 @@ void CodeGenerator::new_object(Value& result, JavaClass* klass JVM_TRAPS) {
   COMPILER_COMMENT(("new_object"));
 
 #if ENABLE_INLINE_COMPILER_STUBS
+  
   InstanceSize size = klass->instance_size();
   GUARANTEE(size.is_fixed(), "Sanity");
   Label slow_case, done;
 
   // Handle finalization by going slow-case for objects with finalizers.
   if (klass->has_finalizer()) {
-    flush_frame();
+    flush_frame(JVM_SINGLE_ARG_CHECK);
     ldr_oop(r1, klass);
     call_vm((address) _newobject, T_OBJECT JVM_CHECK);
     RegisterAllocator::reference(r0);
     result.set_register(r0);
     return;
   }
+
+  // Dump literals if max code size generated for the bytecode
+  // makes the offset invalid.
+  enum {max_codesize = 32};
+  write_literals_if_desperate(max_codesize);
 
   const Register new_top = RegisterAllocator::allocate();
   const Register old_end = RegisterAllocator::allocate();
@@ -3341,7 +3347,7 @@ void CodeGenerator::new_object(Value& result, JavaClass* klass JVM_TRAPS) {
 
   GUARANTEE(klass->instance_size().is_fixed(), "Sanity");
   // Do flushing, and remember to unmap.
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
 
   // Handle finalization by going slow-case for objects with finalizers.
   if (klass->has_finalizer()) {
@@ -3365,7 +3371,7 @@ void CodeGenerator::new_object_array(Value& result, JavaClass* element_class,
   JavaNear::Fast java_near = array_class().prototypical_near();
 
   // Do flushing, and remember to unmap.
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
 
   // Call the allocation routine.
   Value save_reg_for_oop(T_ILLEGAL);
@@ -3383,6 +3389,12 @@ void CodeGenerator::new_basic_array(Value& result, BasicType type,
   COMPILER_COMMENT(("new_type_array"));
 
 #if ENABLE_INLINE_COMPILER_STUBS
+
+  // Dump literals if max code size generated for the bytecode
+  // makes the offset invalid.
+  enum {max_codesize = 48};
+  write_literals_if_desperate(max_codesize);
+
   TypeArrayClass* array_class = Universe::as_TypeArrayClass(type);
   JavaNear::Raw java_near = array_class->prototypical_near();
   const int maximum_safe_array_length = 1 << 20;
@@ -3450,10 +3462,10 @@ void CodeGenerator::new_basic_array(Value& result, BasicType type,
   }
 
 #else // ENABLE_INLINE_COMPILER_STUBS
-  
+
   UsingFastOops fast_oops;
   // Do flushing, and remember to unmap.
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
 
   TypeArrayClass* array_class = Universe::as_TypeArrayClass(type);
   JavaNear::Fast java_near = array_class->prototypical_near();
@@ -3509,7 +3521,7 @@ void CodeGenerator::new_basic_array(Value& result, BasicType type,
 }
 
 void CodeGenerator::new_multi_array(Value& result JVM_TRAPS) {
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
 
   // Call the runtime system.
   call_vm((address) multianewarray, T_ARRAY JVM_CHECK);
@@ -3521,14 +3533,14 @@ void CodeGenerator::new_multi_array(Value& result JVM_TRAPS) {
 
 void CodeGenerator::monitor_enter(Value& object JVM_TRAPS) {
   // For now we flush before calling the compiler monitor enter stub.
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
   mov_reg(r0, object.lo_register());
   call_through_gp(&gp_shared_monitor_enter_ptr JVM_NO_CHECK_AT_BOTTOM);
 }
 
 void CodeGenerator::monitor_exit(Value& object JVM_TRAPS) {
   // For now we flush before calling the compiler monitor exit stub.
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
   // Make sure the object is in register r0 (tos_val).
   mov_reg(r0, object.lo_register());
   call_through_gp(&gp_shared_monitor_exit_ptr JVM_NO_CHECK_AT_BOTTOM);
@@ -3740,7 +3752,7 @@ void CodeGenerator::unlock_activation(JVM_SINGLE_ARG_TRAPS) {
   GUARANTEE(method()->access_flags().is_synchronized(), "Sanity check");
   GUARANTEE(ROM::is_synchronized_method_allowed(method()), "sanity");
 
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
   call_through_gp(&gp_shared_unlock_synchronized_method_ptr
                   JVM_NO_CHECK_AT_BOTTOM);
 }
@@ -4100,7 +4112,7 @@ void CodeGenerator::invoke(const Method* method,
       address native_code = method->get_quick_native_code();
       // We actually only need to flush the end of the stack containing the
       // arguments, but we don't really have any way of doing that..
-      flush_frame();
+      flush_frame(JVM_SINGLE_ARG_CHECK);
       if (size_of_parameters > 0) {
         add_imm(jsp, jsp,
               size_of_parameters * -JavaStackDirection * BytesPerStackElement);
@@ -4131,7 +4143,7 @@ void CodeGenerator::invoke(const Method* method,
     } else {
       address target = method->execution_entry();
       mov_imm(tmp, target);
-      flush_frame();
+      flush_frame(JVM_SINGLE_ARG_CHECK);
 #if ENABLE_TRAMPOLINE
       if (!USE_AOT_COMPILATION || !GenerateROMImage) {
         call_from_compiled_code(method, tmp, 0, size_of_parameters JVM_CHECK);
@@ -4161,7 +4173,7 @@ void CodeGenerator::invoke(const Method* method,
           ldr_imm_index(tmp, tmp);
         }
       weaver.start_alternate(JVM_SINGLE_ARG_CHECK);
-        flush_frame();
+        flush_frame(JVM_SINGLE_ARG_CHECK);
       weaver.flush();
     }
     // invoke the method
@@ -4180,7 +4192,7 @@ void CodeGenerator::invoke(const Method* method,
                     signature().return_type(), is_native);
 
 #if ENABLE_WTK_PROFILER
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
   call_vm((address)jprof_record_method_transition, T_VOID JVM_CHECK);
 #endif
 }
@@ -4278,7 +4290,7 @@ void CodeGenerator::invoke_virtual(Method* method, int vtable_index,
         ldr_imm_index(tmp, tmp);
       }
     weaver.start_alternate(JVM_SINGLE_ARG_CHECK);
-      flush_frame();
+      flush_frame(JVM_SINGLE_ARG_CHECK);
     weaver.flush();
   }
   call_from_compiled_code(tmp, 0, size_of_parameters JVM_CHECK);
@@ -4286,7 +4298,7 @@ void CodeGenerator::invoke_virtual(Method* method, int vtable_index,
   adjust_for_invoke(size_of_parameters, return_type);
 
 #if ENABLE_WTK_PROFILER
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
   call_vm((address)jprof_record_method_transition, T_VOID JVM_CHECK);
 #endif
 }
@@ -4329,7 +4341,7 @@ void CodeGenerator::invoke_interface(JavaClass* klass, int itable_index,
   ldr(tmp0, imm_index(tmp0), cond);
 
   // Flush the virtual stack frame and unmap everything.
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
 
   // tmp0: klass of receiver
   // tmp1:
@@ -4376,7 +4388,7 @@ bind(lookup);
   adjust_for_invoke(parameters_size, return_type);
 
 #if ENABLE_WTK_PROFILER
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
   call_vm((address)jprof_record_method_transition, T_VOID JVM_CHECK);
 #endif
 }
@@ -4954,7 +4966,7 @@ void CodeGenerator::load_from_object(Value& result, Value& object, jint offset,
 
 void CodeGenerator::init_static_array(Value& result JVM_TRAPS) {
   JVM_IGNORE_TRAPS;
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
 
   const Register src = tos_tag;
   const Register dst = tos_val;
@@ -5097,9 +5109,8 @@ bool CodeGenerator::arraycopy(JVM_SINGLE_ARG_TRAPS) {
           return false;
         }
       } else if (src_class_id != 0) {
-        if (!src_class().is_array_class()) {
-          return false;
-        } else if (src.is_exact_type() || src_class().is_final_type()) {
+        if (src_class().is_array_class() &&
+            (src.is_exact_type() || src_class().is_final_type())) {
           clear_nth_bit(checks, SRC_TYPE_CHECK);
           
           // Determine array element type
@@ -5111,11 +5122,12 @@ bool CodeGenerator::arraycopy(JVM_SINGLE_ARG_TRAPS) {
                       "Must be an object array class");
             array_element_type = T_OBJECT;
           }
+        } else {
+          return false;
         }
       } else if (dst_class_id != 0) {
-        if (!dst_class().is_array_class()) {
-          return false;
-        } else if (dst.is_exact_type() || dst_class().is_final_type()) {
+        if (dst_class().is_array_class() &&
+            (dst.is_exact_type() || dst_class().is_final_type())) {
           clear_nth_bit(checks, DST_TYPE_CHECK);
 
           // Determine array element type
@@ -5127,6 +5139,8 @@ bool CodeGenerator::arraycopy(JVM_SINGLE_ARG_TRAPS) {
                       "Must be an object array class");
             array_element_type = T_OBJECT;
           }
+        } else {
+          return false;
         }
       } else {
         // No type info available. Go to slow case
@@ -6058,7 +6072,7 @@ void CodeGenerator::initialize_class(InstanceClass* klass JVM_TRAPS) {
   // initialize_class(Thread&, raw_class);
   COMPILER_COMMENT(("Initialize class if needed"));
   COMPILER_COMMENT(("Flush frame"));
-  flush_frame();
+  flush_frame(JVM_SINGLE_ARG_CHECK);
 
   Label class_initialized;
 
@@ -6078,6 +6092,20 @@ void CodeGenerator::initialize_class(InstanceClass* klass JVM_TRAPS) {
 }
 
 #endif
+
+void CodeGenerator::bytecode_prolog() {
+  // IMPL_NOTE: delta is used to make sure that it's not a time 
+  // to write literals. This is required to prevent sequence of 
+  // simple bytecodes without dumping literal pools.
+  enum {delta = 0x100};
+  write_literals_if_desperate(delta);
+}
+
+void CodeGenerator::flush_epilogue(JVM_SINGLE_ARG_TRAPS) {
+  if (desperately_need_to_force_literals()) {
+    Compiler::abort_active_compilation(true JVM_THROW);
+  }
+}
 
 #endif
 #endif /*#if !ENABLE_THUMB_COMPILER*/

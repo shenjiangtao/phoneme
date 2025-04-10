@@ -745,6 +745,12 @@
 #endif
 #endif
 
+#if ENABLE_SYSTEM_CLASSES_DEBUG
+#if !ENABLE_ROM_JAVA_DEBUGGER
+#error "ENABLE_ROM_JAVA_DEBUGGER must be true for ENABLE_SYSTEM_CLASSES_DEBUG build"
+#endif
+#endif
+
 // If we have turned on java debugger support and we are building a monet
 // image then check for  ROM java debugger support so that binary images
 // are completely supported for debugging.  Specifically this turns on
@@ -1011,13 +1017,13 @@
 #if ENABLE_INTERPRETER_GENERATOR || USE_SOURCE_IMAGE_GENERATOR 
 // The loopgen and source romgen always need the debug printing code.
 #define USE_DEBUG_PRINTING        1
-#define USE_COMPILER_COMMENTS     1
-#define USE_COMPILER_DISASSEMBLER 1
+#define USE_COMPILER_COMMENTS     ENABLE_COMPILER
+#define USE_COMPILER_DISASSEMBLER ENABLE_COMPILER
 #define USE_OOP_VISITOR           1
 #else
 #define USE_DEBUG_PRINTING        (ENABLE_TTY_TRACE && !defined(PRODUCT))
-#define USE_COMPILER_COMMENTS     ENABLE_TTY_TRACE
-#define USE_COMPILER_DISASSEMBLER ENABLE_TTY_TRACE
+#define USE_COMPILER_COMMENTS     (ENABLE_COMPILER && ENABLE_TTY_TRACE)
+#define USE_COMPILER_DISASSEMBLER (ENABLE_COMPILER && ENABLE_TTY_TRACE)
 #define USE_OOP_VISITOR           USE_DEBUG_PRINTING
 #endif
 

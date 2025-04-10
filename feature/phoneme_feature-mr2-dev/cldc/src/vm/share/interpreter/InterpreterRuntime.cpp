@@ -534,7 +534,7 @@ extern "C" {
 
     jushort index = method.get_Java_u2_index_at(bci + 1);
     InstanceClass::Fast sender_class = method.holder();
-    ConstantPool::Fast cp = sender_class().constants();
+    ConstantPool::Fast cp = method.constants();
     InstanceClass::Fast dummy_declaring_class; // not used
     int offset;
 
@@ -578,7 +578,7 @@ extern "C" {
     jushort index = method.get_java_ushort(bci + 1);
 
     InstanceClass::Fast sender_class = method.holder();
-    ConstantPool::Fast cp = sender_class().constants();
+    ConstantPool::Fast cp = method.constants();
     InstanceClass::Fast declaring_class;
     int offset;
 
@@ -984,7 +984,7 @@ extern "C" {
   }
 #endif
 
-#ifndef PRODUCT
+#if !defined(PRODUCT) || ENABLE_TTY_TRACE
   static long trace_bcs = 0;
 
   void trace_bytecode() {
@@ -1032,7 +1032,7 @@ extern "C" {
     }
     trace_bcs++;
   }
-#endif // PRODUCT
+#endif // !defined(PRODUCT) || ENABLE_TTY_TRACE
 
 #ifndef PRODUCT
   void verify_stack() {

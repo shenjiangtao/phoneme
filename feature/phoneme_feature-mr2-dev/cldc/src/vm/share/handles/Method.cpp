@@ -56,7 +56,10 @@ int Method::vtable_index() const {
 
 inline bool Method::resume_compilation(JVM_SINGLE_ARG_TRAPS) {
 #if ENABLE_ISOLATES
-  TaskContext tmp(Compiler::suspended_compiler_state()->task_id());
+  // IMPL_NOTE: It is not usual to allocate anything in general Heap
+  // (not CompilerArea) during compilation, but in this case only
+  // a few OopCons objects can be created, and that is considered to be OK
+  TaskAllocationContext tmp(Compiler::suspended_compiler_state()->task_id());
 #endif
   bool status = (bool)Compiler::resume_compilation(this JVM_MUST_SUCCEED);
   return status;
@@ -82,7 +85,7 @@ bool Method::compile(int active_bci, bool resume JVM_TRAPS) {
     return true;
   }
 
-  if (code_size() > MaxMethodToCompile) {
+  if (code_size() > MaxMethodToCompile && !GenerateROMImage) {
     if (Verbose) {
       TTY_TRACE(("Method too big to compile: "));
       print_name_on_tty();
@@ -163,6 +166,16 @@ ReturnOop Method::constants() const {
 #if ROMIZING
   if (UseROM && has_compressed_header()) {
     return (ReturnOop)_rom_constant_pool;
+  }
+#endif
+
+#if defined(AZZERT) && NOT_CURRENTLY_USED
+  // IMPL_NOTE: currently this doesn't work during task termination
+  if (!GenerateROMImage && (holder_id() != 0xFFFF) && !is_abstract()) {
+    InstanceClass::Raw holder_class = holder();
+    ConstantPool::Raw class_constants = holder_class().constants();
+    ConstantPool::Raw method_constants = obj_field(constants_offset());
+    GUARANTEE(class_constants().equals(method_constants()), "Sanity");
   }
 #endif
   return obj_field(constants_offset());
@@ -2409,7 +2422,7 @@ jushort Method::ushort_at(jint bci) {
   return Bytes::get_Java_u2((address)field_base(bc_offset_for(bci)));
 }
 
-#if !defined(PRODUCT) || ENABLE_ROM_GENERATOR
+#if !defined(PRODUCT) || ENABLE_ROM_GENERATOR || USE_DEBUG_PRINTING
 // Is this method overloaded in its holder class?
 bool Method::is_overloaded() const {
   InstanceClass::Raw h = holder();
@@ -2448,7 +2461,7 @@ bool Method::is_overloaded() const {
 }
 #endif
 
-#ifndef PRODUCT
+#if !defined(PRODUCT) || ENABLE_TTY_TRACE
 
 void Method::iterate(OopVisitor* visitor) {
 #if USE_OOP_VISITOR
@@ -2626,7 +2639,7 @@ void Method::print_name_on(Stream* st, bool long_output) const {
 }
 #endif //PRODUCT
 
-#if !defined(PRODUCT) || ENABLE_PERFORMANCE_COUNTERS
+#if !defined(PRODUCT) || ENABLE_PERFORMANCE_COUNTERS || ENABLE_TTY_TRACE
 // Print name to a 0-terminated char buffer. max_length includes the trailing 0
 void Method::print_name_to(char *buffer, int max_length) {
 #if USE_DEBUG_PRINTING
@@ -2778,7 +2791,7 @@ int Method::generate_fieldmap(TypeArray* field_map) {
 
 #endif /* #if ENABLE_ROM_GENERATOR*/
 
-#ifndef PRODUCT
+#if !defined(PRODUCT) || ENABLE_TTY_TRACE
 
 void Method::print_bytecodes(Stream* st, int start, int end, bool include_nl,
                              bool verbose) {

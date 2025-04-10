@@ -54,6 +54,16 @@ void Stream::print_cr(const char* format, ...) {
   cr();
 }
 
+#if !defined(PRODUCT) || ENABLE_TTY_TRACE
+
+void Stream::put(char ch) {
+  GUARANTEE(ch != 0, "please fix call site");
+  char buf[] = { ch, '\0' };
+  print_raw(buf);
+}
+
+#endif
+
 #ifndef PRODUCT
 void Stream::vprint(const char *format, va_list argptr) {
   DECLARE_STATIC_BUFFER(char, buffer, BUFLEN);
@@ -67,12 +77,6 @@ void Stream::vprint(const char *format, va_list argptr) {
 void Stream::vprint_cr(const char* format, va_list argptr) {
   vprint(format, argptr);
   cr();
-}
-
-void Stream::put(char ch) {
-  GUARANTEE(ch != 0, "please fix call site");
-  char buf[] = { ch, '\0' };
-  print_raw(buf);
 }
 
 void Stream::print_hex8(int n) {
@@ -119,11 +123,15 @@ void ByteArrayOutputStream::print_raw(const char *c) {
   if (_array == NULL) {
     _array_size = length + 1000;
     _array = (char *)jvm_malloc(_array_size);
+    GUARANTEE( _array ,  "failed to alloc initial buffer" ) ;
+    if (_array == NULL) return;
   }
   if (length + _current_size + 1 > _array_size) {
     // Expand array acapacity if necessary
     int new_array_size = length + _current_size + 1000;
     char *new_array = (char *)jvm_malloc(new_array_size);
+    GUARANTEE( new_array,  "failed to expand buffer" ) ;
+    if (new_array == NULL) return;
     jvm_memcpy(new_array, _array, _array_size);
     jvm_free(_array);
     _array = new_array;
@@ -147,7 +155,9 @@ Stream::Stream(int width) {
   _indentation = 0;
 }
 
-#if !defined(PRODUCT) || ENABLE_ROM_GENERATOR || ENABLE_MEMORY_PROFILER || ENABLE_WTK_PROFILER || ENABLE_PERFORMANCE_COUNTERS || ENABLE_PROFILER
+#if !defined(PRODUCT) || ENABLE_ROM_GENERATOR || ENABLE_MEMORY_PROFILER \
+    || ENABLE_WTK_PROFILER || ENABLE_PERFORMANCE_COUNTERS || ENABLE_PROFILER \
+    || ENABLE_TTY_TRACE
 
 FileStream::FileStream(const PathChar* file_name, int width) : Stream(width) {
   _file = OsFile_open(file_name, "w");
@@ -353,7 +363,7 @@ void BufferedFileStream::restore(BufferedFileStreamState *state) {
 
 #endif /* USE_BINARY_IMAGE_GENERATOR */
 
-#if !defined(PRODUCT) || ENABLE_ROM_GENERATOR || ENABLE_DYNAMIC_NATIVE_METHODS
+#if !defined(PRODUCT) || ENABLE_ROM_GENERATOR || ENABLE_DYNAMIC_NATIVE_METHODS || USE_DEBUG_PRINTING
 void FixedArrayOutputStream::print_raw(const char *s) {
   int length = jvm_strlen(s);
   if (length + _current_size + 1 >= _limit) {
