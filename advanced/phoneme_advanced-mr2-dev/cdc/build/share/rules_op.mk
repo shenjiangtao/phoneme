@@ -24,7 +24,7 @@
 
 .PHONY: javacall_lib
 
-ifeq ($(CVM_PRELOAD_LIB), true)
+ifneq ($(CVM_PRELOAD_LIB), true)
 JSR_NATIVE_LIBS = "$(5)"
 else
 JSR_NATIVE_LIBS = ""
@@ -87,4 +87,14 @@ javacall_lib: $(JAVACALL_LIBRARY)
 else
 javacall_lib:
 endif
+
+#
+# Run JavaAPILister to generate the list of classes that are hidden from CDC
+#
+ifeq ($(CVM_DUAL_STACK), true)
+$(JSR_RESTRICTED_CLASSLIST): $(JSROP_JARS)
+	@echo "Generating JSR restricted class list ..."
+	$(AT)$(CVM_JAVA) -cp  $(CVM_BUILD_TOP)/classes.jcc JavaAPILister -listapi:input=$(JSROP_HIDE_JARS),cout=$(JSR_RESTRICTED_CLASSLIST)
+endif
+
 

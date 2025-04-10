@@ -32,6 +32,8 @@ empty:=
 comma:= ,
 space:= $(empty) $(empty)
 
+ABSPATH = $(shell cd $(1); echo `pwd`)
+
 #
 # Setup HOST_OS, HOST_CPU_FAMILY, and HOST_DEVICE. These are used
 # to assist in locating the proper tools to use.
@@ -83,16 +85,18 @@ endif
 
 # Windows host support
 ifeq ($(findstring CYGWIN, $(UNAME_OS)), CYGWIN)
-HOST_OS 	?= cygwin
+HOST_OS 	?= win32
 HOST_CPU_FAMILY ?= $(shell uname -m)
-HOST_DEVICE	?= win32
+HOST_DEVICE	?= cygwin
+USE_CYGWIN	?= true
 endif
 
 ifeq ($(UNAME_OS), Interix)
-HOST_OS		?= $(UNAME_OS)
+HOST_OS		?= win32
 HOST_CPU_FAMILY ?= $(shell uname -m)
-HOST_DEVICE	?= win32
+HOST_DEVICE	?= $(UNAME_OS)
 TOOL_WHICH	?= PATH="$(PATH)" whence "$(1)"
+USE_INTERIX	?= true
 endif
 
 ifeq ($(HOST_OS),)
@@ -138,11 +142,11 @@ endif
 #
 # Use bash on win32, since the Cygwin sh doesn't work for us.
 #
-ifeq ($(HOST_OS), cygwin)
+ifeq ($(HOST_DEVICE), cygwin)
 SHELL	= bash
 endif
 
-ifeq ($(HOST_OS), Interix)
+ifeq ($(HOST_DEVICE), Interix)
 SHELL	= ksh
 endif
 
@@ -156,8 +160,10 @@ CVM_TARGET	= $(TARGET_OS)-$(TARGET_CPU_FAMILY)-$(TARGET_DEVICE)
 
 # COMPONENTS_DIR is the directory that all the components are located in,
 # such as midp, pcsl, and jump. It is used for providing default locations
-# for directories like MIDP_DIR and JUMP_DIR.
-COMPONENTS_DIR     ?= $(call POSIX2HOST,$(shell cd ../../..; echo `pwd`))
+# for directories like MIDP_DIR and JUMP_DIR. It must be an absolute path.
+ifndef COMPONENTS_DIR
+COMPONENTS_DIR     := $(call ABSPATH, ../../..)
+endif
 
 # Set overriding values:
 
@@ -345,9 +351,13 @@ LIB_POSTFIX = $(DEBUG_POSTFIX).so
 #
 # All build directories relative to CVM_BUILD_TOP
 #
-CVM_TOP       = ../..
-CVM_BUILD_TOP = $(CVM_TOP)/build/$(CVM_TARGET)/$(CVM_BUILD_SUBDIR_NAME)
-CVM_LIBDIR = $(CVM_BUILD_TOP)/lib
+CVM_TOP       := ../..
+CVM_BUILD_TOP := $(CVM_TOP)/build/$(CVM_TARGET)/$(CVM_BUILD_SUBDIR_NAME)
+CVM_LIBDIR    := $(CVM_BUILD_TOP)/lib
+
+CVM_TOP_ABS	  := $(call ABSPATH,$(CVM_TOP))
+CVM_BUILD_TOP_ABS := $(CVM_TOP_ABS)/build/$(CVM_TARGET)/$(CVM_BUILD_SUBDIR_NAME)
+CVM_LIBDIR_ABS    := $(CVM_BUILD_TOP_ABS)/lib
 
 # Optional Package names
 ifneq ($(strip $(OPT_PKGS)),)
@@ -571,12 +581,6 @@ endif
 # and CVM_CLASSLOADING.
 ifeq ($(CVM_DYNAMIC_LINKING), true)
 	CVM_DEFINES      += -DCVM_DYNAMIC_LINKING
-endif
-ifeq ($(USE_VERBOSE_MAKE), false)
-	AT=@
-	MAKE_NO_PRINT_DIRECTORY=--no-print-directory
-else
-	AT=
 endif
 ifeq ($(CVM_JIT), true)
 	CVM_DEFINES   += -DCVM_JIT
@@ -1087,13 +1091,13 @@ CVM_DEMO_CLASSESDIR	 = $(CVM_BUILD_TOP)/democlasses
 CVM_SHAREROOT  		 = $(CVM_TOP)/src/share
 
 # Full path for current build directory
-CDC_CUR_DIR	:= $(shell pwd)
+CDC_CUR_DIR	:= $(call ABSPATH,.)
 # Full path for the cdc component directory
-export CDC_DIR	:= $(shell cd $(CDC_CUR_DIR)/../../; echo `pwd`)
+export CDC_DIR	:= $(CVM_TOP_ABS)
 # directory where cdc build is located.
-export CDC_DIST_DIR	= $(CDC_CUR_DIR)/$(CVM_BUILD_SUBDIR_NAME)
+export CDC_DIST_DIR := $(CVM_BUILD_TOP_ABS)
 # Directory where javadocs, source bundles, and binary bundle get installed.
-INSTALLDIR	= $(CDC_DIR)/install
+INSTALLDIR	:= $(CVM_TOP_ABS)/install
 
 #
 # Full path name for Binary Bundle
@@ -1203,8 +1207,17 @@ CVM_SRCDIRS += \
 	$(CVM_SHAREROOT)/javavm/runtime/jit
 endif
 
+# This combiles all the native sourcepaths for the vpath search:
+# NOTE: PROFILE_SRCDIRS_NATIVE is for profile specific native source files.
+#       CVM_SRCDIR is for VM specific and base configuration native source
+#       files.
+CVM_ALL_NATIVE_SRCDIRS = \
+    $(PROFILE_SRCDIRS_NATIVE) $(CVM_SRCDIRS)
+
+
 # This is for compatibility with the rmi makefiles,
 # which still use PROFILE_SRCDIR
+# NOTE: PROFILE_SRCDIR is for Java source files.
 PROFILE_SRCDIR = $(PROFILE_SRCDIRS)
 
 #
@@ -1943,18 +1956,14 @@ CVM_JAVA		?= $(CVM_JAVA_TOOLS_PREFIX)java
 CVM_JAVADOC		?= $(CVM_JAVA_TOOLS_PREFIX)javadoc
 CVM_JAR			?= $(CVM_JAVA_TOOLS_PREFIX)jar
 
-ifeq ($(HOST_DEVICE), win32)
-JDK_PATH_SEP ?= ;
-else
-JDK_PATH_SEP ?= :
-endif
-
 JAVAC_OPTIONS +=  -J-Xms32m -J-Xmx128m -encoding iso8859-1
 ifeq ($(CDC_10),true)
-JAVAC_OPTIONS += -target 1.3
+JAVAC_SOURCE_TARGET_OPTIONS ?= -target 1.3
 else
-JAVAC_OPTIONS += -source 1.4 -target 1.4
+JAVAC_SOURCE_TARGET_OPTIONS ?= -source 1.4 -target 1.4
 endif
+JAVAC_OPTIONS += $(JAVAC_SOURCE_TARGET_OPTIONS)
+
 #
 # Location of source for scripts and Java source files used during the build
 #
@@ -2034,9 +2043,15 @@ ifeq ($(CVM_GCOV), true)
 CCFLAGS   	+= -fprofile-arcs -ftest-coverage
 endif
 
-# CVM_INCLUDE_DIRS is a list of directories. This list needs to be
-# converted to a list of compiler parameters, with paths in host form:
+# PROFILE_INCLUDE_DIRS is a list of profiles specific directories that defines
+# the profile specific include path.  This path should be searched for include
+# files before searching the base configuration include path.
+# CVM_INCLUDE_DIRS is a list of directories that defines the base configuration
+# include path. 
+# This list needs to be converted to a list of compiler parameters, with paths
+# in host form:
 CVM_INCLUDES    += \
+	$(foreach dir,$(PROFILE_INCLUDE_DIRS),-I$(call POSIX2HOST,$(dir))) \
 	$(foreach dir,$(CVM_INCLUDE_DIRS),-I$(call POSIX2HOST,$(dir)))
 
 CPPFLAGS 	+= $(CVM_DEFINES) $(CVM_INCLUDES)
@@ -2069,20 +2084,14 @@ SO_ASM_CMD 	= $(ASM_CMD)
 SO_CC_CMD   	= $(AT)$(TARGET_CC) $(SO_CFLAGS) -o $@ $<
 SO_LINK_CMD 	= $(AT)$(TARGET_LD) $(SO_LINKFLAGS) -o $@ $^
 JAVAC_CMD	= $(CVM_JAVAC) $(JAVAC_OPTIONS)
+JAR_CMD		= $(CVM_JAR)
+JAVA_CMD	= $(CVM_JAVA)
 
 #
 # Standard classpath for libclasses compilation
 #
 JAVA_CLASSPATH += $(LIB_CLASSESDIR)
 
-#
-# Functions for converting between host paths and POSIX paths
-# For POSIX platforms, this is a no-op
-#
-HOST2POSIX = $(1)
-POSIX2HOST = $(1)
-
-MPOSIX2HOST = $(foreach element,$(1),$(call POSIX2HOST,$(element)))
 #
 # Include target makfiles last.
 #
