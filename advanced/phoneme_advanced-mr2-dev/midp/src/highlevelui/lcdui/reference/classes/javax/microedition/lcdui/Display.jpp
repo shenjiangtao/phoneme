@@ -60,6 +60,12 @@ import java.io.IOException;
 import com.sun.midp.util.LiveTracer;
 // #endif ENABLE_I3_TEST
 
+// #ifdef ENABLE_GCI
+import com.sun.me.gci.windowsystem.GCIGraphicsEnvironment;
+import com.sun.me.gci.windowsystem.GCIDisplay;
+import com.sun.me.gci.windowsystem.GCIScreenWidget;
+// #endif
+
 /**
  * <code>Display</code> represents the manager of the display and
  * input devices of the
@@ -563,6 +569,14 @@ public class Display {
     private static SecurityToken classSecurityToken =
         SecurityInitializer.requestToken(new SecurityTrusted());
 
+    // #ifdef ENABLE_GCI	
+    /** GCIDisplay that incapsulates information about the display device */
+    private GCIDisplay gciDisplay;
+  
+    /** GCIScreenWidget that represents a device screen */
+    private GCIScreenWidget gciScreenWidget; 
+
+    // #endif ENABLE_GCI
 /*
  * ************* Static initializer, constructor
  */
@@ -584,7 +598,7 @@ public class Display {
         } catch (IOException e) {
             if (Logging.REPORT_LEVEL <= Logging.CRITICAL) {
                 Logging.report(Logging.CRITICAL, LogChannels.LC_HIGHUI,
-                        "IOException while loading skin");
+                        "IOException while loading skin: " + e.getMessage());
             }
 
             throw new RuntimeException("IOException while loading skin");
@@ -649,9 +663,21 @@ public class Display {
             initialDisplayable = temp.displayableLF;
         }
 
+        // #ifdef ENABLE_GCI
+        GCIDisplay gciDisplay = 
+            GCIGraphicsEnvironment.getInstance().getDefaultDisplay();
+        GCIScreenWidget gciScreenWidget = 
+            gciDisplay.createScreenWidget(0, 0, WIDTH, HEIGHT, this);
+        screenGraphics = Graphics.getScreenGraphics(displayId,
+                                                    WIDTH,
+                                                    HEIGHT, 
+	               gciScreenWidget.getDrawingSurface());
+        // #else
+
         screenGraphics = Graphics.getScreenGraphics(displayId,
                                                     WIDTH,
                                                     HEIGHT);
+        // #endif ENABLE_GCI
 
         // #ifdef ENABLE_CHAMELEON
         graphicsQ = new CGraphicsQ();
@@ -720,7 +746,7 @@ public class Display {
         if (da != null) {
             return da.getDisplay();
         }
-       
+
         Display display = new Display(owner);
 
         return display;
@@ -3109,6 +3135,7 @@ public class Display {
                 // #endif ENABLE_CHAMELEON
                 currentCopy.uCallFreeze();
             }
+            displayEventHandlerImpl.onDisplayBackgroundProcessed(displayId);
         }
     } // END ForegroundEventConsumerImpl Class
 

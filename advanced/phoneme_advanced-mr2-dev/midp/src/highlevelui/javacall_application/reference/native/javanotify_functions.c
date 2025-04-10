@@ -39,9 +39,13 @@
 #include <javacall_keypress.h>
 #include <javacall_penevent.h>
 #include <javacall_lifecycle.h>
+#ifdef ENABLE_JSR_120
 #include <javacall_sms.h>
-#include <javacall_mms.h>
 #include <javacall_cbs.h>
+#endif
+#ifdef ENABLE_JSR_205
+#include <javacall_mms.h>
+#endif
 #include <javacall_events.h>
 #include <javacall_time.h>
 #include <javacall_socket.h>
@@ -486,7 +490,7 @@ void javanotify_network_event(javacall_network_event netEvent) {
     midp_jc_event_send(&e);
 }
 
-#if ENABLE_JSR_120 || ENABLE_JSR_205
+#if ENABLE_JSR_120
     #include <jsr120_sms_pool.h>
     #include <jsr120_cbs_pool.h>
 #endif
@@ -494,6 +498,7 @@ void javanotify_network_event(javacall_network_event netEvent) {
     #include <jsr205_mms_pool.h>
 #endif
 
+#ifdef ENABLE_JSR_120
 /**
  * callback that needs to be called by platform to handover an incoming SMS intended for Java 
  *
@@ -521,7 +526,6 @@ void javanotify_incoming_sms(javacall_sms_encoding msgType,
                         unsigned short sourcePortNum,
                         unsigned short destPortNum,
                         javacall_int64 timeStamp) {
-#if (ENABLE_JSR_120 || ENABLE_JSR_205)
     midp_jc_event_union e;
         SmsMessage* sms;
 
@@ -532,17 +536,17 @@ void javanotify_incoming_sms(javacall_sms_encoding msgType,
         e.data.smsIncomingEvent.stub = (int)sms;
 
     midp_jc_event_send(&e);
-#endif
     return;
 }
+#endif
 
+#ifdef ENABLE_JSR_205
 /*
  * See javacall_mms.h for description
  */
 void javanotify_incoming_mms_singlecall(
                 char* fromAddress, char* appID, char* replyToAppID,
         int bodyLen, unsigned char* body) {
-#if ENABLE_JSR_205
     midp_jc_event_union e;
         MmsMessage* mms;
 
@@ -553,10 +557,11 @@ void javanotify_incoming_mms_singlecall(
         e.data.mmsIncomingEvent.stub = (int)mms;
 
     midp_jc_event_send(&e);
-#endif
     return;
 }
+#endif
 
+#ifdef ENABLE_JSR_120
 /**
  * callback that needs to be called by platform to handover an incoming CBS intended for Java 
  *
@@ -578,7 +583,6 @@ void javanotify_incoming_cbs(
         unsigned short         msgID,
         unsigned char*         msgBuffer,
         int                    msgBufferLen) {
-#if (ENABLE_JSR_120 || ENABLE_JSR_205)
     midp_jc_event_union e;
         CbsMessage* cbs;
 
@@ -586,13 +590,14 @@ void javanotify_incoming_cbs(
 
     cbs = jsr120_cbs_new_msg(msgType, msgID, msgBufferLen, msgBuffer);
 
-        e.data.mmsIncomingEvent.stub = (int)cbs;
+    e.data.cbsIncomingEvent.stub = (int)cbs;
 
     midp_jc_event_send(&e);
-#endif
     return;    
 }
+#endif
 
+#ifdef ENABLE_JSR_120
 /**
  * A callback function to be called by platform to notify that an SMS 
  * has completed sending operation.
@@ -606,7 +611,6 @@ void javanotify_incoming_cbs(
  */
 void javanotify_sms_send_completed(javacall_sms_sending_result result,
                                    int handle) {
-#if (ENABLE_JSR_120 || ENABLE_JSR_205)
     midp_jc_event_union e;
 
     e.eventType = MIDP_JC_EVENT_SMS_SENDING_RESULT;
@@ -615,10 +619,11 @@ void javanotify_sms_send_completed(javacall_sms_sending_result result,
         = JAVACALL_SMS_SENDING_RESULT_SUCCESS == result ? 0 : -1;
 
     midp_jc_event_send(&e);
-#endif
     return;
 }
+#endif
 
+#ifdef ENABLE_JSR_205
 /**
  * A callback function to be called by platform to notify that an MMS 
  * has completed sending operation.
@@ -632,7 +637,6 @@ void javanotify_sms_send_completed(javacall_sms_sending_result result,
  */
 void javanotify_mms_send_completed(javacall_mms_sending_result result,
                                    javacall_handle handle) {
-#if ENABLE_JSR_205
     midp_jc_event_union e;
 
     e.eventType = MIDP_JC_EVENT_MMS_SENDING_RESULT;
@@ -641,9 +645,9 @@ void javanotify_mms_send_completed(javacall_mms_sending_result result,
         = JAVACALL_MMS_SENDING_RESULT_SUCCESS == result ? 0 : -1;
 
     midp_jc_event_send(&e);
-#endif
     return;
 }
+#endif
 
 #ifdef ENABLE_JSR_177
 /**
@@ -835,6 +839,7 @@ void javanotify_datagram_event(javacall_datagram_callback_type type,
     midp_jc_event_send(&e);
 }
 
+#ifdef ENABLE_JSR_135
 /**
  * Post native media event to Java event handler
  * 
@@ -845,7 +850,7 @@ void javanotify_datagram_event(javacall_datagram_callback_type type,
 void javanotify_on_media_notification(javacall_media_notification_type type,
                                       javacall_int64 playerId,
                                       void *data) {
-#if ENABLE_MMAPI
+#if ENABLE_JSR_135
     extern int g_currentPlayer;
 
     midp_jc_event_union e;
@@ -865,6 +870,33 @@ void javanotify_on_media_notification(javacall_media_notification_type type,
     midp_jc_event_send(&e);
 #endif
 }
+#endif
+
+#if ENABLE_JSR_234
+/**
+ * Post native advanced multimedia event to Java event handler
+ * 
+ * @param type          Event type
+ * @param processorId   Processor ID that came from javacall_media_processor_create 
+ * @param data          Data for this event type
+ */
+void javanotify_on_amms_notification(javacall_amms_notification_type type,
+                                     javacall_int64 processorId,
+                                     void *data) {
+    midp_jc_event_union e;
+
+    e.eventType = MIDP_JC_EVENT_ADVANCED_MULTIMEDIA;
+    e.data.multimediaEvent.mediaType = type;
+    e.data.multimediaEvent.isolateId = (int)((processorId >> 32) & 0xFFFF);
+    e.data.multimediaEvent.playerId = (int)(processorId & 0xFFFF);
+    e.data.multimediaEvent.data = (int) data;
+
+    REPORT_INFO1(LC_NONE, 
+            "[javanotify_on_amms_notification] type=%d\n", type);
+
+    midp_jc_event_send(&e);
+}
+#endif
 
 /**
  * The implementation call this callback notify function when image decode done

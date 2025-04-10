@@ -17,7 +17,7 @@
             Comment="If your platform supports pointer motion and you want MIDP implementation provides support for pointer motions, set it to true; otherwise, set it to false so that MIDP runtime can provide this information to MIDlet."/>
   <constant Type="boolean"
             Name="REPEAT_SUPPORTED"
-            Value="true" 
+            Value="false" 
             Comment="If your platform support key repeat and you want MIDP implementation provides support for key repeat, set this to true, otherwise set it to false."/>
   <constant Type="int"
              Name="REPEAT_TIMEOUT"
