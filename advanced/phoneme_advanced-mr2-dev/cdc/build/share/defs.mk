@@ -243,8 +243,17 @@ CVM_PRELOAD_TEST        ?= false
 CVM_PRELOAD_LIB         ?= $(CVM_PRELOAD_TEST)
 CVM_STATICLINK_LIBS	= $(CVM_PRELOAD_LIB)
 CVM_SYMBOLS             ?= $(CVM_DEBUG)
-CVM_TERSEOUTPUT         ?= true
 CVM_PRODUCT             ?= premium
+
+# CVM_TERSEOUTPUT is now deprecated in favor of USE_VERBOSE_MAKE.
+# They have opposite meanings. We look at CVM_TERSEOUTPUT here to set
+# USE_VERBOSE_MAKE properly for backwards compatibility. This is the
+# only place where CVM_TERSEOUTPUT can be checked
+ifeq ($(CVM_TERSEOUTPUT),false)
+USE_VERBOSE_MAKE	?= true
+else
+USE_VERBOSE_MAKE	?= false
+endif
 
 # %begin lvm
 CVM_LVM                 ?= false
@@ -559,8 +568,9 @@ endif
 ifeq ($(CVM_DYNAMIC_LINKING), true)
 	CVM_DEFINES      += -DCVM_DYNAMIC_LINKING
 endif
-ifeq ($(CVM_TERSEOUTPUT), true)
+ifeq ($(USE_VERBOSE_MAKE), false)
 	AT=@
+	MAKE_NO_PRINT_DIRECTORY=--no-print-directory
 else
 	AT=
 endif
@@ -1059,10 +1069,14 @@ CVM_TEST_CLASSESDIR      = $(CVM_BUILD_TOP)/testclasses
 CVM_DEMO_CLASSESDIR	 = $(CVM_BUILD_TOP)/democlasses
 CVM_SHAREROOT  		 = $(CVM_TOP)/src/share
 
-#
+# Full path for current build directory
+CDC_CUR_DIR	:= $(shell pwd)
+# Full path for the cdc component directory
+export CDC_DIR	:= $(shell cd $(CDC_CUR_DIR)/../../; echo `pwd`)
+# directory where cdc build is located.
+export CDC_DIST_DIR	= $(CDC_CUR_DIR)/$(CVM_BUILD_SUBDIR_NAME)
 # Directory where javadocs, source bundles, and binary bundle get installed.
-#
-INSTALLDIR	= $(CVM_TOP)/install
+INSTALLDIR	= $(CDC_DIR)/install
 
 #
 # Full path name for Binary Bundle
@@ -1877,8 +1891,8 @@ endif
 
 # Using TEMP variables above allows HOST_CC and HOST_CC to be set in the
 # GNUmakefile and not get overwritten by the above := assignments.
-HOST_CC 	?= $(TEMP_HOST_CC)
-HOST_CCC	?= $(TEMP_HOST_CCC)
+HOST_CC 	?= $(TEMP_HOST_CC)$(GCC_VERSION)
+HOST_CCC	?= $(TEMP_HOST_CCC)$(GCC_VERSION)
 
 #
 # Locate the JDK tools:
@@ -1956,6 +1970,7 @@ FLEX		?= $(CVM_HOST_TOOLS_PREFIX)flex
 endif
 BISON		?= $(CVM_HOST_TOOLS_PREFIX)bison
 ZIP             ?= zip
+UNZIP           ?= unzip
 
 #######################################################################
 # Build tool options:
@@ -2072,7 +2087,4 @@ endif
 
 # Include external shared tools
 include $(TOOLS_DIR)/tools.gmk
-
-# Include Optional packages defines
--include ../share/defs_op.mk
 

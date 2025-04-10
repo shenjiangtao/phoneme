@@ -24,8 +24,6 @@
 
 # Is there a better, centralized location to put the ant tool location?
 CVM_ANT 	        ?= ant
-CDC_CUR_DIR		= $(shell pwd)
-CDC_DIST_DIR     	= $(CDC_CUR_DIR)/$(CVM_BUILD_SUBDIR_NAME)
 CVM_JUMP_BUILDDIR	= $(CDC_DIST_DIR)/jump
 
 ifeq ($(CVM_INCLUDE_JUMP),true)
@@ -43,8 +41,10 @@ endif
 JUMP_OUTPUT_DIR         = $(CVM_JUMP_BUILDDIR)/lib
 JUMP_SRCDIR             = $(JUMP_DIR)/src
 
-ifeq ($(CVM_TERSEOUTPUT), false)
+ifeq ($(USE_VERBOSE_MAKE), true)
 CVM_ANT_OPTIONS         += -v
+else
+CVM_ANT_OPTIONS		+= -q
 endif
 ifneq ($(CVM_DEBUG), true)
 CVM_ANT_OPTIONS         += -Ddebug=false
