@@ -154,9 +154,13 @@ javacall_result javacall_lcd_finalize(void);
  * @param colorEncoding output paramenter to hold color encoding,
  *        which can take one of the following:
  *    - JAVACALL_LCD_COLOR_RGB565
- *    - JAVACALL_LCD_COLOR_ARGB
- *    - JAVACALL_LCD_COLOR_RGB888
- *    - JAVACALL_LCD_COLOR_OTHER
+ *    - JAVACALL_LCD_COLOR_ARGB (reserved)
+ *    - JAVACALL_LCD_COLOR_RGB888 (reserved)
+ *    - JAVACALL_LCD_COLOR_OTHER (reserved)
+ *   NOTE: As with phoneME Feature MR2 and earlier only JAVACALL_LCD_COLOR_RGB565
+ *     encoding is supported by the implementation. Other values are reserved for
+ *     future use. Returning the buffer in other encoding might result in erroneus
+ *     behaviour or termination of phoneME Feature software application.
  *
  * @return pointer to video ram mapped memory region of size
  *         ( screenWidth * screenHeight )
@@ -210,6 +214,25 @@ javacall_result javacall_lcd_flush(void);
  */
 javacall_result javacall_lcd_flush_partial(int ystart, int yend);
 
+/**
+  * Reverse flag of rotation
+  */
+javacall_bool javacall_lcd_reverse_orientation();
+ 
+/**
+  * Get flag of rotation
+  */
+javacall_bool javacall_lcd_get_reverse_orientation();
+  
+/**
+  * Return width of screen
+  */
+int javacall_lcd_get_screen_width();
+ 
+/**
+  * Return height of screen
+  */
+int javacall_lcd_get_screen_height();
 
 /** @} */
 
