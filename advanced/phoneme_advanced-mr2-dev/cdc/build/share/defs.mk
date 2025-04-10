@@ -265,11 +265,15 @@ CVM_INCLUDE_COMMCONNECTION ?= false
 CVM_INCLUDE_MIDP	?= false
 CVM_INCLUDE_JUMP	?= false
 ifeq ($(CVM_INCLUDE_MIDP), true)
-override CVM_KNI        = true
-override CVM_DUAL_STACK = true
+  override CVM_KNI        = true
+  override CVM_DUAL_STACK = true
 else
-CVM_KNI                 ?= false
-CVM_DUAL_STACK          ?= false
+  CVM_KNI                 ?= false
+  ifeq ($(CVM_INCLUDE_JUMP), true)
+    override CVM_DUAL_STACK = true
+  else
+    CVM_DUAL_STACK          ?= false
+  endif
 endif
 CVM_SPLIT_VERIFY	?= false
 
@@ -2101,3 +2105,5 @@ endif
 # Include external shared tools
 include $(TOOLS_DIR)/tools.gmk
 
+# Root directory for unittests reports
+REPORTS_DIR ?= $(call POSIX2HOST,$(CDC_DIST_DIR)/reports)

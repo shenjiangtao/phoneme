@@ -24,16 +24,22 @@
 
 .PHONY: javacall_lib
 
-# generatePropertyInitializer(xmlFiles,generatedDir,initializerPackage,outputFile)
-define generatePropertyInitializer
-	$(CVM_JAVA) -jar $(CONFIGURATOR_JAR_FILE)           \
-	-xml $(CVM_MISC_TOOLS_SRCDIR)/xml/empty.xml         \
-	-xsl $(CONFIGURATOR_DIR)/xsl/share/merge.xsl        \
-	-params filesList '$(1)'                            \
-	-out $(2)/properties_merged.xml                     \
-	-xml $(2)/properties_merged.xml                     \
-	-xsl $(CONFIGURATOR_DIR)/xsl/cdc/propertiesJava.xsl \
-	-params packageName $(3)                            \
+ifeq ($(CVM_PRELOAD_LIB), true)
+JSR_NATIVE_LIBS = "$(5)"
+else
+JSR_NATIVE_LIBS = ""
+endif
+
+# generateJSRInitializer(xmlFiles,generatedDir,initializerPackage,outputFile,nativeLibs)
+define generateJSRInitializer
+	$(CVM_JAVA) -jar $(CONFIGURATOR_JAR_FILE)              \
+	-xml $(CVM_MISC_TOOLS_SRCDIR)/xml/empty.xml            \
+	-xsl $(CONFIGURATOR_DIR)/xsl/share/merge.xsl           \
+	-params filesList '$(1)'                               \
+	-out $(2)/properties_merged.xml                        \
+	-xml $(2)/properties_merged.xml                        \
+	-xsl $(CONFIGURATOR_DIR)/xsl/cdc/propertiesJava.xsl    \
+	-params packageName $(3) nativeLibs $(JSR_NATIVE_LIBS) \
 	-out $(4)
 endef
 
@@ -44,14 +50,14 @@ define runjpp
     $(CVM_JAVA) -classpath $(TOOLS_OUTPUT_DIR) Jpp $(JPP_DEFS) -o $(2) $(1)
 endef
 
-# compileJSROP(dir,JSROPDIR,FILES,EXTRA_CLASSPATH)
+# compileJSROP(jsrXXX,distDir,FILES,EXTRA_CLASSPATH)
 define compileJSROP
 	@echo "Compiling "$(1)" classes...";			\
-	mkdir -p $(2)/classes;			\
+	mkdir -p $(2);			\
 	$(JAVAC_CMD)						\
-		-d $(2)/classes \
+		-d $(2) \
 		-bootclasspath $(CVM_BUILDTIME_CLASSESDIR) 	\
-		-classpath $(JAVACLASSES_CLASSPATH)$(PS)$(JSROP_JUMP_API)$(PS)$(ABSTRACTIONS_JAR)$(PS)$(MIDP_CLASSESZIP)$(4) \
+		-classpath $(JAVACLASSES_CLASSPATH)$(PS)$(JSROP_JUMP_API)$(PS)$(ABSTRACTIONS_JAR)$(4) \
 		$(3)
 endef
 
@@ -61,13 +67,13 @@ define makeJSROPJar
 	$(CVM_JAR) cf $(1) -C $(2) .;
 endef
 
-# compileJSRClasses(jsrNumber,additionalClasspath)
+# compileJSRClasses(jsrNumber)
 # The following variables MUST BE defined
 # JSR_#_BUILD_DIR            - path to JSR's build directory
 # SUBSYSTEM_JSR_#_JAVA_FILES - list of JSR's java sources paths
 # JSR_#_JAR                  - JSR's jar file path
 define compileJSRClasses
-	$(call compileJSROP,jsr$(1),$(JSR_$(1)_BUILD_DIR),$(SUBSYSTEM_JSR_$(1)_JAVA_FILES),$(2))
+	$(call compileJSROP,jsr$(1),$(JSR_$(1)_BUILD_DIR)/classes,$(SUBSYSTEM_JSR_$(1)_JAVA_FILES))
 	$(call makeJSROPJar,$(JSR_$(1)_JAR),$(JSR_$(1)_BUILD_DIR)/classes)
 endef
 

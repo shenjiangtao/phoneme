@@ -307,6 +307,18 @@ public class DirectPlayer extends BasicPlayer
     /**
      * Overrides from BasicPlayer
      */
+
+    // #ifdef RECORD [
+	protected void doReceiveRSL()
+	{
+		System.out.println( "[direct] received RSL" );
+		
+        if (recordControl != null) {
+            recordControl.recordSizeLimitReached();
+        }
+	}
+    // #endif ]
+	
     protected void doPostStart() {
         if (vc != null) {
             vc.setToThisPlayerLevel();     /* set to this player's volume level */
@@ -322,8 +334,9 @@ public class DirectPlayer extends BasicPlayer
             if (stopTimer != null) {
                 stopTimer.cancel();
             }
+            long currentTime = doGetMediaTime();
             stopTimer = new Timer();
-            stopTimer.schedule(new StopTimeController(), stopTime / 1000);
+            stopTimer.schedule(new StopTimeController(), stopTime / 1000 - currentTime / 1000 );
         }
         // #endif ]
 
@@ -503,12 +516,13 @@ public class DirectPlayer extends BasicPlayer
      * @exception MediaException Thrown if the media time cannot be set.
      */
     protected long doSetMediaTime(long now) throws MediaException {
-        if (now <= 0) {
-            now = 0;
-        } else {
-            now /= 1000;
-        }
-        int ret = nSetMediaTime(hNative, now);
+        if (now <= 0) now = 0;
+        
+        long dur = doGetDuration();
+
+		if (TIME_UNKNOWN != dur && now > dur) now = dur;
+        
+        int ret = nSetMediaTime(hNative, now/1000);
         if (ret == -1) {
             throw new MediaException("media time cannot be set");
         }                
@@ -691,6 +705,25 @@ public class DirectPlayer extends BasicPlayer
                         "Exception during set time by stop timer");
                 }
 */
+                /* IMPL_NOTE: Timer used to execute this code uses system time,
+                              which is not exactly in sync with media time, both
+                              may change in relatively large increments. That's 
+                              why we must wait here for media time to actually pass
+                              stop-time point.
+                */
+
+				long mt  = doGetMediaTime();
+				long dur = doGetDuration();
+	            
+	            while( mt < stopTime && mt < dur ) {
+					try	{
+						java.lang.Thread.sleep( 10 );
+					} catch( InterruptedException e ) {
+						// just skip it
+					}
+					
+					mt = doGetMediaTime();
+				}
 
                 try {
                     doPreStop();
