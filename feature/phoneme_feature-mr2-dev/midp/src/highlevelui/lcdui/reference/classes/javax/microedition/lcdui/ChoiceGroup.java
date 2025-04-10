@@ -875,7 +875,7 @@ public class ChoiceGroup extends Item implements Choice {
               imageDataEl = imageEl.getImageData();
             }
         }
-        
+
         /**
          * Set the selection.
          * @param sel the selection

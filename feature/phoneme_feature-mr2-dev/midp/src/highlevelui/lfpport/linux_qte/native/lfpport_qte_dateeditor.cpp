@@ -915,6 +915,7 @@ static QDate addYears(const QDate &date, int nyears) {
 void DatePicker::acceptDay() {
     if (de != NULL) {
       de->setDate(currentDay);
+      de->setFocus();
     }
     accept();
   }
@@ -971,6 +972,9 @@ void DatePicker::keyPressEvent(QKeyEvent *event) {
         case Qt::Key_Home:      day = addYears(currentDay, -1); break;
         case Qt::Key_End:       day = addYears(currentDay, 1); break;
         case Qt::Key_Escape:    currentDay = startDay; accept(); break;
+#ifdef QT_KEYPAD_MODE
+        case Qt::Key_Select:
+#endif
         case Qt::Key_Space:
         case Qt::Key_Enter:
         case Qt::Key_Return:    acceptDay(); return;

@@ -296,6 +296,30 @@ static void checkScreenBufferSize(int width, int height) {
     }
 }
 
+
+/** Get x-coordinate of screen origin */
+int getScreenX(int screenRotated) {
+    // System screen buffer geometry
+    int bufWidth = gxj_system_screen_buffer.width;
+    int x = 0;
+    int LCDwidth = screenRotated ? fb.height : fb.width;
+    if (LCDwidth > bufWidth) {
+        x = (LCDwidth - bufWidth) / 2;
+    }
+    return x;
+}
+
+/** Get y-coordinate of screen origin */
+int getScreenY(int screenRotated) {
+    int bufHeight = gxj_system_screen_buffer.height;
+    int y = 0;
+    int LCDheight = screenRotated ? fb.width : fb.height;
+    if (LCDheight > bufHeight) {
+        y = (LCDheight - bufHeight) / 2;
+    }
+    return y;
+}
+
 /** Refresh screen from offscreen buffer */
 void refreshScreenNormal(int x1, int y1, int x2, int y2) {
     gxj_pixel_type *src = gxj_system_screen_buffer.pixelData;
@@ -453,10 +477,7 @@ void refreshScreenRotated(int x1, int y1, int x2, int y2) {
     if (linuxFbDeviceType == LINUX_FB_OMAP730) {
         // Needed by the P2 board
         // Max screen size is 176x220 but can only display 176x208
-        // Since the rotated refresh is started from the left lower
-        // corner of the screen, we need to skip two bottom lines
         dstHeight = bufWidth;
-        dst -= dstWidth * 2;
     }
 
     // Make sure the copied lines are 4-byte aligned for faster memcpy
@@ -476,7 +497,7 @@ void refreshScreenRotated(int x1, int y1, int x2, int y2) {
         }
 
     src += x1 + y1 * bufWidth;
-    dst += y1 + (bufWidth - x1) * dstWidth;
+    dst += y1 + (bufWidth - x1 - 1) * dstWidth;
 
     srcInc = bufWidth - srcWidth;      // increment for src pointer at the end of row
     dstInc = srcWidth * dstWidth + 1;  // increment for dst pointer at the end of column
